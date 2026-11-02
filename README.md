@@ -120,3 +120,6 @@ docs/                     架构、协议、安全与后续路线
 ## 下一批建议
 
 优先补**设备身份 / 配对 / 家庭资料删除与加密保护**，之后再扩展真实 Skill 和家庭设备适配；完整计划见 `docs/ROADMAP.md`。
+
+## v0.4 local household features
+See [`docs/V0.4.md`](docs/V0.4.md) for device pairing, minimal learner profiles, parent privacy export/erase and optional role-filtered Agent memory hints. Device pairing requires `AUTH_MODE=local`; **do not expose the HTTP server to your LAN**. These features are APIs for the first developer prototype, not a production secure cloud platform.

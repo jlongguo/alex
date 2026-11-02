@@ -6,6 +6,8 @@ import { HomeCore,CompatibleAgentProvider,RuleAgentProvider } from '../dist/inde
 import {JsonStateStore} from './state-store.mjs';
 import {FamilyAuth,AuditLog} from './family-security.mjs';
 import {FamilyMemory} from './family-memory.mjs';
+import {DeviceRegistry} from './device-registry.mjs';
+import {FamilyProfiles} from './family-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -16,6 +18,9 @@ const auth=new FamilyAuth({mode:process.env.AUTH_MODE??'demo',parentPassword:pro
 if(auth.mode==='demo')console.warn('INSECURE DEMO MODE: no authentication; loopback access only. Set AUTH_MODE=local for family use.');
 const audit=new AuditLog(process.env.AUDIT_FILE??resolve(appDir,'.local','audit.jsonl'));
 const memory=new FamilyMemory(process.env.MEMORY_FILE??resolve(appDir,'.local','memory.json'));
+const devices=new DeviceRegistry(process.env.DEVICES_FILE??resolve(appDir,'.local','devices.json'));
+const profiles=new FamilyProfiles(process.env.PROFILES_FILE??resolve(appDir,'.local','profiles.json'));
+const agentMemoryEnabled=process.env.AGENT_MEMORY_CONTEXT==='1';
 // Real AI requires explicit model, endpoint, key; default remains offline deterministic rules.
 const useAgent=process.env.AGENT_PROVIDER==='compatible';
 if(useAgent && (!process.env.AGENT_BASE_URL||!process.env.AGENT_API_KEY||!process.env.AGENT_MODEL))throw new Error('INVALID_AGENT_CONFIG');
@@ -25,6 +30,8 @@ const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','
 const saved=await store.load();
 if(saved)core.restore(saved);
 await memory.load();
+await devices.load();
+await profiles.load();
 await store.save(core.snapshot());
 let persistTimer=null;
 const schedulePersist=()=>{
@@ -40,7 +47,7 @@ const send = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-const errorStatus = (message) => message==='UNAUTHENTICATED'?401:message==='PARENT_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:message==='INVALID_CREDENTIALS'?401:/^INVALID_|^UNKNOWN_|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_/.test(message)?400:500;
+const errorStatus = (message) => message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -94,14 +101,34 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     await audit.record({actor:session.actor,action:'auth.logout',outcome:'allowed'});
     send(res,200,{ok:true});return;
   }
+  // Device pairing completion and heartbeat have separate narrow credentials.
+  // Neither endpoint can read family memory or submit motion commands.
+  if(req.method==='POST' && pathname==='/api/devices/pair/complete'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const data=await body(req);
+    try{
+      const result=await devices.complete(data.code,data.name);
+      await audit.record({action:'device.paired',outcome:'allowed'});
+      send(res,200,{ok:true,...result});
+    }catch(e){await audit.record({action:'device.paired',outcome:'denied'});throw e;}
+    return;
+  }
+  if(req.method==='POST' && pathname==='/api/devices/heartbeat'){
+    const data=await body(req);
+    const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+    const result=await devices.heartbeat(data.deviceId,token);
+    send(res,200,result);return;
+  }
   // Authentication and actor binding are enforced before any private API.
   const isPrivate=pathname.startsWith('/api/') && pathname!=='/api/health';
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,physicalSafety:false,persistentTasks:true});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true});return;}
   if(req.method==='GET' && pathname==='/api/state'){send(res,200,core.state());return;}
-  if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:core.listDevices()});return;}
+  if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:[...core.listDevices(),...devices.list()]});return;}
+  if(req.method==='GET' && pathname==='/api/profiles'){send(res,200,{profiles:profiles.list()});return;}
+  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),memory:memory.exportForParent(actor),devices:devices.list()});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
@@ -122,7 +149,19 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const actor=auth.actor(req,data.actor);
     let result;
     try {
-      if(pathname==='/api/memory'){
+      if(pathname==='/api/devices/pair/start'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,...devices.start(actor)};
+      }else if(pathname==='/api/devices/revoke'){
+        result={ok:await devices.revoke(actor,data.deviceId),message:'Device revoke processed'};
+      }else if(pathname==='/api/profiles'){
+        result={ok:true,profile:await profiles.add(actor,data)};
+      }else if(pathname==='/api/profiles/delete'){
+        result={ok:await profiles.remove(actor,data.id),message:'Profile deletion processed'};
+      }else if(pathname==='/api/privacy/erase'){
+        const removed=await memory.erase(actor,data.scope);
+        result={ok:true,deletedMemoryEntries:removed,note:'Audit metadata and learner profiles are not erased by this operation.'};
+      }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
         result={ok:true,message:'Memory saved',entry};
       }else if(pathname==='/api/memory/delete'){
@@ -131,7 +170,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       }else {
         const trusted={...data,actor};
         switch(pathname){
-          case '/api/command': result=await core.commandAsync(data.text,actor,data.requestId);break;
+          case '/api/command': result=await core.commandAsync(data.text,actor,data.requestId,agentMemoryEnabled?memory.forAgent(actor):[]);break;
           case '/api/tasks': result=core.navigate(trusted);break;
           case '/api/tasks/cancel': result=core.cancel(data.taskId,actor);break;
           case '/api/safety/stop': result=core.emergencyStop(actor);break;

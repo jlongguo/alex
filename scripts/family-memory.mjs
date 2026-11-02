@@ -32,6 +32,19 @@ export class FamilyMemory {
     try{await this.save();}catch(err){this.entries.splice(i,0,deleted);throw err;}
     return true;
   }
+  /** Minimal export without raw conversation/voice recordings. */
+  exportForParent(actor){if(actor!=='parent')throw new Error('PARENT_REQUIRED');return this.entries.map(x=>({...x}));}
+  async erase(actor,scope){
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    if(!['child','family','parent','all'].includes(scope))throw new Error('INVALID_ERASURE_SCOPE');
+    const before=this.entries;
+    this.entries=scope==='all'?[]:this.entries.filter(x=>x.scope!==scope);
+    try{await this.save();}catch(e){this.entries=before;throw e;}
+    return before.length-this.entries.length;
+  }
+  forAgent(actor){
+    return this.list(actor).slice(-8).map(x=>({scope:x.scope,text:x.text.slice(0,200)}));
+  }
   async save(){
     const data=JSON.stringify(this.entries);
     this.queue=this.queue.catch(()=>{}).then(async()=>{
