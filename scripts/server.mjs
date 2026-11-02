@@ -2,13 +2,27 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HomeCore } from '../dist/index.js';
+import { HomeCore,CompatibleAgentProvider,RuleAgentProvider } from '../dist/index.js';
+import {JsonStateStore} from './state-store.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? '4317');
-const core = new HomeCore();
+// Real AI requires explicit model, endpoint, key; default remains offline deterministic rules.
+const useAgent=process.env.AGENT_PROVIDER==='compatible';
+if(useAgent && (!process.env.AGENT_BASE_URL||!process.env.AGENT_API_KEY||!process.env.AGENT_MODEL))throw new Error('INVALID_AGENT_CONFIG');
+const provider=useAgent?new CompatibleAgentProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL}):new RuleAgentProvider();
+const core = new HomeCore(provider);
+const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
+const saved=await store.load();
+if(saved)core.restore(saved);
+await store.save(core.snapshot());
+let persistTimer=null;
+const schedulePersist=()=>{
+  clearTimeout(persistTimer);
+  persistTimer=setTimeout(()=>store.save(core.snapshot()).catch(err=>{console.error('Persistence failure:',err.message);process.exitCode=1;}),200);
+};
 const clients = new Set();
 const send = (res, status, data) => {
   res.writeHead(status, {
@@ -36,6 +50,7 @@ async function body(req) {
 }
 
 core.subscribe(e => {
+  schedulePersist();
   const line=`id: ${e.seq}\nevent: home-event\ndata: ${JSON.stringify(e)}\n\n`;
   for(const res of clients)try{res.write(line);}catch{clients.delete(res);}
 });
@@ -48,7 +63,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const allowedOrigin=`http://${req.headers.host}`;
   if(origin && origin!==allowedOrigin){send(res,403,{ok:false,error:'CROSS_ORIGIN_FORBIDDEN'});return;}
   // Local development only. No authentication: must not be Internet-exposed.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',realAI:false,physicalSafety:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',agentProvider:provider.kind,realAI:useAgent,physicalSafety:false,persistentTasks:true});return;}
   if(req.method==='GET' && pathname==='/api/state'){send(res,200,core.state());return;}
   if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:core.listDevices()});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
@@ -61,7 +76,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const data=await body(req);
     let result;
     switch(pathname){
-      case '/api/command': result=core.command(data.text,data.actor);break;
+      case '/api/command': result=await core.commandAsync(data.text,data.actor,data.requestId);break;
       case '/api/tasks': result=core.navigate(data);break;
       case '/api/tasks/cancel': result=core.cancel(data.taskId,data.actor);break;
       case '/api/safety/stop': result=core.emergencyStop(data.actor);break;
@@ -70,6 +85,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       case '/api/skills/invoke': result=core.invokeSkill(data.id,data.actor);break;
       default:send(res,404,{ok:false,error:'NOT_FOUND'});return;
     }
+    // Persist all mutations before acknowledging a successful command.
+    await store.save(core.snapshot());
     send(res,result.ok?200:409,result);return;
   }
   const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js'};
@@ -88,5 +105,5 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   res.end(bytes);
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
-function shutdown(){clearInterval(tickTimer);clearInterval(keepAliveTimer);for(const res of clients)res.end();server.close(()=>process.exit(0));}
+function shutdown(){clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

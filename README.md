@@ -1,8 +1,16 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.1.0 · P0–P3 vertical slice**
+> **v0.2.0 · Home Agent OS simulation with opt-in model adapter and persistent task history**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.2 新增
+
+- `AgentProvider` 可替换：默认离线规则解析，显式配置时启用 HTTPS OpenAI-compatible 模型建议；模型只能提出受控意图，实际执行必须通过 PolicyEngine。
+- `SkillRegistry` 支持受信任插件的版本、开关、角色权限、能力要求和注销；当前教学及故事仍为演示实现。
+- 导航任务支持 `requestId` 幂等重试、超时、冲突检测；任务和事件采用原子 JSON 快照保存。
+- 重启后保留任务历史，但所有中断的移动任务会被标记停止，模拟机器人位置重新回到充电点（不会自动续跑）。
+- 22 项本地测试（包括真实 HTTP 进程重启测试和模拟 LLM 安全路由测试），详见 `docs/V0.2.md`。
 
 ## 本批已实现
 
@@ -52,11 +60,18 @@ curl -N http://127.0.0.1:4317/api/events
 
 接口完整说明见 `docs/API.md`。
 
+## 可选连接模型
+
+默认无需 API Key：`AGENT_PROVIDER=rules npm start`。
+真实模型需要在私有环境配置 `AGENT_PROVIDER=compatible`、`AGENT_BASE_URL`、`AGENT_MODEL`、`AGENT_API_KEY`。服务端调用 OpenAI-compatible chat-completions JSON 接口。请先运行模拟命令；适配器目前仅通过 mock 测试，未验证特定真实服务商。
+
+`STATE_FILE` 默认 `.local/state.json`，` .local/` 已忽略，不要上传真实家庭数据。所有 HTTP 身份仍为模拟角色；不得对公网或实体电机开放。
+
 ## 本批不包含
 
 - 真实 LLM/Agent、ASR、TTS、相机、麦克风、机器人实体固件
 - ROS 2 / Nav2 / SLAM / Gazebo 的真实导航集成
-- 持久化家庭记忆、用户账户及身份验证
+- 完整家庭记忆、用户账户与身份验证（仅持久化模拟任务/事件）
 - 第三方 Skill 沙箱、真实设备配对/远程固件升级
 - 经认证的功能安全及防撞控制
 
@@ -80,4 +95,4 @@ docs/                     架构、协议、安全与后续路线
 
 ## 下一批建议
 
-先补设备身份与受控本地账户，再实现可插拔 `AgentProvider`（Mock 和真实 LLM）及带审批的工具调用；后续接家庭设备适配器和 3D/ROS 2 桥接。具体见 `docs/ROADMAP.md`。
+优先补**家长认证 / 设备身份 / 操作审计**，之后再扩展真实 Skill 和家庭设备适配；完整计划见 `docs/ROADMAP.md`。

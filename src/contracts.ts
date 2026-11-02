@@ -30,6 +30,8 @@ export interface NavigationCommand {
   capability: 'navigation.goto' | 'navigation.dock';
   params: { destination: Destination };
   actor: Actor;
+  requestId?: string;
+  timeoutSeconds?: number;
 }
 export interface RobotTask {
   id: string;
@@ -41,6 +43,9 @@ export interface RobotTask {
   createdAt: string;
   updatedAt: string;
   reason?: string;
+  requestId?: string;
+  elapsedSeconds?: number;
+  timeoutSeconds?: number;
 }
 export interface DeviceDescriptor {
   id: string;
