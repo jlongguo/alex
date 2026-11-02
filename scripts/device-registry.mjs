@@ -4,6 +4,8 @@ import {JsonStateStore} from './state-store.mjs';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const same = (a,b) => typeof a==='string' && typeof b==='string' && a.length===b.length && timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const NAME_LIMIT=60, MAX_DEVICES=32;
+const VIRTUAL_CAPS=['sim.navigation.goto','display.face','audio.output'];
+const validCaps=c=>Array.isArray(c)&&c.length<=VIRTUAL_CAPS.length&&new Set(c).size===c.length&&c.every(x=>VIRTUAL_CAPS.includes(x));
 
 /** Local-only explicit pairing. Pairing code is one-time and never saved to disk. */
 export class DeviceRegistry {
@@ -17,9 +19,10 @@ export class DeviceRegistry {
     for(const d of snapshot.devices){
       if(!d||typeof d.id!=='string'||typeof d.name!=='string'||typeof d.tokenHash!=='string'||!(/^[a-f0-9]{64}$/.test(d.tokenHash))||typeof d.createdAt!=='string'||typeof d.revoked!=='boolean')throw new Error('INVALID_DEVICE_FILE');
     }
-    this.devices=snapshot.devices;
+    this.devices=snapshot.devices.map(d=>({...d,capabilities:Array.isArray(d.capabilities)?d.capabilities:[],declaredCapabilities:Array.isArray(d.declaredCapabilities)?d.declaredCapabilities:[]}));
   }
   persist(){return this.store.save({version:1,devices:this.devices});}
+  get(id){const row=this.devices.find(d=>d.id===id);return row?{...row,tokenHash:undefined,capabilities:[...row.capabilities],declaredCapabilities:[...row.declaredCapabilities]}:null;}
   list(){return this.devices.map(({tokenHash,...publicFields})=>({...publicFields}));}
   start(actor){
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
@@ -38,7 +41,7 @@ export class DeviceRegistry {
     this.pairings.delete(key); // consumed even if persistence fails; never replay
     if(this.devices.filter(x=>!x.revoked).length>=MAX_DEVICES)throw new Error('DEVICE_LIMIT_REACHED');
     const token=randomBytes(32).toString('hex');
-    const device={id:`dev-${randomUUID()}`,name:name.trim(),tokenHash:digest(token),createdAt:new Date(this.clock()).toISOString(),lastSeenAt:null,revoked:false,capabilities:[]};
+    const device={id:`dev-${randomUUID()}`,name:name.trim(),tokenHash:digest(token),createdAt:new Date(this.clock()).toISOString(),lastSeenAt:null,revoked:false,capabilities:[],declaredCapabilities:[]};
     this.devices.push(device);
     try{await this.persist();}catch(e){this.devices=this.devices.filter(x=>x.id!==device.id);throw e;}
     return {deviceId:device.id,token}; // display once; only hash is persisted
@@ -55,6 +58,23 @@ export class DeviceRegistry {
     row.lastSeenAt=new Date(this.clock()).toISOString();
     try{await this.persist();}catch(e){row.lastSeenAt=old;throw e;}
     return {ok:true,deviceId:id,serverTime:new Date(this.clock()).toISOString()};
+  }
+  async announce(id,token,capabilities){
+    if(!this.authenticate(id,token))throw new Error('DEVICE_UNAUTHORIZED');
+    if(!validCaps(capabilities))throw new Error('INVALID_DEVICE_CAPABILITIES');
+    const row=this.devices.find(d=>d.id===id);const previous=row.declaredCapabilities;
+    row.declaredCapabilities=[...capabilities].sort();
+    // Never auto-approve new capabilities; stale grants are removed if a device withdraws them.
+    const oldApproved=row.capabilities;row.capabilities=row.capabilities.filter(c=>row.declaredCapabilities.includes(c));
+    try{await this.persist();}catch(e){row.declaredCapabilities=previous;row.capabilities=oldApproved;throw e;}
+  }
+  async approve(actor,id,capabilities){
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    const row=this.devices.find(d=>d.id===id&&!d.revoked);
+    if(!row)throw new Error('UNKNOWN_DEVICE');
+    if(!validCaps(capabilities)||capabilities.some(c=>!row.declaredCapabilities.includes(c)))throw new Error('INVALID_DEVICE_CAPABILITIES');
+    const old=row.capabilities;row.capabilities=[...capabilities].sort();
+    try{await this.persist();}catch(e){row.capabilities=old;throw e;}
   }
   async revoke(actor,id){
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');

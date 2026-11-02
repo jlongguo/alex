@@ -2,12 +2,13 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HomeCore,CompatibleAgentProvider,RuleAgentProvider } from '../dist/index.js';
+import { HomeCore,CompatibleAgentProvider,RuleAgentProvider,validateProposal } from '../dist/index.js';
 import {JsonStateStore} from './state-store.mjs';
 import {FamilyAuth,AuditLog} from './family-security.mjs';
 import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
+import {DeviceGateway} from './device-gateway.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -20,6 +21,8 @@ const audit=new AuditLog(process.env.AUDIT_FILE??resolve(appDir,'.local','audit.
 const memory=new FamilyMemory(process.env.MEMORY_FILE??resolve(appDir,'.local','memory.json'));
 const devices=new DeviceRegistry(process.env.DEVICES_FILE??resolve(appDir,'.local','devices.json'));
 const profiles=new FamilyProfiles(process.env.PROFILES_FILE??resolve(appDir,'.local','profiles.json'));
+const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
+const deviceStreamClients=new Set();
 const agentMemoryEnabled=process.env.AGENT_MEMORY_CONTEXT==='1';
 // Real AI requires explicit model, endpoint, key; default remains offline deterministic rules.
 const useAgent=process.env.AGENT_PROVIDER==='compatible';
@@ -32,6 +35,7 @@ if(saved)core.restore(saved);
 await memory.load();
 await devices.load();
 await profiles.load();
+await gateway.load();
 await store.save(core.snapshot());
 let persistTimer=null;
 const schedulePersist=()=>{
@@ -70,6 +74,7 @@ core.subscribe(e => {
   for(const res of clients)try{res.write(line);}catch{clients.delete(res);}
 });
 const tickTimer=setInterval(()=>core.tick(.1),100);
+const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Gateway expiry:',err.message)),1000);
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
 
 const server=http.createServer(asyncWrap(async(req,res)=>{
@@ -113,6 +118,31 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }catch(e){await audit.record({action:'device.paired',outcome:'denied'});throw e;}
     return;
   }
+  if(req.method==='POST' && pathname==='/api/devices/capabilities'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const data=await body(req);
+    const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+    send(res,200,await gateway.announce(data.deviceId,token,data.capabilities,data.protocolVersion));return;
+  }
+  if(req.method==='POST' && pathname==='/api/gateway/result'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const data=await body(req);
+    const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+    const outcome=await gateway.result(data.deviceId,token,data);
+    await audit.record({actor:'device',action:'gateway.result',outcome:outcome.ok?'allowed':'denied'});
+    send(res,outcome.ok?200:409,outcome);return;
+  }
+  if(req.method==='GET' && (pathname==='/api/gateway/stream'||pathname==='/api/gateway/poll')){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const deviceId=new URL(req.url,`http://${incomingHost}`).searchParams.get('deviceId');
+    const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+    if(!devices.authenticate(deviceId,token)){send(res,401,{ok:false,error:'DEVICE_UNAUTHORIZED'});return;}
+    if(pathname==='/api/gateway/poll'){send(res,200,{ok:true,jobs:gateway.pending(deviceId)});return;}
+    res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});
+    const detach=gateway.attach(deviceId,token,res);deviceStreamClients.add(res);
+    const keepAlive=setInterval(()=>{if(!devices.authenticate(deviceId,token)){res.end();return;}try{res.write(': heartbeat\n\n');}catch{res.end();}},10000);
+    req.on('close',()=>{clearInterval(keepAlive);detach();deviceStreamClients.delete(res);});return;
+  }
   if(req.method==='POST' && pathname==='/api/devices/heartbeat'){
     const data=await body(req);
     const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
@@ -124,7 +154,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/gateway/jobs'){
+    const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
+    if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    send(res,200,{jobs:gateway.list()});return;
+  }
   if(req.method==='GET' && pathname==='/api/state'){send(res,200,core.state());return;}
   if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:[...core.listDevices(),...devices.list()]});return;}
   if(req.method==='GET' && pathname==='/api/profiles'){send(res,200,{profiles:profiles.list()});return;}
@@ -154,6 +190,16 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:true,...devices.start(actor)};
       }else if(pathname==='/api/devices/revoke'){
         result={ok:await devices.revoke(actor,data.deviceId),message:'Device revoke processed'};
+        if(result.ok)await gateway.disconnect(data.deviceId);
+      }else if(pathname==='/api/devices/capabilities/approve'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await gateway.approve(actor,data.deviceId,data.capabilities);
+      }else if(pathname==='/api/gateway/dispatch'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await gateway.dispatch(actor,data);
+      }else if(pathname==='/api/gateway/cancel'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await gateway.cancel(actor,data.jobId);
       }else if(pathname==='/api/profiles'){
         result={ok:true,profile:await profiles.add(actor,data)};
       }else if(pathname==='/api/profiles/delete'){
@@ -170,7 +216,22 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       }else {
         const trusted={...data,actor};
         switch(pathname){
-          case '/api/command': result=await core.commandAsync(data.text,actor,data.requestId,agentMemoryEnabled?memory.forAgent(actor):[]);break;
+          case '/api/command': {
+            if(data.deviceId!==undefined){
+              if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+              // Routing external virtual devices is a separate, parent-authorized action.
+              // The model only proposes an intent; it never controls arbitrary hardware.
+              if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+              if(typeof data.text!=='string'||!data.text.trim()||data.text.length>500)throw new Error('INVALID_COMMAND');
+              let proposal;
+              try{proposal=validateProposal(await provider.propose(data.text,agentMemoryEnabled?memory.forAgent(actor):[]));}
+              catch{result={ok:false,message:'Agent proposal invalid; no device action issued'};break;}
+              if(proposal.type!=='navigate'){result={ok:false,message:'Only virtual navigation is supported for remote simulated devices'};break;}
+              result=await gateway.dispatch(actor,{deviceId:data.deviceId,capability:'sim.navigation.goto',params:{destination:proposal.destination},requestId:data.requestId});
+              break;
+            }
+            result=await core.commandAsync(data.text,actor,data.requestId,agentMemoryEnabled?memory.forAgent(actor):[]);break;
+          }
           case '/api/tasks': result=core.navigate(trusted);break;
           case '/api/tasks/cancel': result=core.cancel(data.taskId,actor);break;
           case '/api/safety/stop': result=core.emergencyStop(actor);break;
@@ -206,5 +267,5 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   res.end(bytes);
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
-function shutdown(){clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
+function shutdown(){clearInterval(gatewayTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

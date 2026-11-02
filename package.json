@@ -1,16 +1,21 @@
 {
   "name": "home-agent-os",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "Local-first simulated home hub with pluggable agent, skills and durable task history",
+  "description": "Local-first home hub with family auth, opt-in agent, virtual device gateway and simulation",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/server.mjs",
     "dev": "npm run build && npm run start",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "check": "npm run build && node --test tests/*.test.mjs"
+    "check": "npm run build && node --test tests/*.test.mjs",
+    "virtual-device": "node scripts/virtual-device.mjs"
   },
-  "devDependencies": {"typescript": "5.8.3"},
-  "engines": {"node": ">=20"}
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

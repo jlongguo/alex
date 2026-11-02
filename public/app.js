@@ -73,3 +73,59 @@ $('logout').addEventListener('click',async()=>{
   location.reload();
 });
 initAuth();
+
+// v0.5 local-only virtual device dispatch. Device tokens are NEVER exposed to this console.
+let lastGatewayPoll=0,gatewayBusy=false,authorizedActor=null;
+async function refreshGateway(){
+  if(!authorizedActor||authorizedActor!=='parent')return;
+  const now=Date.now();if(now-lastGatewayPoll<1400)return;lastGatewayPoll=now;
+  try{
+    const [devicesResponse,jobsResponse]=await Promise.all([fetch('/api/devices'),fetch('/api/gateway/jobs')]);
+    if(!devicesResponse.ok||!jobsResponse.ok)throw new Error('需要本地家长认证');
+    const allDevices=(await devicesResponse.json()).devices.filter(d=>d.id?.startsWith('dev-'));
+    const jobs=(await jobsResponse.json()).jobs;
+    $('device-count').innerHTML=`${1+allDevices.length} <sub>台</sub>`;
+    const select=$('gateway-device'),current=select.value;
+    select.innerHTML=allDevices.filter(d=>!d.revoked).map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+    if(allDevices.some(d=>d.id===current&&!d.revoked))select.value=current;
+    $('gateway-device-list').innerHTML=allDevices.length?allDevices.map(d=>{
+      const needs=(d.declaredCapabilities||[]).filter(c=>!d.capabilities.includes(c));
+      return `<div class="skill-item"><div class="skill-icon">🤖</div><div class="skill-info"><strong>${esc(d.name)}</strong><small>${d.revoked?'已撤销':`已授权：${esc((d.capabilities||[]).join(', ')||'暂无')} · 待批准：${esc(needs.join(', ')||'无')}`}</small></div>${needs.length&&!d.revoked?`<button type="button" data-approve="${esc(d.id)}">批准虚拟能力</button>`:''}</div>`;
+    }).join(''):'<p class="helper">尚未配对设备。请在家长账户中生成配对码并运行 scripts/virtual-device.mjs。</p>';
+    $('gateway-tasks').innerHTML=jobs.slice(0,8).map(j=>`<div class="event-row"><span class="event-time">${esc(j.status)}</span><span class="event-kind">${esc(j.capability)}</span><span class="event-message">${esc(j.deviceId)} · ${esc(JSON.stringify(j.params))}</span>${['queued','running'].includes(j.status)?`<button type="button" data-cancel-job="${esc(j.id)}">取消</button>`:''}</div>`).join('')||'<p class="helper">暂无网关任务。</p>';
+    $('gateway-notice').textContent=`已绑定 ${allDevices.length} 个设备；最近 ${jobs.length} 项任务。只有显式批准的虚拟能力才能执行。`;
+  }catch(e){$('gateway-notice').textContent=e.message;}
+}
+$('gateway-command-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(gatewayBusy)return;gatewayBusy=true;
+  try{
+    const deviceId=$('gateway-device').value,destination=$('gateway-action').value;
+    if(!deviceId)throw new Error('请先配对一个虚拟设备');
+    const requestId='ui_'+crypto.randomUUID().replaceAll('-','');
+    const result=await api('/api/gateway/dispatch',{deviceId,capability:'sim.navigation.goto',params:{destination},requestId});
+    $('gateway-notice').textContent=`已下发任务 ${result.job.id}`;lastGatewayPoll=0;await refreshGateway();
+  }catch(err){$('gateway-notice').textContent=err.message;}
+  finally{gatewayBusy=false;}
+});
+$('gateway-device-list').addEventListener('click',async e=>{
+  const button=e.target.closest('[data-approve]');if(!button)return;
+  try{
+    const deviceId=button.dataset.approve;
+    const response=await fetch('/api/devices');const devices=(await response.json()).devices;
+    const device=devices.find(d=>d.id===deviceId);
+    if(!device)throw new Error('设备不存在');
+    await api('/api/devices/capabilities/approve',{deviceId,capabilities:device.declaredCapabilities||[]});
+    $('gateway-notice').textContent='虚拟能力已获得家长授权';lastGatewayPoll=0;await refreshGateway();
+  }catch(err){$('gateway-notice').textContent=err.message;}
+});
+$('gateway-tasks').addEventListener('click',async e=>{
+  const button=e.target.closest('[data-cancel-job]');if(!button)return;
+  try{await api('/api/gateway/cancel',{jobId:button.dataset.cancelJob});lastGatewayPoll=0;await refreshGateway();}
+  catch(err){$('gateway-notice').textContent=err.message;}
+});
+const oldLaunchConsole=launchConsole;
+launchConsole=()=>{oldLaunchConsole();authorizedActor=$('actor').disabled?$('actor').value:null;
+  $('gateway-section').classList.toggle('hidden',authorizedActor!=='parent');
+  if(authorizedActor==='parent')setInterval(refreshGateway,1800);
+  void refreshGateway();
+};

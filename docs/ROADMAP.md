@@ -45,3 +45,9 @@
 - Opt-in local parent/child login, HTTP session cookie, actor binding and login lockout.
 - Manual scoped family memory, metadata-only audit and browser login.
 - Device identity, physical safety, remote HTTPS and production-grade privacy remain future work.
+
+
+## v0.5 — Virtual Device Gateway (2026-11-03)
+- Independent paired virtual devices, parent-approved capabilities, bearer-authenticated SSE/poll inbox, feedback and durable task state.
+- Agent virtual task route, multi-device simulator CLI and Console inspection.
+- Follow-on: a reliable real LAN device protocol, profile-scoped memory, transaction-safe storage, robot safety controller and ROS 2 simulation bridge. No real motion control yet.

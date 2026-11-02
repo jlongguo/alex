@@ -21,7 +21,7 @@
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-card"><span class="tiny-overline">运行模式</span><strong>Local Simulation</strong><p>确定性指令解析 · 无云端 AI · 无真实运动硬件</p><span class="local-pill"><span class="signal"></span>LOCAL ONLY</span></div>
-      <div class="sidebar-footer">Home Agent OS <span>v0.4.0</span></div>
+      <div class="sidebar-footer">Home Agent OS <span>v0.5.0</span></div>
     </aside>
 
     <main class="main">
@@ -75,6 +75,20 @@
         <section class="panel command-panel"><div class="panel-header"><div><div class="eyebrow">COMMAND INTERFACE</div><h2>向智能中枢下达指令</h2></div><span class="pill">RULE-BASED DEMO</span></div><form id="command-form" class="command-form"><input id="command-text" type="text" maxlength="500" autocomplete="off" placeholder="例如：去书桌、讲故事、学英语、紧急停止..." required /><button type="submit">发送 ↗</button></form><div id="command-result" class="command-result">等待下一条指令。当前使用确定性意图路由，尚未接入 LLM。</div><div class="chips"><button type="button" data-command="去书桌">去书桌</button><button type="button" data-command="去客厅">去客厅</button><button type="button" data-command="讲故事">讲故事</button><button type="button" data-command="学英语">学英语</button></div></section>
         <section class="panel skills-panel"><div class="panel-header"><div><div class="eyebrow">INSTALLED SKILLS</div><h2>技能中心</h2></div><span class="version-label">3 ENABLED</span></div><div id="skills-list" class="skills-list"></div></section>
       </div>
+      <section class="panel events-panel" id="gateway-section">
+        <div class="panel-header"><div><div class="eyebrow">VIRTUAL DEVICE GATEWAY</div><h2>多设备任务派发 <span class="version-label">SIMULATION ONLY</span></h2></div><span class="pill">LOCAL AUTH</span></div>
+        <p class="helper">家长先通过配对接口绑定虚拟设备，再启动独立的模拟设备进程。设备声明能力需要家长批准。此功能不会控制真实电机。</p>
+        <div id="gateway-notice" class="command-result">正在读取虚拟设备状态……</div>
+        <div id="gateway-device-list" class="skills-list"></div>
+        <form id="gateway-command-form" class="command-form">
+          <select id="gateway-device" aria-label="选择模拟设备" required></select>
+          <select id="gateway-action" aria-label="选择目标">
+            <option value="study_desk">学习书桌</option><option value="sofa">客厅</option><option value="story_corner">故事角</option><option value="dock">充电座</option>
+          </select>
+          <button type="submit">下发模拟导航</button>
+        </form>
+        <div id="gateway-tasks" class="event-list" aria-live="polite"></div>
+      </section>
       <section class="panel events-panel"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div id="events" class="event-list" aria-live="polite"></div></section>
       <footer>HOME AGENT OS · P0–P3 VERTICAL SLICE <span>本地模拟器，不可用于实际机器人安全认证</span></footer>
     </main>

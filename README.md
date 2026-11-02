@@ -123,3 +123,25 @@ docs/                     架构、协议、安全与后续路线
 
 ## v0.4 local household features
 See [`docs/V0.4.md`](docs/V0.4.md) for device pairing, minimal learner profiles, parent privacy export/erase and optional role-filtered Agent memory hints. Device pairing requires `AUTH_MODE=local`; **do not expose the HTTP server to your LAN**. These features are APIs for the first developer prototype, not a production secure cloud platform.
+
+## v0.5 — Virtual Device Gateway
+
+Alex can now bind multiple independent **virtual** devices and dispatch parent-authorized, simulated tasks. The devices report capability sets, receive SSE messages, and acknowledge execution through authenticated HTTP. The Home Core's 2D robot remains a separate built-in simulator.
+
+**Start in local family auth mode:**
+
+```bash
+npm install
+npm test
+AUTH_MODE=local ALEX_PARENT_PASSWORD='your-private-12-plus-character-secret' ALEX_CHILD_PIN='123456' npm start
+```
+
+Pair virtual devices via the parent-only device pairing API, then launch each simulation with:
+
+```bash
+ALEX_DEVICE_ID='dev-...' ALEX_DEVICE_TOKEN='the-one-time-token' npm run virtual-device
+```
+
+The token must remain private and should not be committed. Approve a device's declared virtual capabilities as a parent. In the browser control center, the multi-device section shows device grants and virtual jobs and allows sending `sim.navigation.goto` tasks.
+
+See [v0.5 specification and API guide](docs/V0.5.md) for the complete workflow, security boundaries, reboot behavior and sample request bodies. **No physical movement is supported.**
