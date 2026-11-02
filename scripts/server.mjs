@@ -10,6 +10,7 @@ import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
+import {PlanOrchestrator} from './plan-orchestrator.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -30,7 +31,8 @@ const useAgent=process.env.AGENT_PROVIDER==='compatible';
 if(useAgent && (!process.env.AGENT_BASE_URL||!process.env.AGENT_API_KEY||!process.env.AGENT_MODEL))throw new Error('INVALID_AGENT_CONFIG');
 const provider=useAgent?new CompatibleAgentProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL}):new RuleAgentProvider();
 const core = new HomeCore(provider);
-const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills});
+const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
+const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
 const saved=await store.load();
 if(saved)core.restore(saved);
@@ -39,6 +41,7 @@ await devices.load();
 await profiles.load();
 await gateway.load();
 await workflows.load();
+await plans.load();
 await store.save(core.snapshot());
 let persistTimer=null;
 const schedulePersist=()=>{
@@ -79,6 +82,7 @@ core.subscribe(e => {
 const tickTimer=setInterval(()=>core.tick(.1),100);
 const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Gateway expiry:',err.message)),1000);
 const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('Workflow tick:',err.message)),250);
+const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
 
 const server=http.createServer(asyncWrap(async(req,res)=>{
@@ -158,7 +162,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && (pathname==='/api/plans'||pathname==='/api/plans/events')){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    if(pathname==='/api/plans'){send(res,200,{plans:plans.list(),templates:plans.templates()});return;}
+    const cursor=new URL(req.url,`http://${incomingHost}`).searchParams.get('after')??'0';
+    if(!/^\d{1,15}$/.test(cursor)){send(res,400,{ok:false,error:'INVALID_EVENT_CURSOR'});return;}
+    send(res,200,{events:plans.getEvents(Number(cursor))});return;
+  }
   if(req.method==='GET' && pathname==='/api/workflows'){
     const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -206,6 +218,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       }else if(pathname==='/api/gateway/dispatch'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result=await gateway.dispatch(actor,data);
+      }else if(pathname==='/api/plans/start'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await plans.start(actor,data);
+      }else if(pathname==='/api/plans/command'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await plans.command(actor,data);
+      }else if(pathname==='/api/plans/cancel'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await plans.cancel(actor,data.planId);
       }else if(pathname==='/api/workflows/start'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result=await workflows.start(actor,data);
@@ -292,5 +313,5 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   res.end(bytes);
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
-function shutdown(){clearInterval(gatewayTimer);clearInterval(workflowTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
+function shutdown(){clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

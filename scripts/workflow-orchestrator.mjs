@@ -20,10 +20,10 @@ export function parseWorkflowCommand(input){
   return null;
 }
 export class WorkflowOrchestrator {
-  constructor(file,{gateway,registry,skills,clock=()=>Date.now(),maxWorkflows=100,timeoutMs=120_000}={}){
+  constructor(file,{gateway,registry,skills,clock=()=>Date.now(),maxWorkflows=100,timeoutMs=120_000,busyDevice=()=>false}={}){
     if(!gateway||!registry||!skills)throw new Error('WORKFLOW_DEPENDENCIES_REQUIRED');
     this.store=new JsonStateStore(file);this.gateway=gateway;this.registry=registry;this.skills=skills;
-    this.clock=clock;this.maxWorkflows=maxWorkflows;this.timeoutMs=timeoutMs;
+    this.clock=clock;this.maxWorkflows=maxWorkflows;this.timeoutMs=timeoutMs;this.busyDevice=busyDevice;
     this.workflows=[];this.serial=Promise.resolve();
   }
   #exclusive(fn){const p=this.serial.catch(()=>{}).then(fn);this.serial=p.catch(()=>{});return p;}
@@ -45,7 +45,7 @@ export class WorkflowOrchestrator {
     const required=WORKFLOW_RECIPES[recipe]?.required;
     if(!required)throw new Error('INVALID_WORKFLOW_RECIPE');
     if(selected!==undefined&&!safeId(selected))throw new Error('INVALID_DEVICE_ID');
-    const available=this.registry.list().filter(d=>!d.revoked&&(!selected||d.id===selected)&&this.gateway.online(d.id)&&required.every(c=>(d.capabilities??[]).includes(c))&&!this.workflows.some(w=>w.deviceId===d.id&&activeStates.has(w.status)));
+    const available=this.registry.list().filter(d=>!d.revoked&&(!selected||d.id===selected)&&this.gateway.online(d.id)&&!this.busyDevice(d.id)&&required.every(c=>(d.capabilities??[]).includes(c))&&!this.workflows.some(w=>w.deviceId===d.id&&activeStates.has(w.status)));
     available.sort((a,b)=>a.id.localeCompare(b.id));
     return available[0]?.id??null;
   }
