@@ -37,5 +37,39 @@ $('btn-stop').addEventListener('click',()=>act('/api/safety/stop',{actor:$('acto
 $('btn-reset').addEventListener('click',()=>act('/api/safety/reset',{actor:$('actor').value}));
 $('obstacle').addEventListener('change',e=>act('/api/environment',{obstaclePresent:e.target.checked,actor:$('actor').value}));
 setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});},1000);
-setInterval(refresh,500);refresh();
-try{const stream=new EventSource('/api/events');stream.addEventListener('home-event',()=>refresh());stream.onerror=()=>{};}catch{}
+let eventStream=null,refreshTimer=null;
+function launchConsole(){
+  refresh();
+  refreshTimer??=setInterval(refresh,500);
+  if(!eventStream){eventStream=new EventSource('/api/events');eventStream.addEventListener('home-event',()=>refresh());}
+}
+async function initAuth(){
+  try{
+    const response=await fetch('/api/auth/session',{cache:'no-store'});
+    const session=await response.json();
+    if(session.mode==='demo') {launchConsole();return;}
+    if(!session.authenticated){$('auth-overlay').classList.remove('hidden');return;}
+    $('auth-overlay').classList.add('hidden');
+    $('actor').value=session.actor;
+    $('actor').disabled=true;
+    $('logout').classList.remove('hidden');
+    launchConsole();
+  }catch(err){$('connection').textContent='认证服务连接失败';}
+}
+$('auth-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  $('auth-error').textContent='';
+  const role=$('auth-role').value,secret=$('auth-secret').value;
+  try{
+    const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,secret})});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'登录失败');
+    $('auth-secret').value='';
+    await initAuth();
+  }catch(err){$('auth-error').textContent=err.message;}
+});
+$('logout').addEventListener('click',async()=>{
+  await fetch('/api/auth/logout',{method:'POST'});
+  location.reload();
+});
+initAuth();
