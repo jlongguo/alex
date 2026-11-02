@@ -80,10 +80,11 @@ async function refreshGateway(){
   if(!authorizedActor||authorizedActor!=='parent')return;
   const now=Date.now();if(now-lastGatewayPoll<1400)return;lastGatewayPoll=now;
   try{
-    const [devicesResponse,jobsResponse]=await Promise.all([fetch('/api/devices'),fetch('/api/gateway/jobs')]);
+    const [devicesResponse,jobsResponse,mapResponse]=await Promise.all([fetch('/api/devices'),fetch('/api/gateway/jobs'),fetch('/api/gateway/navigation-map')]);
     if(!devicesResponse.ok||!jobsResponse.ok)throw new Error('需要本地家长认证');
     const allDevices=(await devicesResponse.json()).devices.filter(d=>d.id?.startsWith('dev-'));
     const jobs=(await jobsResponse.json()).jobs;
+    if(mapResponse.ok)renderGatewayNavigationMap((await mapResponse.json()).map,jobs);
     $('device-count').innerHTML=`${1+allDevices.length} <sub>台</sub>`;
     const select=$('gateway-device'),current=select.value;
     select.innerHTML=allDevices.filter(d=>!d.revoked).map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
@@ -92,9 +93,17 @@ async function refreshGateway(){
       const needs=(d.declaredCapabilities||[]).filter(c=>!d.capabilities.includes(c));
       return `<div class="skill-item"><div class="skill-icon">🤖</div><div class="skill-info"><strong>${esc(d.name)}</strong><small>${d.revoked?'已撤销':`已授权：${esc((d.capabilities||[]).join(', ')||'暂无')} · 待批准：${esc(needs.join(', ')||'无')}`}</small></div>${needs.length&&!d.revoked?`<button type="button" data-approve="${esc(d.id)}">批准虚拟能力</button>`:''}</div>`;
     }).join(''):'<p class="helper">尚未配对设备。请在家长账户中生成配对码并运行 scripts/virtual-device.mjs。</p>';
-    $('gateway-tasks').innerHTML=jobs.slice(0,8).map(j=>`<div class="event-row"><span class="event-time">${esc(j.status)}</span><span class="event-kind">${esc(j.capability)}</span><span class="event-message">${esc(j.deviceId)} · ${esc(JSON.stringify(j.params))}</span>${['queued','running'].includes(j.status)?`<button type="button" data-cancel-job="${esc(j.id)}">取消</button>`:''}</div>`).join('')||'<p class="helper">暂无网关任务。</p>';
+    $('gateway-tasks').innerHTML=jobs.slice(0,8).map(j=>`<div class="event-row"><span class="event-time">${esc(j.status)}</span><span class="event-kind">${esc(j.capability)}</span><span class="event-message">${esc(j.deviceId)} · ${esc(JSON.stringify(j.params))}${j.telemetry?` · ${esc(j.telemetry.phase)} ${j.telemetry.progress}% · (${j.telemetry.pose.x.toFixed(1)},${j.telemetry.pose.y.toFixed(1)})`:''}</span>${['queued','running'].includes(j.status)?`<button type="button" data-cancel-job="${esc(j.id)}">取消</button>`:''}</div>`).join('')||'<p class="helper">暂无网关任务。</p>';
     $('gateway-notice').textContent=`已绑定 ${allDevices.length} 个设备；最近 ${jobs.length} 项任务。只有显式批准的虚拟能力才能执行。`;
   }catch(e){$('gateway-notice').textContent=e.message;}
+}
+function renderGatewayNavigationMap(map,jobs){
+  const svg=$('gateway-navigation-map');if(!svg)return;
+  const rects=[...map.walls,...map.furniture].map(x=>`<rect x="${x.x*10}" y="${x.y*10}" width="${x.w*10}" height="${x.h*10}" rx="2" fill="#c5d5e5"/>`).join('');
+  const markers=Object.entries(map.destinations).map(([name,p])=>`<circle cx="${p.x*10}" cy="${p.y*10}" r="7" fill="#57b49c"/><text x="${p.x*10+10}" y="${p.y*10-8}" font-size="11" fill="#294e60">${esc(name)}</text>`).join('');
+  const positions=new Map();for(const job of jobs)if(job.telemetry&&!positions.has(job.deviceId))positions.set(job.deviceId,job.telemetry);
+  const robots=[...positions.values()].map(t=>`<g><circle cx="${t.pose.x*10}" cy="${t.pose.y*10}" r="9" fill="#2e7cc5" stroke="white" stroke-width="2"/><text x="${t.pose.x*10+11}" y="${t.pose.y*10+5}" font-size="12" fill="#17354b">${t.progress}%</text></g>`).join('');
+  svg.innerHTML=rects+markers+robots;
 }
 $('gateway-pair-form').addEventListener('submit',async e=>{
   e.preventDefault();if(gatewayBusy)return;gatewayBusy=true;

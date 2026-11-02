@@ -93,6 +93,8 @@
           <button type="submit">下发模拟导航</button>
         </form>
         <div id="gateway-tasks" class="event-list" aria-live="polite"></div>
+        <div class="helper" style="margin-top:10px">虚拟导航位置反馈（仅模拟坐标，不表示真实机器人位置）</div>
+        <svg id="gateway-navigation-map" viewBox="0 0 600 340" role="img" aria-label="已配对虚拟机器人的模拟地图坐标" style="width:100%;max-height:255px;border:1px solid var(--border, #dde4ed);border-radius:12px;background:#f1f6fa"></svg>
       </section>
       <section class="panel events-panel" id="workflow-section">
         <div class="panel-header"><div><div class="eyebrow">WORKFLOW ORCHESTRATOR</div><h2>跨设备技能编排 <span class="version-label">V0.6 SIMULATION</span></h2></div><span class="pill">PARENT ONLY</span></div>

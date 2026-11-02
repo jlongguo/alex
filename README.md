@@ -1,8 +1,16 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.8.0 · parent-approved plan proposals, allowlisted plans, durable events, family auth and multi-device simulation**
+> **v0.9.0 · grid navigation bridge, authenticated pose telemetry, parent-approved plans and multi-device simulation**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.9 新增
+
+- 虚拟机器人利用现有的 A* 家庭地图实际计算路径，逐步向家庭中枢反馈位置、进度与朝向；不再用固定延迟假装导航完成。
+- Device Gateway v2 认证设备导航遥测、序号和目标到达，未到达的 v2 导航任务不能回报成功。
+- 家长控制台展示外部虚拟设备坐标地图；旧 v1 协议保留测试兼容。
+- 仍未接入实体电机、ROS 2、Gazebo 或物理碰撞保护，详见 docs/V0.9.md。
+- 本地 68 项自动化测试通过（含虚拟设备 HTTP/SSE 联调）。
 
 ## v0.8 新增
 

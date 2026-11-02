@@ -74,3 +74,13 @@
 - Time-limited drafts, role-bound parent approval/rejection, fail-closed dispatch through v0.7 plan engine and restart-safe no-replay state.
 - Proposal and plan correlation timeline, protected HTTP APIs and parent console review UI.
 - No arbitrary generated DAGs, no direct motor control or real model vendor verification.
+
+## v0.9 implemented (2026-11-03)
+- Shared A* grid navigation simulation for paired virtual robot clients with protocol-v2 authenticated pose/progress feedback.
+- Goal arrival validation, cancellation/permission/duplicate navigation safeguards, no-replay restart behavior and parent-only map view.
+- Not implemented: ROS 2, Nav2, Gazebo, motor control, physical collision avoidance, SLAM, LiDAR or hardware tests.
+
+## Proposed v0.10
+- Separate ROS/Nav2 goal adapter interface from the simulator, with capability-gated simulated action states.
+- Correlate plan step/job ID/pose feedback, bounded timeline and lifecycle tests.
+- Profile-scoped learner privacy and genuine LLM provider integration checks.

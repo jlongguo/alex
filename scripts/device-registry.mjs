@@ -22,7 +22,8 @@ export class DeviceRegistry {
     this.devices=snapshot.devices.map(d=>{
       const capabilities=d.capabilities??[],declaredCapabilities=d.declaredCapabilities??[];
       if(!validCaps(capabilities)||!validCaps(declaredCapabilities)||capabilities.some(c=>!declaredCapabilities.includes(c)))throw new Error('INVALID_DEVICE_FILE');
-      return {...d,capabilities:[...capabilities],declaredCapabilities:[...declaredCapabilities]};
+      if(![1,2].includes(d.protocolVersion??1))throw new Error('INVALID_DEVICE_FILE');
+      return {...d,protocolVersion:d.protocolVersion??1,capabilities:[...capabilities],declaredCapabilities:[...declaredCapabilities]};
     });
   }
   persist(){return this.store.save({version:1,devices:this.devices});}
@@ -45,7 +46,7 @@ export class DeviceRegistry {
     this.pairings.delete(key); // consumed even if persistence fails; never replay
     if(this.devices.filter(x=>!x.revoked).length>=MAX_DEVICES)throw new Error('DEVICE_LIMIT_REACHED');
     const token=randomBytes(32).toString('hex');
-    const device={id:`dev-${randomUUID()}`,name:name.trim(),tokenHash:digest(token),createdAt:new Date(this.clock()).toISOString(),lastSeenAt:null,revoked:false,capabilities:[],declaredCapabilities:[]};
+    const device={id:`dev-${randomUUID()}`,name:name.trim(),tokenHash:digest(token),createdAt:new Date(this.clock()).toISOString(),lastSeenAt:null,revoked:false,protocolVersion:1,capabilities:[],declaredCapabilities:[]};
     this.devices.push(device);
     try{await this.persist();}catch(e){this.devices=this.devices.filter(x=>x.id!==device.id);throw e;}
     return {deviceId:device.id,token}; // display once; only hash is persisted
@@ -63,14 +64,15 @@ export class DeviceRegistry {
     try{await this.persist();}catch(e){row.lastSeenAt=old;throw e;}
     return {ok:true,deviceId:id,serverTime:new Date(this.clock()).toISOString()};
   }
-  async announce(id,token,capabilities){
+  async announce(id,token,capabilities,protocolVersion=1){
     if(!this.authenticate(id,token))throw new Error('DEVICE_UNAUTHORIZED');
     if(!validCaps(capabilities))throw new Error('INVALID_DEVICE_CAPABILITIES');
-    const row=this.devices.find(d=>d.id===id);const previous=row.declaredCapabilities;
-    row.declaredCapabilities=[...capabilities].sort();
+    if(![1,2].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
+    const row=this.devices.find(d=>d.id===id);const previous=row.declaredCapabilities,oldProtocol=row.protocolVersion,oldSeen=row.lastSeenAt;
+    row.declaredCapabilities=[...capabilities].sort();row.protocolVersion=protocolVersion;row.lastSeenAt=new Date(this.clock()).toISOString();
     // Never auto-approve new capabilities; stale grants are removed if a device withdraws them.
     const oldApproved=row.capabilities;row.capabilities=row.capabilities.filter(c=>row.declaredCapabilities.includes(c));
-    try{await this.persist();}catch(e){row.declaredCapabilities=previous;row.capabilities=oldApproved;throw e;}
+    try{await this.persist();}catch(e){row.declaredCapabilities=previous;row.capabilities=oldApproved;row.protocolVersion=oldProtocol;row.lastSeenAt=oldSeen;throw e;}
   }
   async approve(actor,id,capabilities){
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
