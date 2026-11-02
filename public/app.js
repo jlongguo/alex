@@ -96,6 +96,19 @@ async function refreshGateway(){
     $('gateway-notice').textContent=`已绑定 ${allDevices.length} 个设备；最近 ${jobs.length} 项任务。只有显式批准的虚拟能力才能执行。`;
   }catch(e){$('gateway-notice').textContent=e.message;}
 }
+$('gateway-pair-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(gatewayBusy)return;gatewayBusy=true;
+  try{
+    const name=$('gateway-pair-name').value.trim();if(!name)throw new Error('请填写设备名称');
+    const started=await api('/api/devices/pair/start',{});
+    const linked=await api('/api/devices/pair/complete',{code:started.code,name});
+    const command=`ALEX_DEVICE_ID='${linked.deviceId}' ALEX_DEVICE_TOKEN='${linked.token}' npm run virtual-device`;
+    $('gateway-pair-secret').textContent=`设备凭证仅显示一次，请勿分享：\n${command}\n\n在项目目录的另一个终端运行上述命令。随后在此批准设备声明的虚拟能力。`;
+    $('gateway-pair-secret').classList.remove('hidden');
+    $('gateway-pair-name').value='';lastGatewayPoll=0;await refreshGateway();
+  }catch(err){$('gateway-notice').textContent=err.message;}
+  finally{gatewayBusy=false;}
+});
 $('gateway-command-form').addEventListener('submit',async e=>{
   e.preventDefault();if(gatewayBusy)return;gatewayBusy=true;
   try{

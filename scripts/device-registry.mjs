@@ -19,7 +19,11 @@ export class DeviceRegistry {
     for(const d of snapshot.devices){
       if(!d||typeof d.id!=='string'||typeof d.name!=='string'||typeof d.tokenHash!=='string'||!(/^[a-f0-9]{64}$/.test(d.tokenHash))||typeof d.createdAt!=='string'||typeof d.revoked!=='boolean')throw new Error('INVALID_DEVICE_FILE');
     }
-    this.devices=snapshot.devices.map(d=>({...d,capabilities:Array.isArray(d.capabilities)?d.capabilities:[],declaredCapabilities:Array.isArray(d.declaredCapabilities)?d.declaredCapabilities:[]}));
+    this.devices=snapshot.devices.map(d=>{
+      const capabilities=d.capabilities??[],declaredCapabilities=d.declaredCapabilities??[];
+      if(!validCaps(capabilities)||!validCaps(declaredCapabilities)||capabilities.some(c=>!declaredCapabilities.includes(c)))throw new Error('INVALID_DEVICE_FILE');
+      return {...d,capabilities:[...capabilities],declaredCapabilities:[...declaredCapabilities]};
+    });
   }
   persist(){return this.store.save({version:1,devices:this.devices});}
   get(id){const row=this.devices.find(d=>d.id===id);return row?{...row,tokenHash:undefined,capabilities:[...row.capabilities],declaredCapabilities:[...row.declaredCapabilities]}:null;}

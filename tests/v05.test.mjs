@@ -103,3 +103,40 @@ test('v0.5 HTTP: two devices, role checks, SSE/poll, agent route, revoke and res
     assert.equal((await get('/api/devices',parent)).value.devices.filter(x=>x.id.startsWith('dev-')).length,2);
   }finally{controller?.abort();await terminate(proc);await rm(dir,{recursive:true,force:true});}
 });
+
+test('v0.5 real virtual client: receives streamed command and sends success feedback',{timeout:20000},async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'alex-v05-client-'));
+  const port=41000+Math.floor(Math.random()*12000),base=`http://127.0.0.1:${port}`;
+  const env={...process.env,PORT:String(port),STATE_FILE:join(dir,'state.json'),AUDIT_FILE:join(dir,'audit.jsonl'),MEMORY_FILE:join(dir,'memory.json'),DEVICES_FILE:join(dir,'devices.json'),PROFILES_FILE:join(dir,'profiles.json'),GATEWAY_FILE:join(dir,'gateway.json'),AUTH_MODE:'local',ALEX_PARENT_PASSWORD:'a-unique-test-password',ALEX_CHILD_PIN:'445566',AGENT_PROVIDER:'rules'};
+  const proc=spawn(process.execPath,['scripts/server.mjs'],{cwd,env,stdio:'ignore'});
+  let simulator=null;
+  const post=async(path,data,cookie,token)=>{
+    const r=await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(data)});
+    return {status:r.status,value:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};
+  };
+  try{
+    await waitHealth(base,proc);
+    const parent=(await post('/api/auth/login',{role:'parent',secret:env.ALEX_PARENT_PASSWORD})).cookie;
+    const pairing=await post('/api/devices/pair/start',{},parent);
+    const device=await post('/api/devices/pair/complete',{code:pairing.value.code,name:'Virtual SSE Device'});
+    simulator=spawn(process.execPath,['scripts/virtual-device.mjs'],{cwd,env:{...env,ALEX_BASE_URL:base,ALEX_DEVICE_ID:device.value.deviceId,ALEX_DEVICE_TOKEN:device.value.token},stdio:'ignore'});
+    let announced=false;
+    for(let n=0;n<70;n++){
+      const r=await fetch(base+'/api/devices',{headers:{Cookie:parent}});const body=await r.json();
+      if(body.devices.find(x=>x.id===device.value.deviceId)?.declaredCapabilities?.includes('sim.navigation.goto')){announced=true;break;}
+      await delay(75);
+    }
+    assert.equal(announced,true,'virtual client must announce capabilities');
+    assert.equal((await post('/api/devices/capabilities/approve',{deviceId:device.value.deviceId,capabilities:['sim.navigation.goto']},parent)).status,200);
+    const queued=await post('/api/gateway/dispatch',{deviceId:device.value.deviceId,capability:'sim.navigation.goto',params:{destination:'study_desk'},requestId:fresh()},parent);
+    assert.equal(queued.status,200);
+    let finished=false;
+    for(let n=0;n<80;n++){
+      const r=await fetch(base+'/api/gateway/jobs',{headers:{Cookie:parent}});
+      const body=await r.json();
+      if(body.jobs.find(x=>x.id===queued.value.job.id)?.status==='succeeded'){finished=true;break;}
+      await delay(75);
+    }
+    assert.equal(finished,true,'virtual client should acknowledge streamed task completion');
+  }finally{if(simulator)await terminate(simulator);await terminate(proc);await rm(dir,{recursive:true,force:true});}
+});

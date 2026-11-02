@@ -78,6 +78,11 @@
       <section class="panel events-panel" id="gateway-section">
         <div class="panel-header"><div><div class="eyebrow">VIRTUAL DEVICE GATEWAY</div><h2>多设备任务派发 <span class="version-label">SIMULATION ONLY</span></h2></div><span class="pill">LOCAL AUTH</span></div>
         <p class="helper">家长先通过配对接口绑定虚拟设备，再启动独立的模拟设备进程。设备声明能力需要家长批准。此功能不会控制真实电机。</p>
+        <form id="gateway-pair-form" class="command-form">
+          <input id="gateway-pair-name" type="text" maxlength="60" placeholder="虚拟设备名称（例如 Study Robot）" required aria-label="虚拟设备名称" />
+          <button type="submit">配对新虚拟设备</button>
+        </form>
+        <pre id="gateway-pair-secret" class="command-result hidden" style="overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
         <div id="gateway-notice" class="command-result">正在读取虚拟设备状态……</div>
         <div id="gateway-device-list" class="skills-list"></div>
         <form id="gateway-command-form" class="command-form">
