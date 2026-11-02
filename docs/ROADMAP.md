@@ -40,3 +40,8 @@
 3. 长期用户记忆数据模型与数据删除控制；如涉及儿童需设计监护人管理与默认最小留存。
 4. Agent tool-call 审批/可观测性，以及真实模型服务联调。
 5. 可插拔 SQLite/PostgreSQL 事务持久化替换 JSON 快照。
+
+## v0.3 completed (local prototype)
+- Opt-in local parent/child login, HTTP session cookie, actor binding and login lockout.
+- Manual scoped family memory, metadata-only audit and browser login.
+- Device identity, physical safety, remote HTTPS and production-grade privacy remain future work.
