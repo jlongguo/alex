@@ -185,3 +185,41 @@ launchConsole=()=>{
   if(authorizedActor==='parent')setInterval(refreshWorkflows,1500);
   void refreshWorkflows();
 };
+
+// v0.7 durable plan console. All state comes from authenticated server endpoints.
+let lastPlanPoll=0,planBusy=false;
+async function refreshPlans(){
+  if(authorizedActor!=='parent')return;
+  if(Date.now()-lastPlanPoll<1400)return;lastPlanPoll=Date.now();
+  try{
+    const [pr,er]=await Promise.all([fetch('/api/plans'),fetch('/api/plans/events?after=0')]);
+    if(!pr.ok||!er.ok)throw new Error('需要家长登录');
+    const ps=(await pr.json()).plans,ev=(await er.json()).events;
+    $('plan-list').innerHTML=ps.slice(0,12).map(p=>{
+      const steps=p.steps.map(s=>`${esc(s.id)}: ${esc(s.status)}`).join(' · ');
+      return `<div class="event-row"><span class="event-time">${esc(p.status)}</span><span class="event-kind">${esc(p.templateId)}</span><span class="event-message">${esc(p.deviceId)} · ${steps}</span>${p.status==='running'?`<button type="button" data-cancel-plan="${esc(p.id)}">取消</button>`:''}</div>`;
+    }).join('')||'<p class="helper">暂无计划。先配对并批准虚拟设备的 audio.output 与 sim.navigation.goto 能力。</p>';
+    $('plan-events').innerHTML=ev.slice(-12).reverse().map(e=>`<div class="event-row"><span class="event-time">#${e.seq}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message">${esc(e.planId)}${e.stepId?' · '+esc(e.stepId):''}</span></div>`).join('')||'<p class="helper">暂无计划事件。</p>';
+  }catch(err){$('plan-notice').textContent=err.message;}
+}
+$('plan-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(planBusy)return;planBusy=true;
+  try{
+    const result=await api('/api/plans/start',{templateId:$('plan-template').value,requestId:'planui_'+crypto.randomUUID().replaceAll('-','')});
+    $('plan-notice').textContent=`计划已创建 ${result.plan.id}，等待设备反馈。`;
+    lastPlanPoll=0;await refreshPlans();
+  }catch(err){$('plan-notice').textContent=err.message;}
+  finally{planBusy=false;}
+});
+$('plan-list').addEventListener('click',async e=>{
+  const button=e.target.closest('[data-cancel-plan]');if(!button)return;
+  try{await api('/api/plans/cancel',{planId:button.dataset.cancelPlan});lastPlanPoll=0;await refreshPlans();}
+  catch(err){$('plan-notice').textContent=err.message;}
+});
+const previousLaunchForPlans=launchConsole;
+launchConsole=()=>{
+  previousLaunchForPlans();
+  $('plan-section').classList.toggle('hidden',authorizedActor!=='parent');
+  if(authorizedActor==='parent')setInterval(refreshPlans,1600);
+  void refreshPlans();
+};

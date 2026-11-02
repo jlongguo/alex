@@ -1,6 +1,6 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.3.0 · local family sessions, scoped memories and audit added to v0.2 simulation**
+> **v0.7.0 · allowlisted plans, durable events, family auth and multi-device simulation**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
 
@@ -156,3 +156,12 @@ Alex can now execute **two allowlisted simulated workflows** from the same paren
 Prerequisites: `AUTH_MODE=local`, a paired running virtual client, and **explicit parent approval** of `sim.navigation.goto` plus `audio.output`. Open the **Workflow Orchestrator** panel or submit “去书桌陪我学英语” in the command input. New endpoints: `GET /api/workflows`, `POST /api/workflows/start`, `POST /api/workflows/command`, and `POST /api/workflows/cancel`.
 
 Workflows persist to `WORKFLOW_FILE` (default `.local/workflows.json`), are idempotent via request ID, and **stop without replay** after restart, device outage, revoked grant or cancellation. These are *simulated* device acknowledgements, not real navigation, sound playback or real AI teaching. See [docs/V0.6.md](docs/V0.6.md).
+
+
+## v0.7 — 受控计划编排 / Durable Plan Events
+
+- 三个已审查的计划模板支持依赖步骤（虚拟导航 → 演示 Skill → 虚拟语音输出），不会接受任意 AI 生成的硬件动作。
+- `GET /api/plans`、`GET /api/plans/events?after=0`、`POST /api/plans/start`、`POST /api/plans/command`、`POST /api/plans/cancel` 仅支持本地家长登录。
+- `PLAN_FILE` 可配置持久化路径；中断/重启后的计划一律停止、不自动重放。
+- 虚拟设备接入后，在 Web Console **受控计划编排** 区域操作。详见 `docs/V0.7.md`。
+- 仍然是纯模拟器，真实模型规划、ROS 2 和实体运动控制尚未实现。

@@ -57,3 +57,14 @@
 - Added an allowlisted, durable parent-only workflow coordinator combining virtual navigation, trusted hub skill, and virtual audio output.
 - Added deterministic composite command parsing, device capability matching, idempotency, cancellation and restart safety, simulated multi-stage integration tests.
 - Real conversational AI, safe ROS bridges and child-restricted delegated motion remain explicitly **not implemented**.
+
+
+## v0.7 — allowlisted planning and durable plan events (implemented)
+- DAG validation, dependency-gated navigation/skill/audio, parent-only plan APIs and local console.
+- Device reservation across v0.6 workflows and new plans, idempotency, cancellation, timeout, no replay after restart.
+- Bounded monotonic event journal and restart audit trail. Not a free-form LLM planner; no physical device control.
+
+## Proposed v0.8
+- Formal typed model plan proposals with explicit plan review and parent approval, not untrusted tool execution.
+- Better per-person skill/memory isolation and auditable household event permissions.
+- Webots/ROS 2 bridge adapter behind a capability safety gate, simulation only.
