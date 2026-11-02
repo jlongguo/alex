@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#121b2b" />
+  <title>Home Agent OS · Simulator</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-glyph">◈</div><div><strong>HOMEBRAIN</strong><small>Agent & Robotics OS</small></div></div>
+      <div class="nav-caption">WORKSPACE</div>
+      <nav class="nav">
+        <div class="nav-item selected"><span>▦</span> 指挥中心</div>
+        <div class="nav-item"><span>◈</span> 设备管理 <b>1</b></div>
+        <div class="nav-item"><span>✳</span> 技能中心 <b>3</b></div>
+        <div class="nav-item"><span>▤</span> 事件与日志</div>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-card"><span class="tiny-overline">运行模式</span><strong>Local Simulation</strong><p>确定性指令解析 · 无云端 AI · 无真实运动硬件</p><span class="local-pill"><span class="signal"></span>LOCAL ONLY</span></div>
+      <div class="sidebar-footer">Home Agent OS <span>v0.1.0</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="header">
+        <div><div class="eyebrow">HOME / CONTROL CENTER</div><h1>家庭智能中枢 <span>／</span> <em>指挥中心</em></h1><p>一个大脑，多个技能，一台正在成长的机器人。</p></div>
+        <div class="header-right"><div class="connect-dot"></div><span id="connection">连接中...</span><div class="divider-v"></div><span class="time" id="clock">--:--</span></div>
+      </div>
+      <div id="notice" class="notice hidden" role="status"></div>
+      <div class="stats-grid">
+        <section class="stat-card"><span class="stat-icon mint">◈</span><div class="stat-main"><span>中枢状态</span><strong>运行中</strong><small>本地 Node Runtime</small></div></section>
+        <section class="stat-card"><span class="stat-icon blue">⌘</span><div class="stat-main"><span>接入设备</span><strong id="device-count">1 <sub>台</sub></strong><small>虚拟机器人</small></div></section>
+        <section class="stat-card"><span class="stat-icon amber">✳</span><div class="stat-main"><span>已注册技能</span><strong id="skill-count">3 <sub>项</sub></strong><small>可独立调用</small></div></section>
+        <section class="stat-card"><span class="stat-icon purple">↗</span><div class="stat-main"><span>已提交任务</span><strong id="task-count">0 <sub>项</sub></strong><small>当前会话</small></div></section>
+      </div>
+      <div class="workspace-grid">
+        <section class="panel map-panel">
+          <div class="panel-header"><div><div class="eyebrow">LIVE ENVIRONMENT</div><h2>家庭地图 <span class="version-label">2D SIMULATION</span></h2></div><div class="map-status"><span class="signal"></span> 实时仿真</div></div>
+          <div class="map-stage">
+            <svg id="floorplan" viewBox="0 0 600 340" role="img" aria-label="机器人在家庭平面图中的位置与路线">
+              <defs><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".7" fill="#cdd6e0" /></pattern></defs>
+              <rect width="600" height="340" rx="14" fill="#f4f7fa"/><rect width="600" height="340" fill="url(#dots)"/>
+              <g id="rooms"></g><g id="obstacles"></g><g id="routes"></g><g id="robot"></g>
+            </svg>
+            <div class="map-legend"><span><i class="legend-dot robot-color"></i> 机器人</span><span><i class="legend-dot target-color"></i> 目标点</span><span><i class="legend-box furniture-color"></i> 家具 / 墙体</span><span><i class="legend-dot obstacle-color"></i> 动态障碍物</span></div>
+          </div>
+          <div class="panel-bottom"><span>选择目的地</span><span class="dim">预规划路径 · 本地碰撞网格</span></div>
+          <div class="dest-grid">
+            <button class="dest" data-dest="study_desk"><span>▤</span><div>学习书桌<small>Study desk</small></div><span class="dest-arrow">↗</span></button>
+            <button class="dest" data-dest="sofa"><span>▱</span><div>客厅沙发<small>Living room</small></div><span class="dest-arrow">↗</span></button>
+            <button class="dest" data-dest="story_corner"><span>▧</span><div>故事角<small>Story corner</small></div><span class="dest-arrow">↗</span></button>
+            <button class="dest" data-dest="dock"><span>⚡</span><div>充电基站<small>Charging dock</small></div><span class="dest-arrow">↗</span></button>
+          </div>
+        </section>
+        <div class="right-stack">
+          <section class="panel bot-panel">
+            <div class="panel-header"><div><div class="eyebrow">CONNECTED DEVICE</div><h2>Companion Bot <span class="version-label">#001</span></h2></div><span class="pill green" id="motion-pill">待命</span></div>
+            <div class="bot-visual"><div class="halo"></div><div class="bot-head"><div class="face"><div class="eye"></div><div class="eye"></div><div class="mouth"></div></div></div><div class="bot-shadow"></div></div>
+            <div class="telemetry">
+              <div><small>电池电量</small><strong id="battery">98%</strong></div>
+              <div><small>当前位置</small><strong id="position">(7, 28)</strong></div>
+              <div><small>正在执行</small><strong id="active-task">空闲</strong></div>
+              <div><small>设备安全</small><strong id="safety-state">正常</strong></div>
+            </div>
+            <div class="progress-label"><span>任务进度</span><b id="progress-value">0%</b></div><div class="progress-track"><div id="progress-bar"></div></div>
+            <div class="safety-controls"><button id="btn-stop" class="danger-btn">■ 紧急停止</button><button id="btn-reset" class="secondary-btn">↺ 家长复位</button></div>
+          </section>
+          <section class="panel action-panel"><div class="panel-header"><div><div class="eyebrow">TEST CONDITIONS</div><h2>环境与权限</h2></div></div><div class="field-line"><span>当前角色</span><select id="actor"><option value="parent">家长 Parent</option><option value="child">儿童 Child</option></select></div><label class="field-line toggle-line"><span>模拟临时障碍物<small>插入后机器人安全停止</small></span><input type="checkbox" id="obstacle" /></label><p class="helper">角色切换仅用于演示权限策略，并不构成真实身份认证。</p></section>
+        </div>
+      </div>
+      <div class="lower-grid">
+        <section class="panel command-panel"><div class="panel-header"><div><div class="eyebrow">COMMAND INTERFACE</div><h2>向智能中枢下达指令</h2></div><span class="pill">RULE-BASED DEMO</span></div><form id="command-form" class="command-form"><input id="command-text" type="text" maxlength="500" autocomplete="off" placeholder="例如：去书桌、讲故事、学英语、紧急停止..." required /><button type="submit">发送 ↗</button></form><div id="command-result" class="command-result">等待下一条指令。当前使用确定性意图路由，尚未接入 LLM。</div><div class="chips"><button type="button" data-command="去书桌">去书桌</button><button type="button" data-command="去客厅">去客厅</button><button type="button" data-command="讲故事">讲故事</button><button type="button" data-command="学英语">学英语</button></div></section>
+        <section class="panel skills-panel"><div class="panel-header"><div><div class="eyebrow">INSTALLED SKILLS</div><h2>技能中心</h2></div><span class="version-label">3 ENABLED</span></div><div id="skills-list" class="skills-list"></div></section>
+      </div>
+      <section class="panel events-panel"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div id="events" class="event-list" aria-live="polite"></div></section>
+      <footer>HOME AGENT OS · P0–P3 VERTICAL SLICE <span>本地模拟器，不可用于实际机器人安全认证</span></footer>
+    </main>
+  </div>
+</body>
+</html>

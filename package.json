@@ -1,0 +1,16 @@
+{
+  "name": "home-agent-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first home AI hub and mobile robot simulator (P0-P3 vertical slice)",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node scripts/server.mjs",
+    "dev": "npm run build && npm run start",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "npm run build && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {"typescript": "5.8.3"},
+  "engines": {"node": ">=20"}
+}
