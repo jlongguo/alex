@@ -68,3 +68,9 @@
 - Formal typed model plan proposals with explicit plan review and parent approval, not untrusted tool execution.
 - Better per-person skill/memory isolation and auditable household event permissions.
 - Webots/ROS 2 bridge adapter behind a capability safety gate, simulation only.
+
+## v0.8 implemented (software-only)
+- Inert child/parent AI plan proposal with a rules classifier by default, optional explicit HTTPS compatible model adapter.
+- Time-limited drafts, role-bound parent approval/rejection, fail-closed dispatch through v0.7 plan engine and restart-safe no-replay state.
+- Proposal and plan correlation timeline, protected HTTP APIs and parent console review UI.
+- No arbitrary generated DAGs, no direct motor control or real model vendor verification.

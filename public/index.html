@@ -117,6 +117,17 @@
         <div class="panel-header"><div><div class="eyebrow">DURABLE PLAN EVENTS</div><h2>任务事件历史</h2></div></div>
         <div id="plan-events" class="event-list" aria-live="polite"></div>
       </section>
+      <section class="panel events-panel hidden" id="proposal-section">
+        <div class="panel-header"><div><div class="eyebrow">AGENT PROPOSAL GATE · V0.8</div><h2>AI 计划建议与家长审批 <span class="version-label">VIRTUAL ONLY</span></h2></div><span class="pill">PARENT APPROVAL</span></div>
+        <p class="helper">用户的自然语言只会生成待审批的计划建议。默认使用本地规则分类器；只有显式配置 ALEX_PLAN_PROVIDER=compatible 才会把文本发送给模型。任何建议均不得直接控制机器人。</p>
+        <form id="proposal-form" class="command-form">
+          <input id="proposal-text" type="text" maxlength="500" placeholder="例如：Alex 去书桌陪我学英语" aria-label="计划意图" required />
+          <button type="submit">生成待审批计划</button>
+        </form>
+        <div id="proposal-notice" class="command-result" role="status">等待建议，所有移动相关动作均需要家长批准。</div>
+        <div id="proposal-list" class="event-list" aria-live="polite"></div>
+        <div id="proposal-timeline" class="event-list" aria-live="polite"></div>
+      </section>
       <section class="panel events-panel"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div id="events" class="event-list" aria-live="polite"></div></section>
       <footer>HOME AGENT OS · P0–P3 VERTICAL SLICE <span>本地模拟器，不可用于实际机器人安全认证</span></footer>
     </main>

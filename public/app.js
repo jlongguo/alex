@@ -223,3 +223,59 @@ launchConsole=()=>{
   if(authorizedActor==='parent')setInterval(refreshPlans,1600);
   void refreshPlans();
 };
+
+
+// v0.8: family intent -> inert proposal -> parent approval -> guarded v0.7 plan.
+let lastProposalPoll=0,proposalBusy=false;
+const proposalNames={'learn.at.desk':'去书桌练习英语','story.at.corner':'去故事角讲故事','story.here':'原地讲故事'};
+async function refreshProposals(){
+  if(authorizedActor!=='parent')return;
+  if(Date.now()-lastProposalPoll<1200)return;lastProposalPoll=Date.now();
+  try{
+    const response=await fetch('/api/proposals',{cache:'no-store'});
+    if(!response.ok)throw new Error('需家长登录才能查看建议队列');
+    const result=await response.json(),list=result.proposals;
+    $('proposal-list').innerHTML=list.slice(0,15).map(p=>`<div class="event-row">
+      <span class="event-time">${esc(p.status)}</span>
+      <span class="event-kind">${esc(proposalNames[p.templateId]||p.templateId)}</span>
+      <span class="event-message">${esc(p.actor)} · ${esc(p.deviceId||'自动选择')} ${p.planId?'· '+esc(p.planId):''}</span>
+      ${p.status==='pending'?`<button type="button" data-proposal-approve="${esc(p.id)}">家长批准</button><button type="button" data-proposal-reject="${esc(p.id)}">拒绝</button>`:''}
+      <button type="button" data-proposal-timeline="${esc(p.id)}">事件</button>
+    </div>`).join('')||'<p class="helper">暂无待审核建议。</p>';
+    $('proposal-notice').textContent=`建议分类器：${result.provider} · ${list.length} 条记录。请检查任务目标、权限与设备能力后再批准。`;
+  }catch(err){$('proposal-notice').textContent=err.message;}
+}
+$('proposal-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(proposalBusy)return;proposalBusy=true;
+  try{
+    const result=await api('/api/proposals/create',{text:$('proposal-text').value.trim(),requestId:'pui_'+crypto.randomUUID().replaceAll('-','')});
+    $('proposal-notice').textContent=result.ok?'计划建议已生成，尚未执行。':'无法生成：'+(result.message||'不支持的意图');
+    lastProposalPoll=0;await refreshProposals();
+  }catch(err){$('proposal-notice').textContent=err.message;}
+  finally{proposalBusy=false;}
+});
+$('proposal-list').addEventListener('click',async event=>{
+  const a=event.target.closest('[data-proposal-approve]'),r=event.target.closest('[data-proposal-reject]'),t=event.target.closest('[data-proposal-timeline]');
+  if(!a&&!r&&!t)return;
+  try{
+    if(t){
+      const response=await fetch('/api/proposals/timeline/'+encodeURIComponent(t.dataset.proposalTimeline));
+      if(!response.ok)throw new Error('无法读取计划事件');
+      const data=await response.json();
+      $('proposal-timeline').innerHTML=data.events.map(e=>`<div class="event-row"><span class="event-time">#${esc(e.seq)}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message">${esc(e.source)} · ${esc(e.planId||e.proposalId)}</span></div>`).join('');
+      return;
+    }
+    if(proposalBusy)return;proposalBusy=true;
+    const result=await api(a?'/api/proposals/approve':'/api/proposals/reject',{proposalId:a?a.dataset.proposalApprove:r.dataset.proposalReject});
+    $('proposal-notice').textContent=result.ok?(a?'计划已通过审核并进入执行器':'计划已拒绝'):'操作未执行：'+(result.message||'失败');
+    lastProposalPoll=0;await refreshProposals();
+  }catch(err){$('proposal-notice').textContent=err.message;}
+  finally{proposalBusy=false;}
+});
+const previousLaunchForProposals=launchConsole;
+launchConsole=()=>{
+  previousLaunchForProposals();
+  $('proposal-section').classList.toggle('hidden',authorizedActor!=='parent');
+  if(authorizedActor==='parent')setInterval(refreshProposals,1800);
+  void refreshProposals();
+};

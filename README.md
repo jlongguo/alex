@@ -1,8 +1,15 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.7.0 · allowlisted plans, durable events, family auth and multi-device simulation**
+> **v0.8.0 · parent-approved plan proposals, allowlisted plans, durable events, family auth and multi-device simulation**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.8 新增
+
+- 儿童或家长可通过本地认证创建 AI 计划建议；建议不执行动作，家长审核后才使用既有 PlanOrchestrator。
+- 默认离线规则分类器，`ALEX_PLAN_PROVIDER=compatible` 才发送自然语言给 HTTPS 模型提供商（需显式配置模型凭据）。
+- 10 分钟审批期限、崩溃后停止、幂等请求、审计与任务事件关联。详见 `docs/V0.8.md`。
+- 仍然只支持固定模拟任务模板；没有真实电机或开放式 AI 编排。
 
 ## v0.3 新增
 

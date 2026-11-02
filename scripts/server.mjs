@@ -11,6 +11,7 @@ import {FamilyProfiles} from './family-profiles.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
 import {PlanOrchestrator} from './plan-orchestrator.mjs';
+import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -33,6 +34,11 @@ const provider=useAgent?new CompatibleAgentProvider({baseUrl:process.env.AGENT_B
 const core = new HomeCore(provider);
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
+if(!['rules','compatible'].includes(process.env.ALEX_PLAN_PROVIDER??'rules'))throw new Error('INVALID_PLAN_PROVIDER');
+const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
+  ?new CompatiblePlanProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL})
+  :new RulePlanProvider();
+const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
 const saved=await store.load();
 if(saved)core.restore(saved);
@@ -42,6 +48,7 @@ await profiles.load();
 await gateway.load();
 await workflows.load();
 await plans.load();
+await proposals.load();
 await store.save(core.snapshot());
 let persistTimer=null;
 const schedulePersist=()=>{
@@ -162,7 +169,14 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    if(pathname==='/api/proposals'){send(res,200,{proposals:proposals.list(),provider:proposalProvider.kind});return;}
+    const id=decodeURIComponent(pathname.slice('/api/proposals/timeline/'.length));
+    send(res,200,proposals.timeline(id));return;
+  }
   if(req.method==='GET' && (pathname==='/api/plans'||pathname==='/api/plans/events')){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -218,6 +232,18 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       }else if(pathname==='/api/gateway/dispatch'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result=await gateway.dispatch(actor,data);
+      }else if(pathname==='/api/proposals/create'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await proposals.propose(actor,data);
+        await audit.record({actor,action:'proposal.create',outcome:result.ok?'allowed':'denied',requestId:data.requestId});
+      }else if(pathname==='/api/proposals/approve'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await proposals.approve(actor,data.proposalId);
+        await audit.record({actor,action:'proposal.approve',outcome:result.ok?'allowed':'denied'});
+      }else if(pathname==='/api/proposals/reject'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await proposals.reject(actor,data.proposalId);
+        await audit.record({actor,action:'proposal.reject',outcome:result.ok?'allowed':'denied'});
       }else if(pathname==='/api/plans/start'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result=await plans.start(actor,data);
