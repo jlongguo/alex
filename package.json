@@ -1,9 +1,9 @@
 {
   "name": "home-agent-os",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
-  "description": "Local-first home hub with family auth, opt-in agent, virtual device gateway and simulation",
+  "description": "Local-first home hub with family auth, opt-in agent, virtual device gateway, orchestrated workflows and simulation",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/server.mjs",

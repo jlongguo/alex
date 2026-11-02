@@ -51,3 +51,9 @@
 - Independent paired virtual devices, parent-approved capabilities, bearer-authenticated SSE/poll inbox, feedback and durable task state.
 - Agent virtual task route, multi-device simulator CLI and Console inspection.
 - Follow-on: a reliable real LAN device protocol, profile-scoped memory, transaction-safe storage, robot safety controller and ROS 2 simulation bridge. No real motion control yet.
+
+### v0.6 — virtual workflow orchestration (implemented)
+
+- Added an allowlisted, durable parent-only workflow coordinator combining virtual navigation, trusted hub skill, and virtual audio output.
+- Added deterministic composite command parsing, device capability matching, idempotency, cancellation and restart safety, simulated multi-stage integration tests.
+- Real conversational AI, safe ROS bridges and child-restricted delegated motion remain explicitly **not implemented**.

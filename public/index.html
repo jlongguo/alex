@@ -21,7 +21,7 @@
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-card"><span class="tiny-overline">运行模式</span><strong>Local Simulation</strong><p>确定性指令解析 · 无云端 AI · 无真实运动硬件</p><span class="local-pill"><span class="signal"></span>LOCAL ONLY</span></div>
-      <div class="sidebar-footer">Home Agent OS <span>v0.5.0</span></div>
+      <div class="sidebar-footer">Home Agent OS <span>v0.6.0</span></div>
     </aside>
 
     <main class="main">
@@ -93,6 +93,17 @@
           <button type="submit">下发模拟导航</button>
         </form>
         <div id="gateway-tasks" class="event-list" aria-live="polite"></div>
+      </section>
+      <section class="panel events-panel" id="workflow-section">
+        <div class="panel-header"><div><div class="eyebrow">WORKFLOW ORCHESTRATOR</div><h2>跨设备技能编排 <span class="version-label">V0.6 SIMULATION</span></h2></div><span class="pill">PARENT ONLY</span></div>
+        <p class="helper">机器人先完成虚拟导航，再启动英语或故事演示技能，最后通过虚拟音频回复。只有家长授权的虚拟设备才能执行，重启不会自动重放任务。</p>
+        <form id="workflow-form" class="command-form">
+          <select id="workflow-recipe" aria-label="工作流模式"><option value="study.english">去书桌陪我学英语</option><option value="story.corner">去故事角讲故事</option></select>
+          <select id="workflow-device" aria-label="设备选择"><option value="">自动选择已授权设备</option></select>
+          <button type="submit">启动工作流</button>
+        </form>
+        <div id="workflow-notice" class="command-result" role="status">等待开始：需要本地家长认证与已批准的虚拟设备。</div>
+        <div id="workflow-list" class="event-list" aria-live="polite"></div>
       </section>
       <section class="panel events-panel"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div id="events" class="event-list" aria-live="polite"></div></section>
       <footer>HOME AGENT OS · P0–P3 VERTICAL SLICE <span>本地模拟器，不可用于实际机器人安全认证</span></footer>

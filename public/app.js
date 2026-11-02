@@ -29,7 +29,7 @@ function render(s){mapDraw(s);$('device-count').innerHTML='1 <sub>台</sub>';$('
  const icons=['📚','📖','🏠']; $('skills-list').innerHTML=s.skills.map((skill,i)=>`<div class="skill-item"><div class="skill-icon">${icons[i]??'✳'}</div><div class="skill-info"><strong>${esc(skill.name)}</strong><small>${esc(skill.description)}</small></div><button data-skill="${esc(skill.id)}">启动</button></div>`).join('');
  const events=s.events.slice(-9).reverse();$('event-counter').textContent=s.events.length+' EVENTS';$('events').innerHTML=events.map(e=>`<div class="event-row"><span class="event-time">${new Date(e.timestamp).toLocaleTimeString('zh-CN',{hour12:false})}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message" title="${esc(e.message)}">${esc(e.message)}</span></div>`).join('');
 }
-$('command-form').addEventListener('submit',async e=>{e.preventDefault();const t=$('command-text').value.trim();if(t)await act('/api/command',{text:t,actor:$('actor').value});});
+$('command-form').addEventListener('submit',async e=>{e.preventDefault();const t=$('command-text').value.trim();if(t)await act('/api/command',{text:t,actor:$('actor').value,requestId:'ui_'+crypto.randomUUID().replaceAll('-','')});});
 document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>{$('command-text').value=b.dataset.command;$('command-form').requestSubmit();}));
 document.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',()=>act('/api/tasks',{capability:b.dataset.dest==='dock'?'navigation.dock':'navigation.goto',params:{destination:b.dataset.dest},actor:$('actor').value})));
 $('skills-list').addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
@@ -141,4 +141,47 @@ launchConsole=()=>{oldLaunchConsole();authorizedActor=$('actor').disabled?$('act
   $('gateway-section').classList.toggle('hidden',authorizedActor!=='parent');
   if(authorizedActor==='parent')setInterval(refreshGateway,1800);
   void refreshGateway();
+};
+
+// v0.6: parent-only, local-auth workflow console. No hardware actuation APIs.
+let lastWorkflowRefresh=0,workflowBusy=false;
+async function refreshWorkflows(){
+  if(authorizedActor!=='parent')return;
+  const now=Date.now();if(now-lastWorkflowRefresh<1200)return;lastWorkflowRefresh=now;
+  try{
+    const [workflowsResponse,devicesResponse]=await Promise.all([fetch('/api/workflows'),fetch('/api/devices')]);
+    if(!workflowsResponse.ok||!devicesResponse.ok)throw new Error('需要家长登录');
+    const workflows=(await workflowsResponse.json()).workflows;
+    const devices=(await devicesResponse.json()).devices.filter(d=>d.id?.startsWith('dev-')&&!d.revoked&&['sim.navigation.goto','audio.output'].every(cap=>(d.capabilities||[]).includes(cap)));
+    const select=$('workflow-device'),previous=select.value;
+    select.innerHTML='<option value="">自动选择已授权设备</option>'+devices.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+    if(devices.some(d=>d.id===previous))select.value=previous;
+    $('workflow-list').innerHTML=workflows.slice(0,10).map(w=>{
+      const steps=w.steps.map(s=>`${esc(s.name)}: ${esc(s.status)}`).join(' · ');
+      return `<div class="event-row"><span class="event-time">${esc(w.status)}</span><span class="event-kind">${esc(w.recipe)}</span><span class="event-message">${esc(w.deviceId)} · ${steps}${w.reason?' · '+esc(w.reason):''}</span>${['dispatching','navigating','speaking'].includes(w.status)?`<button type="button" data-cancel-workflow="${esc(w.id)}">取消</button>`:''}</div>`;
+    }).join('')||'<p class="helper">暂无工作流。请先启动一台已批准导航和音频输出能力的虚拟设备。</p>';
+  }catch(err){$('workflow-notice').textContent=err.message;}
+}
+$('workflow-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(workflowBusy)return;workflowBusy=true;
+  try{
+    const recipe=$('workflow-recipe').value,deviceId=$('workflow-device').value||undefined;
+    const requestId='wfui_'+crypto.randomUUID().replaceAll('-','');
+    const result=await api('/api/workflows/start',{recipe,deviceId,requestId});
+    $('workflow-notice').textContent=`工作流已创建：${result.workflow.id}，等待虚拟设备反馈。`;
+    lastWorkflowRefresh=0;await refreshWorkflows();
+  }catch(err){$('workflow-notice').textContent=err.message;}
+  finally{workflowBusy=false;}
+});
+$('workflow-list').addEventListener('click',async event=>{
+  const button=event.target.closest('[data-cancel-workflow]');if(!button)return;
+  try{await api('/api/workflows/cancel',{workflowId:button.dataset.cancelWorkflow});lastWorkflowRefresh=0;await refreshWorkflows();}
+  catch(err){$('workflow-notice').textContent=err.message;}
+});
+const previousLaunchForWorkflows=launchConsole;
+launchConsole=()=>{
+  previousLaunchForWorkflows();
+  $('workflow-section').classList.toggle('hidden',authorizedActor!=='parent');
+  if(authorizedActor==='parent')setInterval(refreshWorkflows,1500);
+  void refreshWorkflows();
 };

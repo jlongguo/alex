@@ -145,3 +145,14 @@ ALEX_DEVICE_ID='dev-...' ALEX_DEVICE_TOKEN='the-one-time-token' npm run virtual-
 The token must remain private and should not be committed. Approve a device's declared virtual capabilities as a parent. In the browser control center, the multi-device section shows device grants and virtual jobs and allows sending `sim.navigation.goto` tasks.
 
 See [v0.5 specification and API guide](docs/V0.5.md) for the complete workflow, security boundaries, reboot behavior and sample request bodies. **No physical movement is supported.**
+
+## v0.6 — Composite robot + skill workflows
+
+Alex can now execute **two allowlisted simulated workflows** from the same parent-only local console:
+
+- `study.english`: navigate a paired virtual robot to the study desk → invoke trusted English demo skill on Home Core → send bounded `audio.output` text to the same device.
+- `story.corner`: navigate to the story corner → invoke story demo skill → send virtual audio text.
+
+Prerequisites: `AUTH_MODE=local`, a paired running virtual client, and **explicit parent approval** of `sim.navigation.goto` plus `audio.output`. Open the **Workflow Orchestrator** panel or submit “去书桌陪我学英语” in the command input. New endpoints: `GET /api/workflows`, `POST /api/workflows/start`, `POST /api/workflows/command`, and `POST /api/workflows/cancel`.
+
+Workflows persist to `WORKFLOW_FILE` (default `.local/workflows.json`), are idempotent via request ID, and **stop without replay** after restart, device outage, revoked grant or cancellation. These are *simulated* device acknowledgements, not real navigation, sound playback or real AI teaching. See [docs/V0.6.md](docs/V0.6.md).
