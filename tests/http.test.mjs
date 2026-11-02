@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname,resolve } from 'node:path';
 
@@ -17,8 +20,9 @@ async function waitHealth(url, child) {
 }
 
 test('HTTP integration: boot server, navigation, child safety, emergency stop', {timeout:15000},async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'alex-http-v01-'));
   const port=45000+Math.floor(Math.random()*15000),base=`http://127.0.0.1:${port}`;
-  const child=spawn(process.execPath,['scripts/server.mjs'],{cwd,env:{...process.env,PORT:String(port)},stdio:'ignore'});
+  const child=spawn(process.execPath,['scripts/server.mjs'],{cwd,env:{...process.env,PORT:String(port),STATE_FILE:join(dir,'state.json'),AGENT_PROVIDER:'rules'},stdio:'ignore'});
   try{
     await waitHealth(base,child);
     const health=await (await fetch(base+'/api/health')).json();
@@ -43,5 +47,6 @@ test('HTTP integration: boot server, navigation, child safety, emergency stop', 
   }finally{
     child.kill('SIGTERM');
     if(child.exitCode===null)await Promise.race([once(child,'exit'),new Promise(r=>setTimeout(r,800))]);
+    await rm(dir,{recursive:true,force:true});
   }
 });
