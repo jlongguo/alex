@@ -159,11 +159,11 @@ export class HomeCore {
     if(intent.type==='stop')return this.emergencyStop(actor);
     return {ok:false,message:'无法识别该指令。'};
   }
-  async commandAsync(text:string,actor:Actor,requestId?:string):Promise<CommandResult> {
+  async commandAsync(text:string,actor:Actor,requestId?:string,hints?:import('./providers.js').AgentMemoryHint[]):Promise<CommandResult> {
     this.assertActor(actor);
     if(typeof text!=='string'||!text.trim()||text.length>500)throw new Error('INVALID_COMMAND');
     try {
-      const proposed=await this.provider.propose(text);
+      const proposed=await this.provider.propose(text,hints);
       return this.executeIntent(validateProposal(proposed),actor,requestId);
     }catch(err){
       // Fail closed. Do not guess and issue motion commands when the LLM fails.
