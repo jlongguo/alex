@@ -40,6 +40,16 @@ def configure_nav2(source):
     behavior = nested(data, 'behavior_server', 'ros__parameters')
     collision_monitor = nested(data, 'collision_monitor', 'ros__parameters')
 
+    # Jazzy's default BT Action goal-ack window is 20 ms. A local Gazebo
+    # process sharing CPU with OGRE2 and MPPI may briefly defer a planner
+    # server callback even when planning itself is healthy. Keep a bounded
+    # 1-second acknowledgement timeout, without changing the per-leg action
+    # deadline or permitting an aborted goal to pass acceptance.
+    ack_timeout = bt_navigator.get('default_server_timeout')
+    if type(ack_timeout) is not int or not (1 <= ack_timeout <= 60_000):
+        raise IncompatibleNav2Template('Invalid bt_navigator.default_server_timeout')
+    bt_navigator['default_server_timeout'] = 1000
+
     amcl.update({
         'use_sim_time': True, 'base_frame_id': 'base_link',
         'odom_frame_id': 'odom', 'global_frame_id': 'map',
@@ -126,6 +136,27 @@ def configure_nav2(source):
         raise IncompatibleNav2Template('Unsupported installed FollowPath controller configuration')
     if 'desired_linear_vel' in follow_path:
         follow_path['desired_linear_vel'] = 0.20
+
+    if follow_path.get('plugin') == 'nav2_mppi_controller::MPPIController':
+        # The installed Jazzy template samples ~2000 * 56 trajectories at
+        # 20 Hz and may visualize them. Do not spend software-rendered Docker
+        # CPU on diagnostic visuals during acceptance. A smaller batch
+        # preserves MPPI, its critics, and the 20-Hz prediction time base.
+        batch_size = follow_path.get('batch_size')
+        if type(batch_size) is not int or not (1 <= batch_size <= 100_000):
+            raise IncompatibleNav2Template('Invalid FollowPath MPPI batch_size')
+        model_dt = follow_path.get('model_dt')
+        control_hz = controller.get('controller_frequency')
+        if (not isinstance(model_dt, (float, int)) or isinstance(model_dt, bool)
+                or not isinstance(control_hz, (float, int)) or isinstance(control_hz, bool)
+                or not (0.001 <= model_dt <= 1.0 and 1.0 <= control_hz <= 100.0)
+                or abs(float(model_dt) - 1.0 / float(control_hz)) > 1e-6):
+            raise IncompatibleNav2Template('MPPI model_dt must match controller_frequency')
+        follow_path['batch_size'] = min(batch_size, 750)
+        if 'visualize' in follow_path:
+            follow_path['visualize'] = False
+        if 'publish_optimal_trajectory' in follow_path:
+            follow_path['publish_optimal_trajectory'] = False
 
     return data
 
