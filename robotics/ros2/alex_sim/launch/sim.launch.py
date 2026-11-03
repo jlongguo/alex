@@ -23,12 +23,20 @@ def generate_launch_description():
     models = share / 'models'
     resource_path = str(models) + os.pathsep + os.environ.get('GZ_SIM_RESOURCE_PATH', '')
     ros_gz = Path(get_package_share_directory('ros_gz_sim'))
+    bringup = Path(get_package_share_directory('nav2_bringup'))
+    bringup_launch = bringup / 'launch' / 'bringup_launch.py'
+    if not bringup_launch.is_file():
+        raise RuntimeError('NAV2_BRINGUP_LAUNCH_MISSING: ' + str(bringup_launch))
     with_nav2 = LaunchConfiguration('with_nav2')
-    # --headless-rendering permits GPU lidar in a headless Gazebo server if EGL works.
-    # GUI requires a supported graphics environment; CLI override is documented.
+    # Headless EGL for simulated GPU lidar is opt-in and requires a working OGRE2
+    # rendering backend. It is not the same as just running a Gazebo server (-s).
+    headless = os.environ.get('ALEX_GZ_HEADLESS_RENDERING', '0')
+    if headless not in ('0', '1'):
+        raise RuntimeError('INVALID_HEADLESS_RENDERING_FLAG')
+    gz_args = '-r -s ' + ('--headless-rendering ' if headless == '1' else '') + str(world)
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(ros_gz / 'launch' / 'gz_sim.launch.py')),
-        launch_arguments={'gz_args': ['-r -s ', str(world)]}.items(),
+        launch_arguments={'gz_args': gz_args}.items(),
     )
     # launch-ros-sim.sh generates this from *installed* Jazzy defaults and
     # validates nested parameters. A missing file must fail closed.
@@ -36,7 +44,7 @@ def generate_launch_description():
     if not params_file or not Path(params_file).is_file():
         raise RuntimeError('NAV2_PARAMS_NOT_GENERATED: run scripts/launch-ros-sim.sh')
     nav2 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(str(bringup / 'launch' / 'bringup_launch.py')),
+        PythonLaunchDescriptionSource(str(bringup_launch)),
         launch_arguments={
             'slam': 'False', 'map': str(share / 'maps' / 'alex_home.yaml'),
             'use_sim_time': 'True', 'params_file': params_file,

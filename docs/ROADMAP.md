@@ -1,3 +1,10 @@
+# Current v0.13 status (2026-11-03)
+
+- **Launch-time crash fixed** (`nav2_bringup` path), Launch function executed under ROS API stubs, headless GPU LiDAR mode added.
+- Acceptance reports fail closed: old `passed` is cleared at start, and only an actual three-leg ROS run may mark `passed`.
+- Offline suite passes **98 tests**, including report integrity and semantics. **ROS 2/Gazebo/Nav2 runtime remains unverified** because required simulators are absent locally.
+- Next: manual simulation-only ROS runner -> obtain real log and TF/scan/odom/goal evidence -> fix any observed integration defects; do not widen physical features until accepted.
+
 # Current v0.12 status (2026-11-03)
 
 - **Code complete, live ROS/Gazebo acceptance unverified.** Strict Jazzy Nav2 parameter generator, ROS-independent goal/TF evidence validators, optional multi-leg real Nav2 smoke, preflight and report files added. See `docs/V0.12.md`.
