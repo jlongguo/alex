@@ -19,6 +19,12 @@ if [[ -n "${ALEX_CHILD_PIN:-}" && ! "${ALEX_CHILD_PIN}" =~ ^[0-9]{6,12}$ ]]; the
   echo 'ALEX_CHILD_PIN 必须是 6–12 位数字；未启动服务。' >&2
   exit 2
 fi
+if [[ ! -f "$ROOT/node_modules/typescript/lib/tsc.js" ]]; then
+  echo '本地 TypeScript 依赖缺失或损坏，未启动服务。' >&2
+  echo '修复命令（在项目根目录执行）：rm -rf node_modules && pnpm install --frozen-lockfile' >&2
+  echo 'Docker 仿真容器使用独立 node_modules volume，不应再覆盖宿主机 pnpm 依赖。' >&2
+  exit 2
+fi
 export AUTH_MODE=local ALEX_PARENT_PASSWORD
 npm run build
 exec node scripts/server.mjs

@@ -63,7 +63,7 @@ run_sim() {
   compose run --rm -T sim bash -lc "$1"
 }
 
-npm_setup='npm install --ignore-scripts --no-audit --no-fund'
+npm_setup='npm install --ignore-scripts --no-package-lock --no-audit --no-fund'
 
 command_check() {
   msg 'Running regression tests and offline ROS asset checks inside container'

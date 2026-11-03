@@ -75,6 +75,21 @@ async function receive(){
 }
 process.on('SIGINT',()=>{stopping=true;process.exit(0);});
 process.on('SIGTERM',()=>{stopping=true;process.exit(0);});
+// Fail clearly before sending device credentials to a demo server.
+async function assertLocalFamilyServer() {
+  let response;
+  try {
+    response=await fetch(new URL('/api/health',endpoint),{signal:AbortSignal.timeout(5000)});
+  } catch {
+    throw new Error('ALEX_SERVER_UNREACHABLE: start Alex using bash scripts/start-local.sh on port 4317');
+  }
+  if(!response.ok)throw new Error(`ALEX_SERVER_HEALTH_HTTP_${response.status}`);
+  const health=await response.json();
+  if(health.authMode!=='local'){
+    throw new Error('LOCAL_AUTH_REQUIRED: the running server is in demo mode; stop it, then run bash scripts/start-local.sh before starting the virtual device');
+  }
+}
+await assertLocalFamilyServer();
 await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:2});
 await heartbeat();
 console.log(`[virtual] ${deviceId} connected; navigation backend=${backend}; waiting for parent capability approval`);
