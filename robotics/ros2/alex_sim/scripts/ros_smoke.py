@@ -37,7 +37,8 @@ def main():
     if not (10 <= args.timeout <= 600) or not (15 <= args.goal_timeout <= 600):
         raise SystemExit('Invalid acceptance timeouts')
 
-    from alex_sim.acceptance import ACCEPTANCE_ROUTE, DESK, summarize_leg, verify_graph
+    from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
+                                     verify_graph, graph_readiness_snapshot, GRAPH_TOPICS)
     import rclpy
     from action_msgs.msg import GoalStatus
     from rclpy.action import ActionClient
@@ -103,12 +104,48 @@ def main():
     tf_listener = TransformListener(tf_buffer, node, spin_thread=False)
     action = ActionClient(node, NavigateToPose, '/navigate_to_pose')
 
+    def graph_snapshot():
+        try:
+            topics = [name for name, _ in node.get_topic_names_and_types()]
+        except Exception:
+            topics = []
+        publishers = {}
+        for topic in GRAPH_TOPICS:
+            try:
+                publishers[topic] = node.count_publishers(topic)
+            except Exception:
+                publishers[topic] = 0
+        _, tf_fresh = current_tf_pose()
+        return graph_readiness_snapshot(
+            seen, frames, clock_times, odom_samples=len(latest_odom),
+            scan_samples=len(latest_scan),
+            scan_ranges=len(latest_scan[-1].ranges) if latest_scan else 0,
+            map_valid=bool(validated_map), tf_fresh=tf_fresh,
+            nav2_ready=action.server_is_ready(),
+            observed_topics=topics, publisher_counts=publishers)
+
+    def record_graph_snapshot():
+        snapshot = graph_snapshot()
+        report['graph'] = snapshot
+        save_report(report, args.report)
+        print('ROS graph snapshot:', json.dumps({
+            'missing': snapshot['missing'], 'publishers': snapshot['publishers'],
+            'observed_topics': snapshot['observed_topics'],
+            'hints': snapshot['hints']}, ensure_ascii=False), flush=True)
+        return snapshot
+
     def spin_until(predicate, timeout, *, stage):
         deadline = time.monotonic() + timeout
+        next_snapshot = time.monotonic() + 15
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
             if predicate():
                 return
+            if stage == 'ROS_GRAPH' and time.monotonic() >= next_snapshot:
+                record_graph_snapshot()
+                next_snapshot = time.monotonic() + 15
+        if stage == 'ROS_GRAPH':
+            record_graph_snapshot()
         raise RuntimeError(f'{stage}_TIMEOUT')
 
     def current_tf_pose():
@@ -199,6 +236,8 @@ def main():
     try:
         spin_until(graph_is_ready, args.timeout, stage='ROS_GRAPH')
         verify_graph(seen, frames, True, clock_times[-1] > clock_times[0])
+        # Store positive graph evidence as well as failure diagnostics.
+        report['graph'] = graph_snapshot()
         report['checks'].append('clock_scan_odom_map_tf_nav2_ready')
         report['initial_pose'] = list(current_tf_pose()[0])
         save_report(report, args.report)

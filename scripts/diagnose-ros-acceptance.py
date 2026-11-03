@@ -47,6 +47,7 @@ def diagnose(report, preflight, log):
         'run_id': state.get('run_id'),
         'preflight_status': check.get('status', 'not_run'),
         'preflight_blockers': check.get('blockers', []),
+        'graph': state.get('graph', {}),
         'suspected_stages': detected,
         'runtime_validation': 'SEE_ACCEPTANCE_REPORT',
         'note': 'Diagnostic hints only. Real navigation success requires the validated three-leg report.',
