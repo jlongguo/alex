@@ -9,15 +9,15 @@ import re
 import subprocess
 
 
-_FLOAT = r'[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?'
+_FLOAT = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 _TRIPLET = re.compile(
-    r'\\[\\s*(' + _FLOAT + r')\\s*\\|\\s*(' + _FLOAT +
-    r')\\s*\\|\\s*(' + _FLOAT + r')\\s*\\]')
+    r'\[\s*(' + _FLOAT + r')\s*\|\s*(' + _FLOAT +
+    r')\s*\|\s*(' + _FLOAT + r')\s*\]')
 
 
 def parse_gz_model_pose(output):
     """Parse the two XYZ/RPY triplets from `gz model --pose` (radians)."""
-    anchor = re.search(r'Pose\\s*\\[\\s*XYZ\\s*\\(m\\)\\s*\\].*?RPY\\s*\\(rad\\)',
+    anchor = re.search(r'Pose\s*\[\s*XYZ\s*\(m\)\s*\].*?RPY\s*\(rad\)',
                        output, re.I | re.S)
     if anchor is None:
         raise ValueError('GAZEBO_MODEL_POSE_HEADER_MISSING')
