@@ -34,6 +34,11 @@ test('v0.12 Nav2 tuning keeps nested ROS params and controller plugin with no Py
   assert.deepEqual([amcl.initial_pose.x,amcl.initial_pose.y],[0.7,2.8]);
   assert.equal(config.controller_server.ros__parameters.FollowPath.plugin,'nav2_mppi_controller::MPPIController');
   assert.equal(config.controller_server.ros__parameters.FollowPath.vx_max,0.2);
+  assert.equal(config.controller_server.ros__parameters.controller_frequency,20);
+  const mppi=config.controller_server.ros__parameters.FollowPath;
+  assert.equal(mppi.batch_size,750);
+  assert.equal(mppi.model_dt,0.05);
+  assert.equal(mppi.visualize,false);
   assert.equal(config.controller_server.ros__parameters.general_goal_checker.xy_goal_tolerance,0.08);
   for(const costmap of ['local_costmap','global_costmap']){
     const c=config[costmap][costmap].ros__parameters;
@@ -42,6 +47,7 @@ test('v0.12 Nav2 tuning keeps nested ROS params and controller plugin with no Py
     assert.equal(c.use_sim_time,true);
   }
   assert.equal(config.bt_navigator.ros__parameters.use_sim_time,true);
+  assert.equal(config.bt_navigator.ros__parameters.default_server_timeout,1000);
   assert.equal(config.bt_navigator.ros__parameters.robot_base_frame,'base_link');
   assert.equal(config.behavior_server.ros__parameters.robot_base_frame,'base_link');
   const monitor=config.collision_monitor.ros__parameters;
@@ -67,7 +73,18 @@ for candidate in ({'amcl': {'ros__parameters': {}}},
                   {**source,'collision_monitor':{'ros__parameters':{
                        **source['collision_monitor']['ros__parameters'],
                        'cmd_vel_out_topic':'unsafe_bypass'
-                   }}}):
+                   }}},
+                  {**source, 'bt_navigator':{'ros__parameters':{
+                       **source['bt_navigator']['ros__parameters'],
+                       'default_server_timeout':'20ms'}}},
+                  {**source, 'controller_server':{'ros__parameters':{
+                       **source['controller_server']['ros__parameters'],
+                       'controller_frequency':10}}},
+                  {**source, 'controller_server':{'ros__parameters':{
+                       **source['controller_server']['ros__parameters'],
+                       'FollowPath':{
+                           **source['controller_server']['ros__parameters']['FollowPath'],
+                           'batch_size':0}}}}):
   try: configure_nav2(candidate)
   except IncompatibleNav2Template: pass
   else: raise RuntimeError('unsafe tuning accepted an incompatible template')`,pypath,jsonFixture]);
@@ -87,7 +104,7 @@ test('v0.12 YAML CLI either round-trips Nav2 settings or reports how to install 
     }
     assert.equal(res.status,0,res.stderr);
     const text=readFileSync(out,'utf8');
-    for(const pattern of [/base_frame_id: base_link/,/cmd_vel_in_topic: cmd_vel_smoothed/,/cmd_vel_out_topic: cmd_vel/,/set_initial_pose: true/,/x: 0\.7/,/y: 2\.8/,
+    for(const pattern of [/base_frame_id: base_link/,/default_server_timeout: 1000/,/batch_size: 750/,/visualize: false/,/cmd_vel_in_topic: cmd_vel_smoothed/,/cmd_vel_out_topic: cmd_vel/,/set_initial_pose: true/,/x: 0\.7/,/y: 2\.8/,
       /robot_radius: 0\.19/,/inflation_radius: 0\.24/,/xy_goal_tolerance: 0\.08/,
       /vx_max: 0\.2/,/plugin: nav2_mppi_controller::MPPIController/,/use_sim_time: true/]) {
       assert.match(text,pattern);
