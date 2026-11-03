@@ -22,6 +22,8 @@ for i in range(4):
     assert w.find(f'./model[@name="furniture_{i}"]') is not None
 assert model.find('./model[@name="alex_bot"]') is not None
 m = model.find('./model')
+assert m.attrib.get('canonical_link') == 'base_link'
+assert m.find('./canonical_link') is None
 assert {'base_link', 'left_wheel', 'right_wheel', 'caster'} <= {x.get('name') for x in m.findall('./link')}
 assert {'left_wheel_joint', 'right_wheel_joint'} <= {x.get('name') for x in m.findall('./joint')}
 assert m.find('.//sensor[@type="gpu_lidar"]/topic').text == '/scan'
