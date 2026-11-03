@@ -15,10 +15,12 @@
       <div class="brand"><div class="brand-glyph">◈</div><div><strong>HOMEBRAIN</strong><small>Agent & Robotics OS</small></div></div>
       <div class="nav-caption">WORKSPACE</div>
       <nav class="nav" aria-label="工作区导航">
-        <a class="nav-item selected" href="#overview" data-page-link="overview" aria-current="page"><span aria-hidden="true">▦</span> 指挥中心</a>
-        <a class="nav-item" href="#devices" data-page-link="devices"><span aria-hidden="true">◈</span> 设备管理 <b id="nav-device-count">1</b></a>
+        <a class="nav-item selected" href="#overview" data-page-link="overview" aria-current="page"><span aria-hidden="true">▦</span> 总览</a>
+        <a class="nav-item" href="#tasks" data-page-link="tasks"><span aria-hidden="true">⌘</span> Agent 与任务</a>
+        <a class="nav-item" href="#devices" data-page-link="devices"><span aria-hidden="true">◈</span> 设备与机器人 <b id="nav-device-count">1</b></a>
         <a class="nav-item" href="#skills" data-page-link="skills"><span aria-hidden="true">✳</span> 技能中心 <b id="nav-skill-count">3</b></a>
-        <a class="nav-item" href="#events" data-page-link="events"><span aria-hidden="true">▤</span> 事件与日志</a>
+        <a class="nav-item" href="#events" data-page-link="events"><span aria-hidden="true">▤</span> 事件与审计</a>
+        <a class="nav-item" href="#family" data-page-link="family"><span aria-hidden="true">♧</span> 家庭与设置</a>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-card"><span class="tiny-overline">运行模式</span><strong>Local Simulation</strong><p>确定性指令解析 · 无云端 AI · 无真实运动硬件</p><span class="local-pill"><span class="signal"></span>LOCAL ONLY</span></div>
@@ -27,10 +29,14 @@
 
     <main class="main">
       <div class="header">
-        <div><div class="eyebrow" id="page-eyebrow">HOME / CONTROL CENTER</div><h1>家庭智能中枢 <span>／</span> <em id="page-title">指挥中心</em></h1><p id="page-description">一个大脑，多个技能，一台正在成长的机器人。</p></div>
+        <div><div class="eyebrow" id="page-eyebrow">HOME / CONTROL CENTER</div><h1>家庭智能中枢 <span>／</span> <em id="page-title">总览</em></h1><p id="page-description">一个大脑，多个技能，一台正在成长的机器人。</p></div>
         <div class="header-right"><div class="connect-dot"></div><span id="connection">连接中...</span><div class="divider-v"></div><span class="time" id="clock">--:--</span><button type="button" id="logout" class="secondary-btn hidden">退出</button></div>
       </div>
-      <div id="notice" class="notice hidden" role="status"></div>
+      <section id="global-safety" class="global-safety" aria-label="全局模拟安全控制">
+        <div class="global-safety-readout"><span class="safety-symbol" aria-hidden="true">◉</span><strong>机器人安全</strong><span id="global-safety-state" aria-live="polite">读取中…</span><small>仅软件模拟，非物理急停</small></div>
+        <div class="global-safety-actions"><button type="button" id="btn-stop" class="danger-btn">■ 模拟紧急停止</button><button type="button" id="btn-reset" class="secondary-btn">↺ 家长复位</button></div>
+      </section>
+      <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
       <div class="stats-grid" data-nav-view="overview">
         <section class="stat-card"><span class="stat-icon mint">◈</span><div class="stat-main"><span>中枢状态</span><strong>运行中</strong><small>本地 Node Runtime</small></div></section>
         <section class="stat-card"><span class="stat-icon blue">⌘</span><div class="stat-main"><span>接入设备</span><strong id="device-count">1 <sub>台</sub></strong><small>虚拟机器人</small></div></section>
@@ -67,14 +73,14 @@
               <div><small>设备安全</small><strong id="safety-state">正常</strong></div>
             </div>
             <div class="progress-label"><span>任务进度</span><b id="progress-value">0%</b></div><div class="progress-track"><div id="progress-bar"></div></div>
-            <div class="safety-controls"><button id="btn-stop" class="danger-btn">■ 紧急停止</button><button id="btn-reset" class="secondary-btn">↺ 家长复位</button></div>
+            <p class="helper">模拟紧急停止与家长复位已移至顶部全局安全控制栏，切换页面后仍可操作。</p>
           </section>
           <section class="panel action-panel"><div class="panel-header"><div><div class="eyebrow">TEST CONDITIONS</div><h2>环境与权限</h2></div></div><div class="field-line"><span>当前角色</span><select id="actor"><option value="parent">家长 Parent</option><option value="child">儿童 Child</option></select></div><label class="field-line toggle-line"><span>模拟临时障碍物<small>插入后机器人安全停止</small></span><input type="checkbox" id="obstacle" /></label><p class="helper">Demo 模式允许模拟角色切换；Local Auth 模式下角色由已验证会话决定。</p></section>
         </div>
       </div>
       <div class="lower-grid" data-nav-view="overview">
         <section class="panel command-panel"><div class="panel-header"><div><div class="eyebrow">COMMAND INTERFACE</div><h2>向智能中枢下达指令</h2></div><span class="pill">RULE-BASED DEMO</span></div><form id="command-form" class="command-form"><input id="command-text" type="text" maxlength="500" autocomplete="off" placeholder="例如：去书桌、讲故事、学英语、紧急停止..." required /><button type="submit">发送 ↗</button></form><div id="command-result" class="command-result">等待下一条指令。当前使用确定性意图路由，尚未接入 LLM。</div><div class="chips"><button type="button" data-command="去书桌">去书桌</button><button type="button" data-command="去客厅">去客厅</button><button type="button" data-command="讲故事">讲故事</button><button type="button" data-command="学英语">学英语</button></div></section>
-        <section class="panel skills-panel"><div class="panel-header"><div><div class="eyebrow">INSTALLED SKILLS</div><h2>技能中心</h2></div><span class="version-label">3 ENABLED</span></div><div id="skills-list" class="skills-list"></div></section>
+        <section class="panel skills-panel"><div class="panel-header"><div><div class="eyebrow">NEXT ACTION</div><h2>更多操作</h2></div></div><p>所有跨设备任务、家长审批和技能运行现在都有独立工作区；原有功能并未删除。</p><div class="quick-links"><a href="#tasks">打开 Agent 与任务</a><a href="#skills">打开技能中心</a><a href="#devices">管理虚拟设备</a></div></section>
       </div>
       <section class="panel events-panel" id="device-access-note" data-nav-view="devices" role="status">
         <div class="panel-header"><div><div class="eyebrow">DEVICE ACCESS</div><h2>需要家长授权</h2></div></div>
@@ -83,7 +89,7 @@
       <section class="panel events-panel" id="skills-explorer" data-nav-view="skills">
         <div class="panel-header"><div><div class="eyebrow">SKILL REGISTRY</div><h2>已安装技能</h2></div><span class="version-label">SIMULATION ONLY</span></div>
         <p class="helper">此处显示中枢已注册的技能。可尝试启动允许当前身份使用的演示技能；权限仍由服务端判断。</p>
-        <div id="skill-page-list" class="skills-list"></div>
+        <div id="skills-list" class="skills-list"></div>
       </section>
       <section class="panel events-panel" id="gateway-section" data-nav-view="devices">
         <div class="panel-header"><div><div class="eyebrow">VIRTUAL DEVICE GATEWAY</div><h2>多设备任务派发 <span class="version-label">SIMULATION ONLY</span></h2></div><span class="pill">LOCAL AUTH</span></div>
@@ -106,7 +112,12 @@
         <div class="helper" style="margin-top:10px">虚拟导航位置反馈（仅模拟坐标，不表示真实机器人位置）</div>
         <svg id="gateway-navigation-map" viewBox="0 0 600 340" role="img" aria-label="已配对虚拟机器人的模拟地图坐标" style="width:100%;max-height:255px;border:1px solid var(--border, #dde4ed);border-radius:12px;background:#f1f6fa"></svg>
       </section>
-      <section class="panel events-panel" id="workflow-section" data-nav-view="overview">
+      <section class="panel events-panel" data-nav-view="tasks" id="tasks-intro">
+        <div class="panel-header"><div><div class="eyebrow">AGENT / TASK CENTER</div><h2>受控任务工作区</h2></div><span class="pill">SIMULATION ONLY</span></div>
+        <p>工作流、计划图、家长审核归在同一工作区。儿童可以提交计划建议；移动和设备执行仍必须由经过认证的家长批准。</p>
+        <p id="tasks-access-note" class="helper hidden" role="status">工作流与计划执行需要 AUTH_MODE=local 的家长账户。儿童账户只能提交建议，不可批准。</p>
+      </section>
+      <section class="panel events-panel" id="workflow-section" data-nav-view="tasks">
         <div class="panel-header"><div><div class="eyebrow">WORKFLOW ORCHESTRATOR</div><h2>跨设备技能编排 <span class="version-label">V0.6 SIMULATION</span></h2></div><span class="pill">PARENT ONLY</span></div>
         <p class="helper">机器人先完成虚拟导航，再启动英语或故事演示技能，最后通过虚拟音频回复。只有家长授权的虚拟设备才能执行，重启不会自动重放任务。</p>
         <form id="workflow-form" class="command-form">
@@ -117,7 +128,7 @@
         <div id="workflow-notice" class="command-result" role="status">等待开始：需要本地家长认证与已批准的虚拟设备。</div>
         <div id="workflow-list" class="event-list" aria-live="polite"></div>
       </section>
-      <section class="panel events-panel hidden" id="plan-section" data-nav-view="overview">
+      <section class="panel events-panel hidden" id="plan-section" data-nav-view="tasks">
         <div class="panel-header"><div><div class="eyebrow">PLAN ENGINE V0.7</div><h2>受控计划编排 <span class="version-label">VIRTUAL ONLY</span></h2></div><span class="pill">PARENT ONLY</span></div>
         <p class="helper">基于允许列表的计划模板，检查依赖、权限和设备在线状态，并记录步骤事件。并非任意 LLM 自主规划；不会发送真实电机指令。</p>
         <form id="plan-form" class="command-form">
@@ -129,7 +140,7 @@
         <div class="panel-header"><div><div class="eyebrow">DURABLE PLAN EVENTS</div><h2>任务事件历史</h2></div></div>
         <div id="plan-events" class="event-list" aria-live="polite"></div>
       </section>
-      <section class="panel events-panel hidden" id="proposal-section" data-nav-view="overview">
+      <section class="panel events-panel hidden" id="proposal-section" data-nav-view="tasks">
         <div class="panel-header"><div><div class="eyebrow">AGENT PROPOSAL GATE · V0.8</div><h2>AI 计划建议与家长审批 <span class="version-label">VIRTUAL ONLY</span></h2></div><span class="pill">PARENT APPROVAL</span></div>
         <p class="helper">用户的自然语言只会生成待审批的计划建议。默认使用本地规则分类器；只有显式配置 ALEX_PLAN_PROVIDER=compatible 才会把文本发送给模型。任何建议均不得直接控制机器人。</p>
         <form id="proposal-form" class="command-form">
@@ -137,10 +148,31 @@
           <button type="submit">生成待审批计划</button>
         </form>
         <div id="proposal-notice" class="command-result" role="status">等待建议，所有移动相关动作均需要家长批准。</div>
-        <div id="proposal-list" class="event-list" aria-live="polite"></div>
-        <div id="proposal-timeline" class="event-list" aria-live="polite"></div>
+        <div id="proposal-review-panel"><div id="proposal-list" class="event-list" aria-live="polite"></div>
+        <div id="proposal-timeline" class="event-list" aria-live="polite"></div></div>
       </section>
-      <section class="panel events-panel" id="events-section" data-nav-view="events"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div id="events" class="event-list" aria-live="polite"></div></section>
+      <section class="panel events-panel" id="events-section" data-nav-view="events"><div class="panel-header"><div><div class="eyebrow">EVENT STREAM</div><h2>实时事件日志</h2></div><span id="event-counter" class="version-label">0 EVENTS</span></div><div class="event-tools"><label for="events-filter">筛选事件</label><input id="events-filter" type="search" maxlength="100" placeholder="输入事件类型或消息内容" /></div><div id="events" class="event-list" aria-live="polite"></div></section>
+      <section class="panel events-panel" data-nav-view="events"><div class="panel-header"><div><div class="eyebrow">PARENT AUDIT</div><h2>操作审计</h2></div></div><p id="audit-access-note" class="helper">家长本地登录后可查看服务器操作审计。</p><div id="audit-list" class="event-list" aria-live="polite"></div></section>
+      <section class="panel events-panel" data-nav-view="family">
+        <div class="panel-header"><div><div class="eyebrow">FAMILY / PRIVACY</div><h2>家庭档案与记忆</h2></div></div>
+        <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。</p>
+        <div id="family-private" class="hidden">
+          <h3>学习者档案</h3>
+          <form id="profile-form" class="command-form">
+            <input id="profile-name" type="text" maxlength="32" placeholder="昵称" aria-label="学习者昵称" required />
+            <select id="profile-age" aria-label="年龄段"><option value="3-5">3–5 岁</option><option value="6-8">6–8 岁</option><option value="9-12">9–12 岁</option><option value="13-17">13–17 岁</option><option value="adult">成年</option></select>
+            <input id="profile-interests" type="text" maxlength="200" placeholder="兴趣，用英文逗号分隔（可选）" aria-label="兴趣" />
+            <button type="submit">添加档案</button>
+          </form>
+          <div id="profile-list" class="skills-list" aria-live="polite"></div>
+          <h3>长期记忆（显式保存）</h3>
+          <form id="memory-form" class="command-form"><select id="memory-scope" aria-label="记忆范围"><option value="family">家庭</option><option value="child">儿童</option><option value="parent">家长私有</option></select><input id="memory-text" type="text" maxlength="1000" placeholder="需要保存的简短内容" aria-label="记忆内容" required /><button type="submit">保存记忆</button></form>
+          <div id="memory-list" class="event-list" aria-live="polite"></div>
+          <div class="privacy-actions"><button type="button" class="secondary-btn" id="privacy-export">导出隐私数据（JSON）</button><select id="privacy-erase-scope" aria-label="清除记忆范围"><option value="child">儿童记忆</option><option value="family">家庭记忆</option><option value="parent">家长记忆</option><option value="all">所有记忆</option></select><button type="button" class="danger-btn" id="privacy-erase">清除选中记忆</button></div>
+          <p class="helper">删除记忆不会删除操作审计或学习者档案。此处仍是单机基础记忆，不包含每个孩子的独立身份隔离。</p>
+          <p id="family-notice" class="command-result" role="status"></p>
+        </div>
+      </section>
       <footer>HOME AGENT OS · P0–P3 VERTICAL SLICE <span>本地模拟器，不可用于实际机器人安全认证</span></footer>
     </main>
   </div>

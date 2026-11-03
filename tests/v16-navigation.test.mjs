@@ -16,7 +16,7 @@ const css=await readFile(join(root,'public/styles.css'),'utf8');
 function runNav(initialHash='') {
   const events=new Map();
   const elements=new Map(['page-eyebrow','page-title','page-description'].map(id=>[id,{textContent:''}]));
-  const links=['overview','devices','skills','events'].map(page=>{
+  const links=['overview','tasks','devices','skills','events','family'].map(page=>{
     const attrs=new Map([['href',`#${page}`]]);
     const classes=new Set(page==='overview'?['selected']:[]);
     const handlers=new Map();
@@ -36,24 +36,27 @@ function runNav(initialHash='') {
 
 test('sidebar links are accessible and every workspace has an actual destination',()=>{
   assert.match(html,/<nav class="nav" aria-label="工作区导航">/);
-  for(const page of ['overview','devices','skills','events']){
+  for(const page of ['overview','tasks','devices','skills','events','family']){
     assert.match(html,new RegExp(`<a class="nav-item[^>]*href="#${page}"[^>]*data-page-link="${page}"`));
     assert.match(html,new RegExp(`data-nav-view="${page}"`));
   }
   assert.match(html,/id="skills-explorer"/);
+  assert.match(html,/id="global-safety"/);
+  assert.match(html,/id="tasks-intro"/);
+  assert.match(html,/id="family-private"/);
   assert.match(html,/id="device-access-note"/);
   assert.match(html,/id="events-section"/);
   assert.match(html,/src="\/navigation\.js" defer/);
   assert.match(css,/body\[data-current-page="devices"\]/);
-  assert.match(css,/@media \(max-width:620px\) \{[\s\S]*?\.sidebar \{display:flex;position:fixed/);
-  assert.match(appSource,/\$\('skill-page-list'\)\.innerHTML=skillsMarkup/);
-  assert.match(appSource,/\$\('device-access-note'\)\.classList\.toggle\('hidden',authorizedActor==='parent'\)/);
+  assert.match(css,/@media\s*\(max-width:620px\)\s*\{[\s\S]*?\.sidebar\s*\{display:flex;position:fixed/);
+  assert.match(appSource,/\$\('skills-list'\)\.innerHTML=skillsMarkup/);
+  assert.match(appSource,/\$\('device-access-note'\)\.classList\.toggle\('hidden',parent\)/);
 });
 
 test('sidebar changes the selected workspace, ARIA state and visible heading',()=>{
   const nav=runNav();
   assert.equal(nav.document.body.dataset.currentPage,'overview');
-  for(const [page,title] of [['devices','设备管理'],['skills','技能中心'],['events','事件与日志'],['overview','指挥中心']]) {
+  for(const [page,title] of [['tasks','Agent 与任务'],['devices','设备与机器人'],['skills','技能中心'],['events','事件与审计'],['family','家庭与设置'],['overview','总览']]) {
     nav.navigate(page);
     assert.equal(nav.document.body.dataset.currentPage,page);
     assert.equal(nav.elements.get('page-title').textContent,title);
@@ -62,7 +65,7 @@ test('sidebar changes the selected workspace, ARIA state and visible heading',()
       assert.equal(link.getAttribute('aria-current'),link.dataset.pageLink===page?'page':undefined);
     }
   }
-  assert.equal(nav.getScrolls(),4);
+  assert.equal(nav.getScrolls(),6);
 });
 
 test('sidebar supports bookmarked views, browser back/forward and unexpected hashes',()=>{

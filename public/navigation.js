@@ -1,10 +1,12 @@
-// Sidebar workspace navigation. This only changes the view, never authentication or privileges.
+// Client-only workspace routing. Never grants API authorization.
 (() => {
   const views = Object.freeze({
-    overview: {eyebrow: 'HOME / CONTROL CENTER', title: '指挥中心', description: '一个大脑，多个技能，一台正在成长的机器人。'},
-    devices: {eyebrow: 'HOME / DEVICES', title: '设备管理', description: '管理已授权的虚拟设备、能力与任务。'},
-    skills: {eyebrow: 'HOME / SKILLS', title: '技能中心', description: '查看已注册技能，并在当前身份许可范围内启动。'},
-    events: {eyebrow: 'HOME / EVENTS', title: '事件与日志', description: '查看中枢的实时事件和任务反馈。'}
+    overview: {eyebrow:'HOME / OVERVIEW',title:'总览',description:'家庭状态、地图和快捷指令。'},
+    tasks: {eyebrow:'HOME / AGENT TASKS',title:'Agent 与任务',description:'组合工作流、受限计划和家长审批。'},
+    devices: {eyebrow:'HOME / ROBOTS',title:'设备与机器人',description:'虚拟设备配对、能力授权和导航状态。'},
+    skills: {eyebrow:'HOME / SKILLS',title:'技能中心',description:'在当前身份授权范围内运行已安装技能。'},
+    events: {eyebrow:'HOME / AUDIT',title:'事件与审计',description:'中枢事件与家长操作审计。'},
+    family: {eyebrow:'HOME / FAMILY',title:'家庭与设置',description:'家长管理学习档案、记忆和隐私。'}
   });
   const links = [...document.querySelectorAll('[data-page-link]')];
   function activeView() {
@@ -24,16 +26,9 @@
       else link.removeAttribute('aria-current');
     }
   }
-  // Native links support keyboard navigation, deep links and browser back/forward.
-  window.addEventListener('hashchange', () => {
-    renderNavigation();
-    window.scrollTo(0, 0);
+  window.addEventListener('hashchange', () => {renderNavigation(); window.scrollTo(0,0);});
+  for (const link of links) link.addEventListener('click', () => {
+    if (window.location.hash === link.getAttribute('href')) renderNavigation();
   });
-  for (const link of links) {
-    link.addEventListener('click', () => {
-      // Hashchange does not fire when the user clicks the active link again.
-      if (window.location.hash === link.getAttribute('href')) renderNavigation();
-    });
-  }
   renderNavigation();
 })();

@@ -1,12 +1,24 @@
 const $ = id => document.getElementById(id);
-let state=null,lastTask=null,busy=false;
+let state=null,lastTask=null,busy=false,refreshInFlight=false;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const color = {dock:'#8ac7a8',study_desk:'#79a4db',sofa:'#c4a4dc',story_corner:'#e7b76b'};
 const labels={dock:'充电基站',study_desk:'学习书桌',sofa:'客厅沙发',story_corner:'故事角'};
 async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const json=await r.json();if(!r.ok||json.ok===false)throw new Error(json.message||json.error||'Request failed');return json;}
-function notify(message,isError=false){const el=$('notice');el.textContent=message;el.classList.toggle('hidden',!isError);if(!isError)$('command-result').textContent=message;else $('command-result').textContent=message; $('command-result').classList.toggle('error',isError);}
-async function act(path,data){if(busy)return;busy=true;try{const res=await api(path,data);notify(res.message);await refresh();}catch(e){notify(e.message,true);}finally{busy=false;}}
-async function refresh(){try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw new Error('Server unavailable');state=await r.json();render(state);$('connection').textContent='中枢已连接';$('connection').style.color='#269774';}catch(e){$('connection').textContent='连接失败';$('connection').style.color='#bc6854';}}
+// One global status channel: action feedback must not disappear when a workspace is hidden.
+function notify(message,isError=false){
+ const text=String(message|| (isError?'操作失败':'操作已完成'));
+ const el=$('notice');el.textContent=text;el.classList.remove('hidden');el.classList.toggle('error',isError);
+ $('command-result').textContent=text;$('command-result').classList.toggle('error',isError);
+}
+async function act(path,data){
+ const emergency=path==='/api/safety/stop';
+ if(busy&&!emergency)return;
+ if(!emergency)busy=true;
+ try{const res=await api(path,data);notify(res.message||'操作已提交');await refresh();}
+ catch(e){notify(e.message,true);}
+ finally{if(!emergency)busy=false;}
+}
+async function refresh(){if(refreshInFlight)return;refreshInFlight=true;try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw new Error('Server unavailable');state=await r.json();render(state);$('connection').textContent='中枢已连接';$('connection').style.color='#269774';}catch(e){$('connection').textContent='连接失败';$('connection').style.color='#bc6854';}finally{refreshInFlight=false;}}
 function mapDraw(s){const svgScale=10;const map=s.map;
  const rect=(r,fill,stroke='',rad=4)=>`<rect x="${r.x*svgScale}" y="${r.y*svgScale}" width="${r.w*svgScale}" height="${r.h*svgScale}" rx="${rad}" fill="${fill}" ${stroke?`stroke="${stroke}" stroke-width="1"`:''}/>`;
  const rooms=[{x:1.2,y:1.5,t:'学习区',w:18},{x:23,y:1.5,t:'客厅',w:17},{x:43,y:1.5,t:'阅读区',w:15},{x:2,y:31,t:'走廊',w:50}];
@@ -24,39 +36,75 @@ function render(s){mapDraw(s);$('device-count').innerHTML='1 <sub>台</sub>';$('
  const robot=s.robot;const active=s.tasks.find(t=>t.id===s.activeTaskId);const latest=s.tasks[0];
  $('battery').textContent=Math.round(robot.battery)+'%';$('position').textContent=`(${robot.x.toFixed(1)}, ${robot.y.toFixed(1)})`; $('active-task').textContent=active?labels[active.destination]:(latest?.status==='succeeded'?'已完成':'空闲');
  $('safety-state').textContent=robot.emergencyStopped?'急停锁定':robot.obstaclePresent?'障碍物存在':'正常';$('safety-state').style.color=robot.emergencyStopped?'#c4564b':'';
+ $('global-safety-state').textContent=robot.emergencyStopped?'模拟急停锁定':robot.obstaclePresent?'检测到模拟障碍物':'模拟状态正常';
  const moving=robot.movement==='moving';$('motion-pill').textContent=robot.emergencyStopped?'⛔ 急停':moving?'↗ 移动中':'● 待命';$('motion-pill').className='pill '+(robot.emergencyStopped?'':moving?'green':'green');
  const p=active?.progress ?? (latest?.status==='succeeded'?100:0);$('progress-value').textContent=p+'%';$('progress-bar').style.width=p+'%';
  $('btn-reset').disabled=!robot.emergencyStopped;$('obstacle').checked=robot.obstaclePresent;
  const icons=['📚','📖','🏠']; const skillsMarkup=s.skills.map((skill,i)=>`<div class="skill-item"><div class="skill-icon">${icons[i]??'✳'}</div><div class="skill-info"><strong>${esc(skill.name)}</strong><small>${esc(skill.description)}</small></div><button type="button" data-skill="${esc(skill.id)}">启动</button></div>`).join('');
- $('skills-list').innerHTML=skillsMarkup;$('skill-page-list').innerHTML=skillsMarkup;
- const events=s.events.slice(-9).reverse();$('event-counter').textContent=s.events.length+' EVENTS';$('events').innerHTML=events.map(e=>`<div class="event-row"><span class="event-time">${new Date(e.timestamp).toLocaleTimeString('zh-CN',{hour12:false})}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message" title="${esc(e.message)}">${esc(e.message)}</span></div>`).join('');
+ $('skills-list').innerHTML=skillsMarkup;
+ const filter=$('events-filter').value.trim().toLowerCase();
+ const events=s.events.filter(e=>!filter||`${e.type} ${e.message}`.toLowerCase().includes(filter)).slice(-100).reverse();
+ $('event-counter').textContent=s.events.length+' EVENTS';
+ $('events').innerHTML=events.map(e=>`<div class="event-row"><span class="event-time">${new Date(e.timestamp).toLocaleTimeString('zh-CN',{hour12:false})}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message" title="${esc(e.message)}">${esc(e.message)}</span></div>`).join('')||'<p class="helper">暂无符合条件的事件。</p>';
 }
 $('command-form').addEventListener('submit',async e=>{e.preventDefault();const t=$('command-text').value.trim();if(t)await act('/api/command',{text:t,actor:$('actor').value,requestId:'ui_'+crypto.randomUUID().replaceAll('-','')});});
 document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>{$('command-text').value=b.dataset.command;$('command-form').requestSubmit();}));
 document.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',()=>act('/api/tasks',{capability:b.dataset.dest==='dock'?'navigation.dock':'navigation.goto',params:{destination:b.dataset.dest},actor:$('actor').value})));
-for(const id of ['skills-list','skill-page-list'])$(id).addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
+$('skills-list').addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
 $('btn-stop').addEventListener('click',()=>act('/api/safety/stop',{actor:$('actor').value}));
 $('btn-reset').addEventListener('click',()=>act('/api/safety/reset',{actor:$('actor').value}));
 $('obstacle').addEventListener('change',e=>act('/api/environment',{obstaclePresent:e.target.checked,actor:$('actor').value}));
+$('events-filter').addEventListener('input',()=>{if(state)render(state);});
 setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});},1000);
 let eventStream=null,refreshTimer=null;
+function refreshCurrentView(force=false){
+ if(force){lastGatewayPoll=0;lastWorkflowRefresh=0;lastPlanPoll=0;lastProposalPoll=0;lastFamilyPoll=0;lastAuditPoll=0;}
+ switch(document.body.dataset.currentPage){
+  case 'devices':void refreshGateway();break;
+  case 'tasks':void refreshWorkflows();void refreshPlans();void refreshProposals();break;
+  case 'events':void refreshAudit();break;
+  case 'family':void refreshFamily();break;
+ }
+}
 function launchConsole(){
-  refresh();
-  refreshTimer??=setInterval(refresh,500);
-  if(!eventStream){eventStream=new EventSource('/api/events');eventStream.addEventListener('home-event',()=>refresh());}
+ void refresh();
+ refreshCurrentView(true);
+ if(refreshTimer===null)refreshTimer=setInterval(()=>{void refresh();refreshCurrentView();},1800);
+ if(!eventStream){
+  eventStream=new EventSource('/api/events');
+  eventStream.addEventListener('home-event',()=>{void refresh();refreshCurrentView(true);});
+ }
+}
+window.addEventListener('hashchange',()=>refreshCurrentView(true));
+window.addEventListener('pagehide',()=>{if(refreshTimer!==null){clearInterval(refreshTimer);refreshTimer=null;}eventStream?.close();eventStream=null;});
+function applySession(session){
+ authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
+ const parent=authorizedActor==='parent',local=!!authorizedActor;
+ $('gateway-section').classList.toggle('hidden',!parent);
+ $('device-access-note').classList.toggle('hidden',parent);
+ $('workflow-section').classList.toggle('hidden',!parent);
+ $('plan-section').classList.toggle('hidden',!parent);
+ // Only parents can review pending proposals; children may create inert proposals.
+ $('proposal-section').classList.toggle('hidden',!local);
+ $('proposal-review-panel').classList.toggle('hidden',!parent);
+ $('tasks-access-note').classList.toggle('hidden',parent);
+ $('family-private').classList.toggle('hidden',!parent);
+ $('family-access-note').classList.toggle('hidden',parent);
+ $('audit-access-note').classList.toggle('hidden',parent);
+ $('audit-list').classList.toggle('hidden',!parent);
+ if(parent){lastGatewayPoll=0;lastFamilyPoll=0;lastAuditPoll=0;}
 }
 async function initAuth(){
-  try{
-    const response=await fetch('/api/auth/session',{cache:'no-store'});
-    const session=await response.json();
-    if(session.mode==='demo') {launchConsole();return;}
-    if(!session.authenticated){$('auth-overlay').classList.remove('hidden');return;}
-    $('auth-overlay').classList.add('hidden');
-    $('actor').value=session.actor;
-    $('actor').disabled=true;
-    $('logout').classList.remove('hidden');
-    launchConsole();
-  }catch(err){$('connection').textContent='认证服务连接失败';}
+ try{
+  const response=await fetch('/api/auth/session',{cache:'no-store'});
+  if(!response.ok)throw new Error('认证服务不可用');
+  const session=await response.json();
+  if(session.mode!=='demo'&&!session.authenticated){$('auth-overlay').classList.remove('hidden');return;}
+  $('auth-overlay').classList.add('hidden');
+  $('actor').disabled=session.mode!=='demo';
+  if(session.mode!=='demo'){$('actor').value=session.actor;$('logout').classList.remove('hidden');}
+  applySession(session);launchConsole();
+ }catch(err){$('connection').textContent='认证服务连接失败';notify(err.message,true);}
 }
 $('auth-form').addEventListener('submit',async e=>{
   e.preventDefault();
@@ -74,8 +122,6 @@ $('logout').addEventListener('click',async()=>{
   await fetch('/api/auth/logout',{method:'POST'});
   location.reload();
 });
-initAuth();
-
 // v0.5 local-only virtual device dispatch. Device tokens are NEVER exposed to this console.
 let lastGatewayPoll=0,gatewayBusy=false,authorizedActor=null;
 async function refreshGateway(){
@@ -148,13 +194,7 @@ $('gateway-tasks').addEventListener('click',async e=>{
   try{await api('/api/gateway/cancel',{jobId:button.dataset.cancelJob});lastGatewayPoll=0;await refreshGateway();}
   catch(err){$('gateway-notice').textContent=err.message;}
 });
-const oldLaunchConsole=launchConsole;
-launchConsole=()=>{oldLaunchConsole();authorizedActor=$('actor').disabled?$('actor').value:null;
-  $('gateway-section').classList.toggle('hidden',authorizedActor!=='parent');
-  $('device-access-note').classList.toggle('hidden',authorizedActor==='parent');
-  if(authorizedActor==='parent')setInterval(refreshGateway,1800);
-  void refreshGateway();
-};
+
 
 // v0.6: parent-only, local-auth workflow console. No hardware actuation APIs.
 let lastWorkflowRefresh=0,workflowBusy=false;
@@ -191,13 +231,7 @@ $('workflow-list').addEventListener('click',async event=>{
   try{await api('/api/workflows/cancel',{workflowId:button.dataset.cancelWorkflow});lastWorkflowRefresh=0;await refreshWorkflows();}
   catch(err){$('workflow-notice').textContent=err.message;}
 });
-const previousLaunchForWorkflows=launchConsole;
-launchConsole=()=>{
-  previousLaunchForWorkflows();
-  $('workflow-section').classList.toggle('hidden',authorizedActor!=='parent');
-  if(authorizedActor==='parent')setInterval(refreshWorkflows,1500);
-  void refreshWorkflows();
-};
+
 
 // v0.7 durable plan console. All state comes from authenticated server endpoints.
 let lastPlanPoll=0,planBusy=false;
@@ -229,13 +263,7 @@ $('plan-list').addEventListener('click',async e=>{
   try{await api('/api/plans/cancel',{planId:button.dataset.cancelPlan});lastPlanPoll=0;await refreshPlans();}
   catch(err){$('plan-notice').textContent=err.message;}
 });
-const previousLaunchForPlans=launchConsole;
-launchConsole=()=>{
-  previousLaunchForPlans();
-  $('plan-section').classList.toggle('hidden',authorizedActor!=='parent');
-  if(authorizedActor==='parent')setInterval(refreshPlans,1600);
-  void refreshPlans();
-};
+
 
 
 // v0.8: family intent -> inert proposal -> parent approval -> guarded v0.7 plan.
@@ -285,10 +313,70 @@ $('proposal-list').addEventListener('click',async event=>{
   }catch(err){$('proposal-notice').textContent=err.message;}
   finally{proposalBusy=false;}
 });
-const previousLaunchForProposals=launchConsole;
-launchConsole=()=>{
-  previousLaunchForProposals();
-  $('proposal-section').classList.toggle('hidden',authorizedActor!=='parent');
-  if(authorizedActor==='parent')setInterval(refreshProposals,1800);
-  void refreshProposals();
-};
+
+
+// Family and privacy controls. Private writes require server-validated parent session.
+let lastFamilyPoll=0,lastAuditPoll=0,familyBusy=false;
+async function refreshFamily(){
+ if(authorizedActor!=='parent')return;
+ if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
+ try{
+  const [pr,mr]=await Promise.all([fetch('/api/profiles',{cache:'no-store'}),fetch('/api/memory',{cache:'no-store'})]);
+  if(!pr.ok||!mr.ok)throw new Error('需要家长身份读取家庭资料');
+  const profiles=(await pr.json()).profiles,memories=(await mr.json()).entries;
+  $('profile-list').innerHTML=profiles.map(p=>`<div class="skill-item"><div class="skill-icon">♧</div><div class="skill-info"><strong>${esc(p.nickname)}</strong><small>${esc(p.ageBand)} · ${esc(p.interests.join('、')||'无兴趣标签')}</small></div><button type="button" data-remove-profile="${esc(p.id)}">删除档案</button></div>`).join('')||'<p class="helper">尚无学习者档案。</p>';
+  $('memory-list').innerHTML=memories.slice(-40).reverse().map(m=>`<div class="event-row"><span class="event-time">${esc(m.scope)}</span><span class="event-kind">记忆</span><span class="event-message" title="${esc(m.text)}">${esc(m.text)}</span><button type="button" data-remove-memory="${esc(m.id)}">删除</button></div>`).join('')||'<p class="helper">没有已保存的长期记忆。</p>';
+ }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
+}
+async function refreshAudit(){
+ if(authorizedActor!=='parent')return;
+ if(Date.now()-lastAuditPoll<1800)return;lastAuditPoll=Date.now();
+ try{
+  const response=await fetch('/api/audit',{cache:'no-store'});
+  if(!response.ok)throw new Error('需要家长身份读取操作审计');
+  const events=(await response.json()).events;
+  $('audit-list').innerHTML=events.slice(-50).reverse().map(e=>`<div class="event-row"><span class="event-time">${esc(e.timestamp||e.at||'—')}</span><span class="event-kind">${esc(e.action||e.type||'操作')}</span><span class="event-message">${esc(e.actor||'—')} · ${esc(e.outcome||'—')}</span></div>`).join('')||'<p class="helper">暂无审计记录。</p>';
+ }catch(err){$('audit-access-note').textContent=err.message;}
+}
+$('profile-form').addEventListener('submit',async e=>{
+ e.preventDefault();if(familyBusy||authorizedActor!=='parent')return;familyBusy=true;
+ try{
+  const interests=$('profile-interests').value.split(/[,，]/).map(v=>v.trim()).filter(Boolean);
+  await api('/api/profiles',{nickname:$('profile-name').value.trim(),ageBand:$('profile-age').value,interests});
+  $('profile-form').reset();lastFamilyPoll=0;await refreshFamily();notify('学习者档案已保存');
+ }catch(err){notify(err.message,true);}finally{familyBusy=false;}
+});
+$('memory-form').addEventListener('submit',async e=>{
+ e.preventDefault();if(familyBusy||authorizedActor!=='parent')return;familyBusy=true;
+ try{await api('/api/memory',{scope:$('memory-scope').value,text:$('memory-text').value.trim()});$('memory-text').value='';lastFamilyPoll=0;await refreshFamily();notify('记忆已保存');}
+ catch(err){notify(err.message,true);}finally{familyBusy=false;}
+});
+$('profile-list').addEventListener('click',async e=>{
+ const button=e.target.closest('[data-remove-profile]');if(!button||authorizedActor!=='parent')return;
+ if(!window.confirm('确定删除这个学习者档案？'))return;
+ try{await api('/api/profiles/delete',{id:button.dataset.removeProfile});lastFamilyPoll=0;await refreshFamily();notify('档案已删除');}catch(err){notify(err.message,true);}
+});
+$('memory-list').addEventListener('click',async e=>{
+ const button=e.target.closest('[data-remove-memory]');if(!button||authorizedActor!=='parent')return;
+ if(!window.confirm('确定永久删除这条记忆？'))return;
+ try{await api('/api/memory/delete',{id:button.dataset.removeMemory});lastFamilyPoll=0;await refreshFamily();notify('记忆已删除');}catch(err){notify(err.message,true);}
+});
+$('privacy-export').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent')return;
+ try{
+  const r=await fetch('/api/privacy/export',{cache:'no-store'});if(!r.ok)throw new Error('导出需要家长登录');
+  const payload=await r.json();
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='alex-family-private-export.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  notify('隐私数据已导出至本地文件。请妥善保管');
+ }catch(err){notify(err.message,true);}
+});
+$('privacy-erase').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent')return;
+ const scope=$('privacy-erase-scope').value;
+ if(!window.confirm(`确定永久清除 ${scope} 范围的记忆？此操作不可撤销，审计及档案不会被删除。`))return;
+ try{const r=await api('/api/privacy/erase',{scope});lastFamilyPoll=0;await refreshFamily();notify(`清理完成：${r.deletedMemoryEntries} 条记忆`);}catch(err){notify(err.message,true);}
+});
+
+// All listeners and state are installed before authentication can launch any polling.
+void initAuth();

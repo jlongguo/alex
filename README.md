@@ -235,3 +235,7 @@ bash scripts/docker-sim.sh accept
 ```
 
 Docker checks do not substitute for a successful three-leg Gazebo/Nav2 navigation report. No hardware is attached.
+
+## Console v2 workspace recovery
+
+The six-workspace console restores previously hidden controls and puts simulated stop and action feedback outside the route area. Workflows, plans, device gateways, skills, events, and parent-scoped family settings retain their original API contracts. See [`docs/CONSOLE_V2.md`](docs/CONSOLE_V2.md). This is a simulation UI, not a physical safety system.
