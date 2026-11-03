@@ -65,7 +65,8 @@ test('second-leg failure evidence covers collision intervention, path and speed'
     'collision_state_received', 'global_plan', 'plan_received',
     'mean_abs_linear_mps', 'ROS failed goal diagnostics:',
     'sim_real_time_factor', 'position_trace', 'sim_seconds',
-    'laser_clearance', 'local_footprint', 'points_inside_0_19m',
+    'laser_clearance', 'initial_laser_clearance', 'SIM_LIDAR_SELF_HIT',
+    'local_footprint', 'points_inside_0_19m',
     'requested_yaw_rad', 'goal_arrival_heading',
     'odom_distance_m', 'NAV2_GOAL_TIMEOUT_CANCEL_',
   ]) assert.ok(smoke.includes(needle), needle);
