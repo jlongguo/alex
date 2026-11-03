@@ -1,0 +1,30 @@
+name: alex-simulation
+services:
+  sim:
+    image: alex-ros-sim:jazzy-harmonic
+    build:
+      context: .
+      dockerfile: docker/ros-sim/Dockerfile
+    init: true
+    working_dir: /workspace/alex
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace/alex
+    user: "${ALEX_DOCKER_UID:-1000}:${ALEX_DOCKER_GID:-1000}"
+    environment:
+      ALEX_ROS_SIMULATION_ONLY: "1"
+      ALEX_RUN_ROS_INTEGRATION: "1"
+      ALEX_GZ_HEADLESS_RENDERING: "${ALEX_GZ_HEADLESS_RENDERING:-1}"
+      ROS_DOMAIN_ID: "77"
+      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      HOME: /tmp/alex
+      npm_config_cache: /tmp/alex/npm-cache
+      XDG_CACHE_HOME: /tmp/alex/cache
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No privileged mode, host networking, GPU devices, or physical motor access.
+    command: ["bash"]

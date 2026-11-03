@@ -218,3 +218,16 @@ Workflows persist to `WORKFLOW_FILE` (default `.local/workflows.json`), are idem
 - `PLAN_FILE` 可配置持久化路径；中断/重启后的计划一律停止、不自动重放。
 - 虚拟设备接入后，在 Web Console **受控计划编排** 区域操作。详见 `docs/V0.7.md`。
 - 仍然是纯模拟器，真实模型规划、ROS 2 和实体运动控制尚未实现。
+
+## Docker simulation deployment (v0.15 tooling)
+
+Use Docker Desktop or Linux Docker to build an isolated Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic environment. See [Docker simulation guide](docs/DOCKER_SIMULATION.md).
+
+```bash
+bash scripts/docker-sim.sh setup
+bash scripts/docker-sim.sh check
+bash scripts/docker-sim.sh preflight
+bash scripts/docker-sim.sh accept
+```
+
+Docker checks do not substitute for a successful three-leg Gazebo/Nav2 navigation report. No hardware is attached.
