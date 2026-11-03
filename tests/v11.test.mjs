@@ -38,7 +38,7 @@ test('v0.11 ROS coordinates match each allowed Alex destination exactly',()=>{
     assert.equal(occupied(point.x,point.y),false);
   }
   assert.match(config('worlds/alex_home.sdf'),/<pose>0\.7 2\.8 0 0 0 0<\/pose>/);
-  assert.match(config('maps/alex_home.yaml'),/origin: \[0\.0, 0\.0, 0\.0\]/);
+  assert.match(config('maps/alex_home.yaml'),/origin: \[-0\.05, -0\.05, 0\.0\]/);
 });
 
 test('v0.11 robot Gazebo model has wheels, lidar, odom and simulated velocity topic',()=>{

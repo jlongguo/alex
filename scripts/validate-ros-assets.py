@@ -50,7 +50,7 @@ assert at(7,28) == at(17,16) == at(32,16) == at(49,17) == 254
 assert at(0,0) == at(21,2) == at(5,4) == 0
 map_yaml = (pkg / 'maps/alex_home.yaml').read_text()
 assert re.search(r'^resolution: 0\.1$', map_yaml, re.M)
-assert 'origin: [0.0, 0.0, 0.0]' in map_yaml
+assert 'origin: [-0.05, -0.05, 0.0]' in map_yaml
 bridge = (pkg / 'config/bridge.yaml').read_text()
 assert all(f'/'+x in bridge for x in ('clock','scan','odom','tf','cmd_vel'))
 assert 'ROS_TO_GZ' in bridge and 'GZ_TO_ROS' in bridge
