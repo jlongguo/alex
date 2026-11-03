@@ -29,13 +29,18 @@
         "plugin": "nav2_mppi_controller::MPPIController",
         "vx_max": 0.5,
         "vx_min": -0.35,
-        "wz_max": 1.9
-      }
+        "wz_max": 1.9,
+        "model_dt": 0.05,
+        "batch_size": 2000,
+        "visualize": true
+      },
+      "controller_frequency": 20
     }
   },
   "bt_navigator": {
     "ros__parameters": {
-      "robot_base_frame": "base_link"
+      "robot_base_frame": "base_link",
+      "default_server_timeout": 20
     }
   },
   "planner_server": {
