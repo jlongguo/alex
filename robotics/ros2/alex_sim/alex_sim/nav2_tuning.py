@@ -119,6 +119,15 @@ def configure_nav2(source):
         checker = nested(controller, name)
         if checker.get('plugin') == 'nav2_controller::SimpleProgressChecker':
             checker['required_movement_radius'] = 0.08
+            # In the narrow corridor the collision monitor may legitimately
+            # slow the robot while Nav2 holds a safe time-to-collision gap.
+            # Keep the 8cm physical progress requirement, but allow extra
+            # simulated time on the CPU-only Jazzy+Gazebo test runner.
+            allowance = checker.get('movement_time_allowance')
+            if (not isinstance(allowance, (float, int)) or isinstance(allowance, bool)
+                    or not (0.1 <= allowance <= 120.0)):
+                raise IncompatibleNav2Template('Invalid progress_checker.movement_time_allowance')
+            checker['movement_time_allowance'] = max(float(allowance), 20.0)
             tuned_progress_checker = True
     if not tuned_progress_checker:
         raise IncompatibleNav2Template('No compatible SimpleProgressChecker in installed Nav2 template')
@@ -152,7 +161,21 @@ def configure_nav2(source):
                 or not (0.001 <= model_dt <= 1.0 and 1.0 <= control_hz <= 100.0)
                 or abs(float(model_dt) - 1.0 / float(control_hz)) > 1e-6):
             raise IncompatibleNav2Template('MPPI model_dt must match controller_frequency')
-        follow_path['batch_size'] = min(batch_size, 750)
+        # Reduce controller wakeups and MPPI trajectory computations together:
+        # from 20 Hz * 56 steps to 10 Hz * 28 steps. Preserve the same
+        # 2.8-second prediction horizon and the 0.1s controller interval.
+        # Nav2 collision monitor remains enabled, with all stop/approach
+        # thresholds unchanged.
+        steps = follow_path.get('time_steps')
+        if type(steps) is not int or not (1 <= steps <= 1000):
+            raise IncompatibleNav2Template('Invalid FollowPath MPPI time_steps')
+        horizon = steps * float(model_dt)
+        if not (1.0 <= horizon <= 10.0):
+            raise IncompatibleNav2Template('Unsupported FollowPath MPPI prediction horizon')
+        controller['controller_frequency'] = 10.0
+        follow_path['model_dt'] = 0.10
+        follow_path['time_steps'] = max(1, round(horizon / 0.10))
+        follow_path['batch_size'] = min(batch_size, 500)
         if 'visualize' in follow_path:
             follow_path['visualize'] = False
         if 'publish_optimal_trajectory' in follow_path:
