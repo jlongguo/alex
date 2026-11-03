@@ -63,6 +63,7 @@ test('second-leg failure evidence covers collision intervention, path and speed'
     '/collision_monitor_state', 'CollisionMonitorState',
     'collision_state_received', 'global_plan', 'plan_received',
     'mean_abs_linear_mps', 'ROS failed goal diagnostics:',
+    'sim_real_time_factor', 'position_trace', 'sim_seconds',
     'odom_distance_m', 'NAV2_GOAL_TIMEOUT_CANCEL_',
   ]) assert.ok(smoke.includes(needle), needle);
   const tuning = read('robotics/ros2/alex_sim/alex_sim/nav2_tuning.py');
