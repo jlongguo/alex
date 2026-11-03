@@ -336,7 +336,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }
     return;
   }
-  const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js'};
+  const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js','/navigation.js':'navigation.js'};
   if(req.method!=='GET'||!(pathname in assets)){send(res,404,{ok:false,error:'NOT_FOUND'});return;}
   const file=assets[pathname];
   const bytes=await readFile(resolve(publicDir,file));

@@ -10,3 +10,28 @@
 .auth-card input,.auth-card select {width:100%;border:1px solid #c9d4e2;border-radius:9px;padding:10px;font-size:15px;}
 .auth-card button {border:0;border-radius:9px;background:#227e6a;color:#fff;font-weight:700;padding:12px;cursor:pointer;}
 #auth-error {color:#b33b30;font-size:13px;min-height:18px;}
+
+/* Functional sidebar navigation (v0.16). Keep existing dashboard layout intact. */
+.nav-item { width:100%; border:1px solid transparent; background:transparent; color:#aebecf; text-decoration:none; cursor:pointer; transition:background-color .15s ease,color .15s ease; }
+.nav-item:hover { color:#fff; background:#203449; }
+.nav-item:focus-visible { outline:2px solid #6fe5c0; outline-offset:2px; }
+.nav-item.selected { color:#fff; }
+body[data-current-page="overview"] [data-nav-view]:not([data-nav-view="overview"]),
+body[data-current-page="devices"] [data-nav-view]:not([data-nav-view="devices"]),
+body[data-current-page="skills"] [data-nav-view]:not([data-nav-view="skills"]),
+body[data-current-page="events"] [data-nav-view]:not([data-nav-view="events"]) { display:none!important; }
+@media(max-width:950px){.nav-item b{display:none}.nav-item{justify-content:center;padding:12px 8px;gap:0}}
+/* On tablets all menu icons must remain visible, not only the selected icon. */
+@media (min-width:621px) and (max-width:950px) {
+  .nav-item span {font-size:20px}
+}
+/* The original layout hid the entire sidebar below 620px, making navigation impossible. */
+@media (max-width:620px) {
+  .sidebar {display:flex;position:fixed;top:auto;bottom:0;left:0;right:0;width:100%;height:auto;z-index:100;padding:7px 10px calc(7px + env(safe-area-inset-bottom));box-shadow:0 -5px 24px #101d3044}
+  .sidebar .brand,.sidebar .nav-caption,.sidebar .sidebar-spacer,.sidebar .sidebar-card,.sidebar .sidebar-footer {display:none}
+  .sidebar .nav {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;width:100%}
+  .sidebar .nav-item,.sidebar .nav-item.selected {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:7px 2px;min-height:56px;font-size:10px;color:#aebecf;text-align:center;white-space:nowrap}
+  .sidebar .nav-item.selected {color:#fff}
+  .sidebar .nav-item span,.sidebar .nav-item.selected span {width:auto;font-size:20px}
+  .main {padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+}

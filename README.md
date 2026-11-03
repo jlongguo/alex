@@ -1,5 +1,9 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
+## Console navigation fix
+
+The four sidebar entries now navigate to real workspace views (overview, devices, skills, events), support hash deep links and browser history, and remain accessible through a four-tab mobile bottom bar. The Devices view explains parent-session requirements instead of silently appearing empty. See [docs/CONSOLE_NAVIGATION.md](docs/CONSOLE_NAVIGATION.md) for details and checks. Navigation never bypasses server permissions.
+
 > **v0.14.0 · shared ROS overlay, acceptance run IDs and diagnostics**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。

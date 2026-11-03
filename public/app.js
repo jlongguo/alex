@@ -20,19 +20,21 @@ function mapDraw(s){const svgScale=10;const map=s.map;
  $('robot').innerHTML=`<circle cx="${r.x*10}" cy="${r.y*10}" r="17" fill="#72c6ba55"/><g transform="translate(${r.x*10} ${r.y*10}) rotate(${r.heading*180/Math.PI})"><circle r="12" fill="#2f9d88" stroke="white" stroke-width="2.5"/><circle cx="4" cy="-4" r="2" fill="white"/><circle cx="4" cy="4" r="2" fill="white"/><path d="M 5 -2 L 10 0 L 5 2" fill="none" stroke="white" stroke-width="1.5"/></g>`;
 }
 function render(s){mapDraw(s);$('device-count').innerHTML='1 <sub>台</sub>';$('skill-count').innerHTML=s.skills.length+' <sub>项</sub>';$('task-count').innerHTML=s.tasks.length+' <sub>项</sub>';
+ $('nav-skill-count').textContent=String(s.skills.length);
  const robot=s.robot;const active=s.tasks.find(t=>t.id===s.activeTaskId);const latest=s.tasks[0];
  $('battery').textContent=Math.round(robot.battery)+'%';$('position').textContent=`(${robot.x.toFixed(1)}, ${robot.y.toFixed(1)})`; $('active-task').textContent=active?labels[active.destination]:(latest?.status==='succeeded'?'已完成':'空闲');
  $('safety-state').textContent=robot.emergencyStopped?'急停锁定':robot.obstaclePresent?'障碍物存在':'正常';$('safety-state').style.color=robot.emergencyStopped?'#c4564b':'';
  const moving=robot.movement==='moving';$('motion-pill').textContent=robot.emergencyStopped?'⛔ 急停':moving?'↗ 移动中':'● 待命';$('motion-pill').className='pill '+(robot.emergencyStopped?'':moving?'green':'green');
  const p=active?.progress ?? (latest?.status==='succeeded'?100:0);$('progress-value').textContent=p+'%';$('progress-bar').style.width=p+'%';
  $('btn-reset').disabled=!robot.emergencyStopped;$('obstacle').checked=robot.obstaclePresent;
- const icons=['📚','📖','🏠']; $('skills-list').innerHTML=s.skills.map((skill,i)=>`<div class="skill-item"><div class="skill-icon">${icons[i]??'✳'}</div><div class="skill-info"><strong>${esc(skill.name)}</strong><small>${esc(skill.description)}</small></div><button data-skill="${esc(skill.id)}">启动</button></div>`).join('');
+ const icons=['📚','📖','🏠']; const skillsMarkup=s.skills.map((skill,i)=>`<div class="skill-item"><div class="skill-icon">${icons[i]??'✳'}</div><div class="skill-info"><strong>${esc(skill.name)}</strong><small>${esc(skill.description)}</small></div><button type="button" data-skill="${esc(skill.id)}">启动</button></div>`).join('');
+ $('skills-list').innerHTML=skillsMarkup;$('skill-page-list').innerHTML=skillsMarkup;
  const events=s.events.slice(-9).reverse();$('event-counter').textContent=s.events.length+' EVENTS';$('events').innerHTML=events.map(e=>`<div class="event-row"><span class="event-time">${new Date(e.timestamp).toLocaleTimeString('zh-CN',{hour12:false})}</span><span class="event-kind">${esc(e.type)}</span><span class="event-message" title="${esc(e.message)}">${esc(e.message)}</span></div>`).join('');
 }
 $('command-form').addEventListener('submit',async e=>{e.preventDefault();const t=$('command-text').value.trim();if(t)await act('/api/command',{text:t,actor:$('actor').value,requestId:'ui_'+crypto.randomUUID().replaceAll('-','')});});
 document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>{$('command-text').value=b.dataset.command;$('command-form').requestSubmit();}));
 document.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',()=>act('/api/tasks',{capability:b.dataset.dest==='dock'?'navigation.dock':'navigation.goto',params:{destination:b.dataset.dest},actor:$('actor').value})));
-$('skills-list').addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
+for(const id of ['skills-list','skill-page-list'])$(id).addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
 $('btn-stop').addEventListener('click',()=>act('/api/safety/stop',{actor:$('actor').value}));
 $('btn-reset').addEventListener('click',()=>act('/api/safety/reset',{actor:$('actor').value}));
 $('obstacle').addEventListener('change',e=>act('/api/environment',{obstaclePresent:e.target.checked,actor:$('actor').value}));
@@ -86,6 +88,7 @@ async function refreshGateway(){
     const jobs=(await jobsResponse.json()).jobs;
     if(mapResponse.ok)renderGatewayNavigationMap((await mapResponse.json()).map,jobs);
     $('device-count').innerHTML=`${1+allDevices.length} <sub>台</sub>`;
+    $('nav-device-count').textContent=String(1+allDevices.length);
     const select=$('gateway-device'),current=select.value;
     select.innerHTML=allDevices.filter(d=>!d.revoked).map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
     if(allDevices.some(d=>d.id===current&&!d.revoked))select.value=current;
@@ -148,6 +151,7 @@ $('gateway-tasks').addEventListener('click',async e=>{
 const oldLaunchConsole=launchConsole;
 launchConsole=()=>{oldLaunchConsole();authorizedActor=$('actor').disabled?$('actor').value:null;
   $('gateway-section').classList.toggle('hidden',authorizedActor!=='parent');
+  $('device-access-note').classList.toggle('hidden',authorizedActor==='parent');
   if(authorizedActor==='parent')setInterval(refreshGateway,1800);
   void refreshGateway();
 };
