@@ -20,6 +20,24 @@ STORY = Waypoint('story_corner', 4.9, 1.7)
 ACCEPTANCE_ROUTE = (DESK, STORY, DOCK)
 
 
+def goal_arrival_heading(start_pose, goal):
+    """Heading along the actual travel leg, not the map's arbitrary +X axis.
+
+    Differential drive arrivals should not demand an unnecessary last-metre
+    turn to yaw=0 near household furniture. This changes only the requested
+    final orientation; canonical target coordinates and proof tolerance stay.
+    """
+    from math import atan2, cos, sin
+    if (start_pose is None or len(start_pose) != 2
+            or not all(isfinite(float(v)) for v in start_pose)):
+        raise ValueError('INVALID_GOAL_START_POSE')
+    dx, dy = goal.x - start_pose[0], goal.y - start_pose[1]
+    if hypot(dx, dy) < 0.01:
+        raise ValueError('GOAL_TOO_CLOSE_FOR_TRAVEL_HEADING')
+    yaw = atan2(dy, dx)
+    return yaw, sin(yaw / 2.0), cos(yaw / 2.0)
+
+
 def distance_to(goal, pose):
     if pose is None or len(pose) != 2 or not all(isfinite(v) for v in pose):
         raise ValueError('MISSING_OR_NONFINITE_ROBOT_POSE')
