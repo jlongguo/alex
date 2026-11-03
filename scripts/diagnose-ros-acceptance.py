@@ -16,6 +16,10 @@ PATTERNS = (
     ('missing_ros_package', ('PackageNotFoundError', 'package not found', 'Missing ROS package')),
     ('map_localization', ('AMCL', 'initial pose', 'map->odom', 'MAP_TF')),
     ('sensor_bridge', ('/scan', 'LIDAR', 'laser', 'ros_gz_bridge')),
+    ('collision_monitor_tf', ('base_footprint" passed to lookupTransform',
+                              'Failed to get "lidar_link"->"base_footprint" frame transform')),
+    ('controller_progress', ('Failed to make progress',
+                             'Timed out while waiting for action server to acknowledge goal')),
     ('nav2_action', ('NavigateToPose', 'NAV2_GOAL', 'planner_server', 'controller_server')),
 )
 
@@ -48,6 +52,7 @@ def diagnose(report, preflight, log):
         'preflight_status': check.get('status', 'not_run'),
         'preflight_blockers': check.get('blockers', []),
         'graph': state.get('graph', {}),
+        'last_goal': state.get('last_goal', {}),
         'suspected_stages': detected,
         'runtime_validation': 'SEE_ACCEPTANCE_REPORT',
         'note': 'Diagnostic hints only. Real navigation success requires the validated three-leg report.',
