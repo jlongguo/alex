@@ -9,36 +9,75 @@ const pkg='robotics/ros2/alex_sim/';
 const run=(cmd,args,options={})=>spawnSync(cmd,args,{cwd:root,encoding:'utf8',timeout:10000,...options});
 const fixture=join(pkg,'../../..','tests/fixtures/nav2-jazzy-minimal.yaml');
 
-test('v0.12 Nav2 sim settings are written to explicit nested ROS params, preserving controller plugins',()=>{
-  const dest=mkdtempSync(join(tmpdir(),'alex-nav2-'));
-  try{
-    const out=join(dest,'params.yaml');
-    const res=run('python3',[pkg+'alex_sim/nav2_tuning.py','--input',fixture,'--output',out]);
-    assert.equal(res.status,0,res.stderr);
-    const text=readFileSync(out,'utf8');
-    assert.match(text,/base_frame_id: base_link/);
-    assert.match(text,/set_initial_pose: true/);
-    assert.match(text,/x: 0\.7/);
-    assert.match(text,/y: 2\.8/);
-    assert.match(text,/robot_radius: 0\.19/);
-    assert.match(text,/inflation_radius: 0\.24/);
-    assert.match(text,/xy_goal_tolerance: 0\.08/);
-    assert.match(text,/vx_max: 0\.2/);
-    assert.match(text,/plugin: nav2_mppi_controller::MPPIController/);
-    assert.match(text,/use_sim_time: true/);
-  }finally{rmSync(dest,{recursive:true,force:true})}
+// The deterministic tuning policy can be checked without ROS or PyYAML.
+// YAML serialization is separately exercised when PyYAML exists in the selected
+// python3; otherwise its *explicit* missing-dependency error is validated.
+const jsonFixture=join('tests','fixtures','nav2-jazzy-minimal.json');
+const tuner=join(pkg,'alex_sim','nav2_tuning.py');
+const pypath=join(pkg,'alex_sim');
+const tuneAsJson=`import json,sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from nav2_tuning import configure_nav2
+source=json.loads(Path(sys.argv[2]).read_text(encoding='utf8'))
+result=configure_nav2(source)
+assert source['amcl']['ros__parameters']['base_frame_id'] == 'base_footprint', 'mutated source'
+print(json.dumps(result))`;
+
+test('v0.12 Nav2 tuning keeps nested ROS params and controller plugin with no PyYAML required',()=>{
+  const res=run('python3',['-c',tuneAsJson,pypath,jsonFixture]);
+  assert.equal(res.status,0,res.stderr);
+  const config=JSON.parse(res.stdout);
+  const amcl=config.amcl.ros__parameters;
+  assert.equal(amcl.base_frame_id,'base_link');
+  assert.equal(amcl.set_initial_pose,true);
+  assert.deepEqual([amcl.initial_pose.x,amcl.initial_pose.y],[0.7,2.8]);
+  assert.equal(config.controller_server.ros__parameters.FollowPath.plugin,'nav2_mppi_controller::MPPIController');
+  assert.equal(config.controller_server.ros__parameters.FollowPath.vx_max,0.2);
+  assert.equal(config.controller_server.ros__parameters.general_goal_checker.xy_goal_tolerance,0.08);
+  for(const costmap of ['local_costmap','global_costmap']){
+    const c=config[costmap][costmap].ros__parameters;
+    assert.equal(c.robot_radius,0.19);
+    assert.equal(c.inflation_layer.inflation_radius,0.24);
+    assert.equal(c.use_sim_time,true);
+  }
+  assert.equal(config.bt_navigator.ros__parameters.use_sim_time,true);
 });
 
 test('v0.12 incompatible Nav2 defaults fail closed instead of silently ignoring overrides',()=>{
-  const res=run('python3',['-c',`import sys, yaml
-sys.path.insert(0,'${pkg}alex_sim')
+  const res=run('python3',['-c',`import json,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
 from nav2_tuning import configure_nav2, IncompatibleNav2Template
-try:
-  configure_nav2({'amcl': {'ros__parameters': {}}})
-except IncompatibleNav2Template:
-  sys.exit(0)
-raise RuntimeError('unsafe tuning acceptance')`]);
+source=json.loads(Path(sys.argv[2]).read_text(encoding='utf8'))
+for candidate in ({'amcl': {'ros__parameters': {}}},
+                  {**source,'controller_server':{'ros__parameters':{'controller_plugins':['Other']}}},
+                  {**source,'local_costmap':{'local_costmap':{'ros__parameters':{}}}}):
+  try: configure_nav2(candidate)
+  except IncompatibleNav2Template: pass
+  else: raise RuntimeError('unsafe tuning accepted an incompatible template')`,pypath,jsonFixture]);
   assert.equal(res.status,0,res.stderr);
+});
+
+test('v0.12 YAML CLI either round-trips Nav2 settings or reports how to install PyYAML',()=>{
+  const hasYaml=run('python3',['-c','import yaml']);
+  const dest=mkdtempSync(join(tmpdir(),'alex-nav2-'));
+  try{
+    const out=join(dest,'params.yaml');
+    const res=run('python3',[tuner,'--input',fixture,'--output',out]);
+    if(hasYaml.status!==0){
+      assert.notEqual(res.status,0);
+      assert.match(res.stderr,/PyYAML.+(install|python3 -m venv)/i);
+      return;
+    }
+    assert.equal(res.status,0,res.stderr);
+    const text=readFileSync(out,'utf8');
+    for(const pattern of [/base_frame_id: base_link/,/set_initial_pose: true/,/x: 0\.7/,/y: 2\.8/,
+      /robot_radius: 0\.19/,/inflation_radius: 0\.24/,/xy_goal_tolerance: 0\.08/,
+      /vx_max: 0\.2/,/plugin: nav2_mppi_controller::MPPIController/,/use_sim_time: true/]) {
+      assert.match(text,pattern);
+    }
+  }finally{rmSync(dest,{recursive:true,force:true})}
 });
 
 test('v0.12 independent pose proof rejects Nav2 success without fresh TF or feedback',()=>{

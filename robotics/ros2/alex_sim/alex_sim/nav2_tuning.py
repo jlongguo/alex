@@ -104,7 +104,14 @@ def main():
     parser.add_argument('--input', required=True, help='Installed Jazzy nav2_bringup default params YAML')
     parser.add_argument('--output', required=True, help='Generated simulation-only params YAML')
     args = parser.parse_args()
-    import yaml
+    try:
+        import yaml
+    except ModuleNotFoundError as exc:
+        if exc.name != 'yaml':
+            raise
+        parser.error('PyYAML is required to process ROS YAML templates. Create a Python venv with '
+                     '`python3 -m venv .venv`, activate it, then run '
+                     '`python3 -m pip install -r requirements-ros-test.txt`.')
     source = yaml.safe_load(Path(args.input).read_text(encoding='utf8'))
     output = configure_nav2(source)
     dest = Path(args.output)
