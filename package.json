@@ -1,9 +1,9 @@
 {
   "name": "home-agent-os",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
-  "description": "Local-first home hub with family auth, opt-in agent, virtual device gateway, orchestrated workflows, bounded plans, durable plan events and observable grid navigation simulation",
+  "description": "Local-first AI home hub and simulated robot navigation with an experimental Nav2 Action bridge for Gazebo only",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/server.mjs",

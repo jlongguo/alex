@@ -8,8 +8,16 @@ if(!/^dev-[0-9a-f-]{36}$/.test(deviceId??'')||!/^[0-9a-f]{64}$/.test(token??''))
 const bearer={'Authorization':`Bearer ${token}`};
 const caps=['sim.navigation.goto','display.face','audio.output'];
 const sleep=t=>new Promise(resolve=>setTimeout(resolve,t));
+const backend=process.env.ALEX_NAV_BACKEND??'grid';
+if(!['grid','ros2'].includes(backend))throw new Error('INVALID_NAV_BACKEND');
 const {GridNavigationBridge}=await import('./navigation-simulator.mjs');
-const nav=new GridNavigationBridge({stepDelayMs:Number(process.env.ALEX_SIM_STEP_MS??25),obstaclePresent:process.env.ALEX_SIM_OBSTACLE==='1'});
+let nav;
+if(backend==='ros2'){
+  if(process.env.ALEX_ROS_SIMULATION_ONLY!=='1')throw new Error('ROS2_SIMULATION_ONLY_FLAG_REQUIRED');
+  const {Nav2SimulationBridge}=await import('./ros2-navigation.mjs');
+  nav=new Nav2SimulationBridge({simulationOnly:true});
+}else nav=new GridNavigationBridge({stepDelayMs:Number(process.env.ALEX_SIM_STEP_MS??25),obstaclePresent:process.env.ALEX_SIM_OBSTACLE==='1'});
+
 let stopping=false;const processed=new Set(),running=new Set(),cancelled=new Set();
 async function request(path,method='GET',payload){
   const r=await fetch(new URL(path,endpoint),{method,headers:{...bearer,...(payload?{'Content-Type':'application/json'}:{})},body:payload?JSON.stringify(payload):undefined,signal:AbortSignal.timeout(8000)});
@@ -69,7 +77,7 @@ process.on('SIGINT',()=>{stopping=true;process.exit(0);});
 process.on('SIGTERM',()=>{stopping=true;process.exit(0);});
 await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:2});
 await heartbeat();
-console.log(`[virtual] ${deviceId} connected; waiting for parent capability approval`);
+console.log(`[virtual] ${deviceId} connected; navigation backend=${backend}; waiting for parent capability approval`);
 const timer=setInterval(()=>heartbeat().catch(e=>console.error('[virtual] heartbeat:',e.message)),10000);
 try{
   while(!stopping){

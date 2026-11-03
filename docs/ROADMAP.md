@@ -76,11 +76,17 @@
 - No arbitrary generated DAGs, no direct motor control or real model vendor verification.
 
 ## v0.9 implemented (2026-11-03)
-- Shared A* grid navigation simulation for paired virtual robot clients with protocol-v2 authenticated pose/progress feedback.
-- Goal arrival validation, cancellation/permission/duplicate navigation safeguards, no-replay restart behavior and parent-only map view.
-- Not implemented: ROS 2, Nav2, Gazebo, motor control, physical collision avoidance, SLAM, LiDAR or hardware tests.
+- Real A* path stepping **inside the simulated grid** for paired virtual robot clients, with authenticated protocol-v2 pose/progress feedback.
+- Strict goal arrival validation, cancellation/permission/duplicate navigation safeguards, durable progress snapshot and parent-only map view.
+- Not implemented: ROS 2, Nav2, Gazebo, motor controller, physical collision avoidance, SLAM, LiDAR or robot hardware tests.
 
 ## Proposed v0.10
-- Separate ROS/Nav2 goal adapter interface from the simulator, with capability-gated simulated action states.
-- Correlate plan step/job ID/pose feedback, bounded timeline and lifecycle tests.
-- Profile-scoped learner privacy and genuine LLM provider integration checks.
+- Extract ROS/Nav2 goal adapter interface separately from simulator, with capability-gated simulated goal/action states.
+- End-to-end correlation of plan step/job ID/pose feedback, bounded event timeline and replay-safe device lifecycle.
+- Family-specific profile identities and per-profile learning privacy, plus actual cloud LLM provider integration testing.
+
+## v0.10
+
+- Experimental ROS 2 Nav2 ActionClient bridge to the existing virtual device protocol; Gazebo-only, opt-in.
+- Goal conversion and pose/feedback/cancel handling with guarded failure semantics.
+- Next: add a matching URDF/Gazebo world and run real Nav2 integration tests.
