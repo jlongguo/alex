@@ -47,11 +47,12 @@ def main():
     from rclpy.time import Time
     from rosgraph_msgs.msg import Clock
     from sensor_msgs.msg import LaserScan
-    from nav_msgs.msg import Odometry, OccupancyGrid
+    from nav_msgs.msg import Odometry, OccupancyGrid, Path as RosPath
     from tf2_msgs.msg import TFMessage
     from tf2_ros import Buffer, TransformListener
     from geometry_msgs.msg import PoseStamped, Twist
     from nav2_msgs.action import NavigateToPose
+    from nav2_msgs.msg import CollisionMonitorState
     from lifecycle_msgs.srv import GetState
     from alex_sim.nav2_lifecycle import Nav2LifecycleGate
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
@@ -67,13 +68,41 @@ def main():
     latest_odom = []
     latest_scan = []
     validated_map = []
+    # Record active collision intervention and the latest global replan.
+    # These subscriptions observe state only and never command the robot.
+    collision_state = {'messages': 0, 'last': None, 'transitions': []}
+    planned_path = {'messages': 0, 'poses': 0, 'start': None, 'end': None,
+                    'frame_id': None}
+
+    def collision_state_received(message):
+        observed = {'action_type': int(message.action_type),
+                    'polygon_name': str(message.polygon_name)}
+        collision_state['messages'] += 1
+        if collision_state['last'] != observed:
+            collision_state['transitions'].append(observed)
+            if len(collision_state['transitions']) > 12:
+                del collision_state['transitions'][:-12]
+        collision_state['last'] = observed
+
+    def plan_received(message):
+        planned_path['messages'] += 1
+        planned_path['poses'] = len(message.poses)
+        planned_path['frame_id'] = message.header.frame_id
+        planned_path['start'] = ([round(message.poses[0].pose.position.x, 3),
+                                  round(message.poses[0].pose.position.y, 3)]
+                                 if message.poses else None)
+        planned_path['end'] = ([round(message.poses[-1].pose.position.x, 3),
+                                round(message.poses[-1].pose.position.y, 3)]
+                               if message.poses else None)
+
     # Diagnostics only: never publish commands or treat traffic as navigation
     # success. A failed goal must show which part of Nav2's velocity pipeline
     # actually emitted Twist messages into the Gazebo bridge.
     command_topics = ('/cmd_vel_nav', '/cmd_vel_smoothed', '/cmd_vel')
     command_samples = {
         topic: {'messages': 0, 'nonzero_messages': 0,
-                'peak_linear_mps': 0.0, 'peak_angular_rps': 0.0}
+                'peak_linear_mps': 0.0, 'peak_angular_rps': 0.0,
+                'linear_abs_sum_mps': 0.0}
         for topic in command_topics
     }
 
@@ -85,6 +114,7 @@ def main():
             angular = abs(message.angular.z)
             if math.isfinite(linear):
                 sample['peak_linear_mps'] = max(sample['peak_linear_mps'], linear)
+                sample['linear_abs_sum_mps'] += linear
             if math.isfinite(angular):
                 sample['peak_angular_rps'] = max(sample['peak_angular_rps'], angular)
             if (math.isfinite(linear) and linear > 1e-4) or (math.isfinite(angular) and angular > 1e-4):
@@ -128,6 +158,9 @@ def main():
         node.create_subscription(OccupancyGrid, '/map', map_received, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
         node.create_subscription(TFMessage, '/tf', tf_recv, 10),
         node.create_subscription(TFMessage, '/tf_static', tf_recv, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
+        node.create_subscription(CollisionMonitorState, '/collision_monitor_state',
+                                 collision_state_received, 10),
+        node.create_subscription(RosPath, '/plan', plan_received, 10),
         *[node.create_subscription(Twist, topic, command_received(topic), 10)
           for topic in command_topics],
     ]
@@ -237,7 +270,11 @@ def main():
         odom_movement = {'length': 0.0, 'last': None}
         for sample in command_samples.values():
             sample.update(messages=0, nonzero_messages=0,
-                          peak_linear_mps=0.0, peak_angular_rps=0.0)
+                          peak_linear_mps=0.0, peak_angular_rps=0.0,
+                          linear_abs_sum_mps=0.0)
+        collision_state['messages'] = 0
+        collision_state['transitions'].clear()
+        planned_path.update(messages=0, poses=0, start=None, end=None, frame_id=None)
 
         def record_goal_diagnostics(status, result_message=None):
             pose, fresh = current_tf_pose()
@@ -254,8 +291,17 @@ def main():
                 'map_pose': [round(v, 4) for v in pose] if pose else None,
                 'tf_fresh': fresh,
                 'velocity_pipeline': {
-                    topic: dict(sample) for topic, sample in command_samples.items()
+                    topic: {**sample,
+                            'mean_abs_linear_mps': round(
+                                sample['linear_abs_sum_mps'] / max(1, sample['messages']), 4)}
+                    for topic, sample in command_samples.items()
                 },
+                'collision_monitor': {
+                    'messages': collision_state['messages'],
+                    'last': collision_state['last'],
+                    'transitions': list(collision_state['transitions']),
+                },
+                'global_plan': dict(planned_path),
             }
             save_report(report, args.report)
 
@@ -342,6 +388,10 @@ def main():
         report['status'] = 'failed'
         report['error'] = str(exc)
         print('ROS acceptance FAILED:', exc, flush=True)
+        if 'last_goal' in report:
+            print('ROS failed goal diagnostics:',
+                  json.dumps(report['last_goal'], ensure_ascii=False, sort_keys=True),
+                  flush=True)
         return 1
     finally:
         save_report(report, args.report)
