@@ -18,7 +18,7 @@ async function act(path,data){
  catch(e){notify(e.message,true);}
  finally{if(!emergency)busy=false;}
 }
-async function refresh(){if(refreshInFlight)return;refreshInFlight=true;try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw new Error('Server unavailable');state=await r.json();render(state);$('connection').textContent='中枢已连接';$('connection').style.color='#269774';}catch(e){$('connection').textContent='连接失败';$('connection').style.color='#bc6854';}finally{refreshInFlight=false;}}
+async function refresh(){if(refreshInFlight)return;refreshInFlight=true;try{const r=await fetch('/api/state',{cache:'no-store'});if(r.status===401){await initAuth();$('connection').textContent='请登录家庭中枢';return;}if(!r.ok)throw new Error('Server unavailable');state=await r.json();render(state);$('connection').textContent='中枢已连接';$('connection').style.color='#269774';}catch(e){$('connection').textContent='连接失败';$('connection').style.color='#bc6854';}finally{refreshInFlight=false;}}
 function mapDraw(s){const svgScale=10;const map=s.map;
  const rect=(r,fill,stroke='',rad=4)=>`<rect x="${r.x*svgScale}" y="${r.y*svgScale}" width="${r.w*svgScale}" height="${r.h*svgScale}" rx="${rad}" fill="${fill}" ${stroke?`stroke="${stroke}" stroke-width="1"`:''}/>`;
  const rooms=[{x:1.2,y:1.5,t:'学习区',w:18},{x:23,y:1.5,t:'客厅',w:17},{x:43,y:1.5,t:'阅读区',w:15},{x:2,y:31,t:'走廊',w:50}];
@@ -76,7 +76,38 @@ function launchConsole(){
  }
 }
 window.addEventListener('hashchange',()=>refreshCurrentView(true));
-window.addEventListener('pagehide',()=>{if(refreshTimer!==null){clearInterval(refreshTimer);refreshTimer=null;}eventStream?.close();eventStream=null;});
+window.addEventListener('pagehide',stopConsole);
+let currentAuthSession=null;
+function stopConsole(){
+ if(refreshTimer!==null){clearInterval(refreshTimer);refreshTimer=null;}
+ eventStream?.close();eventStream=null;
+}
+function renderAuthEntry(session){
+ currentAuthSession=session;
+ const entry=$('auth-entry');
+ const status=$('auth-session-status');
+ const local=session.mode==='local';
+ const verified=local&&session.authenticated;
+ $('logout').classList.toggle('hidden',!verified);
+ entry.classList.toggle('hidden',verified&&session.actor==='parent');
+ if(!local){status.textContent='演示模式 · 无家长授权';entry.textContent='启用家长授权';}
+ else if(!verified){status.textContent='未登录';entry.textContent='家长登录';}
+ else if(session.actor==='child'){status.textContent='儿童已登录';entry.textContent='切换为家长';}
+ else {status.textContent='家长已验证';entry.textContent='家长登录';}
+}
+function openAuthDialog(session){
+ const demo=session.mode==='demo';
+ $('auth-form').classList.toggle('hidden',demo);
+ $('auth-demo-guide').classList.toggle('hidden',!demo);
+ $('auth-overlay').classList.remove('hidden');
+ if(!demo){
+  $('auth-role').value='parent';
+  $('auth-secret').minLength=12;
+  $('auth-error').textContent='';
+  $('auth-secret').value='';
+  $('auth-secret').focus();
+ }else $('auth-demo-close').focus();
+}
 function applySession(session){
  authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
  const parent=authorizedActor==='parent',local=!!authorizedActor;
@@ -99,13 +130,36 @@ async function initAuth(){
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   if(!response.ok)throw new Error('认证服务不可用');
   const session=await response.json();
-  if(session.mode!=='demo'&&!session.authenticated){$('auth-overlay').classList.remove('hidden');return;}
-  $('auth-overlay').classList.add('hidden');
+  renderAuthEntry(session);
   $('actor').disabled=session.mode!=='demo';
-  if(session.mode!=='demo'){$('actor').value=session.actor;$('logout').classList.remove('hidden');}
-  applySession(session);launchConsole();
+  applySession(session);
+  if(session.mode==='local'&&!session.authenticated){
+   stopConsole();
+   openAuthDialog(session);
+   return;
+  }
+  $('auth-overlay').classList.add('hidden');
+  if(session.mode==='local')$('actor').value=session.actor;
+  launchConsole();
  }catch(err){$('connection').textContent='认证服务连接失败';notify(err.message,true);}
 }
+$('auth-entry').addEventListener('click',async()=>{
+ const session=currentAuthSession;
+ if(!session)return;
+ if(session.mode==='demo'){openAuthDialog(session);return;}
+ if(!session.authenticated){openAuthDialog(session);return;}
+ if(session.actor==='child'){
+  if(!window.confirm('将退出儿童会话并切换到家长登录，是否继续？'))return;
+  try{
+   const r=await fetch('/api/auth/logout',{method:'POST'});
+   if(!r.ok)throw new Error('退出儿童会话失败');
+   location.reload();
+  }catch(e){notify(e.message,true);}
+ }
+});
+$('auth-demo-close').addEventListener('click',()=>{$('auth-overlay').classList.add('hidden');$('auth-entry').focus();});
+document.querySelectorAll('[data-parent-auth-entry]').forEach(button=>button.addEventListener('click',()=>$('auth-entry').click()));
+$('auth-role').addEventListener('change',()=>{$('auth-secret').minLength=$('auth-role').value==='parent'?12:6;});
 $('auth-form').addEventListener('submit',async e=>{
   e.preventDefault();
   $('auth-error').textContent='';
