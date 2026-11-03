@@ -8,6 +8,8 @@ if(!/^dev-[0-9a-f-]{36}$/.test(deviceId??'')||!/^[0-9a-f]{64}$/.test(token??''))
 const bearer={'Authorization':`Bearer ${token}`};
 const caps=['sim.navigation.goto','display.face','audio.output'];
 const sleep=t=>new Promise(resolve=>setTimeout(resolve,t));
+const {GridNavigationBridge}=await import('./navigation-simulator.mjs');
+const nav=new GridNavigationBridge({stepDelayMs:Number(process.env.ALEX_SIM_STEP_MS??25),obstaclePresent:process.env.ALEX_SIM_OBSTACLE==='1'});
 let stopping=false;const processed=new Set(),running=new Set(),cancelled=new Set();
 async function request(path,method='GET',payload){
   const r=await fetch(new URL(path,endpoint),{method,headers:{...bearer,...(payload?{'Content-Type':'application/json'}:{})},body:payload?JSON.stringify(payload):undefined,signal:AbortSignal.timeout(8000)});
@@ -21,11 +23,24 @@ async function run(job){
     const started=await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'running'});
     if(!started.ok)return;
     console.log(`[virtual] ${job.capability}: ${JSON.stringify(job.params)}`);
-    await sleep(350); // synthetic delay only; NOT a simulated physical path or motor controller.
-    if(cancelled.has(job.id))return;
+    if(job.capability==='sim.navigation.goto'){
+      const outcome=await nav.navigate(job.params.destination,{
+        isCancelled:()=>stopping||cancelled.has(job.id),
+        onFeedback:async feedback=>{
+          const result=await request('/api/gateway/telemetry','POST',{deviceId,jobId:job.id,...feedback});
+          if(!result.ok)throw new Error(result.message||'NAVIGATION_FEEDBACK_REJECTED');
+        }
+      });
+      if(outcome.status==='cancelled')return;
+      if(outcome.status!=='arrived'){
+        await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'failed',reason:'Simulated route blocked'});
+        return;
+      }
+    } else await sleep(100);
+    if(cancelled.has(job.id)||stopping)return;
     const finished=await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'succeeded'});
     if(finished.ok){processed.add(job.id);console.log(`[virtual] completed ${job.id}`);}
-  }catch(e){if(!stopping)console.error('[virtual] task:',e.message);}
+  }catch(e){if(!stopping){console.error('[virtual] task:',e.message);try{await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'failed',reason:'Navigation simulation error'});}catch{}}}
   finally{running.delete(job.id);}
 }
 async function receive(){
@@ -52,7 +67,7 @@ async function receive(){
 }
 process.on('SIGINT',()=>{stopping=true;process.exit(0);});
 process.on('SIGTERM',()=>{stopping=true;process.exit(0);});
-await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:1});
+await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:2});
 await heartbeat();
 console.log(`[virtual] ${deviceId} connected; waiting for parent capability approval`);
 const timer=setInterval(()=>heartbeat().catch(e=>console.error('[virtual] heartbeat:',e.message)),10000);

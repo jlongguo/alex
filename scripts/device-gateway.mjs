@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {JsonStateStore} from './state-store.mjs';
+import {MAP, occupied} from '../dist/robot/map.js';
+import {SIM_MAP_VERSION} from './navigation-simulator.mjs';
 
 // IMPORTANT: commands in v0.5 are virtual presentation/simulation commands only.
 // There is no actuator/motor transport, and no generic device execute endpoint.
@@ -49,11 +51,11 @@ export class DeviceGateway {
     return !!d&&!d.revoked&&Number.isFinite(seen)&&this.clock()-seen<=this.freshMs;
   }
   async announce(deviceId,token,capabilities,protocolVersion){
-    if(protocolVersion!==1)throw new Error('INVALID_PROTOCOL_VERSION');
+    if(![1,2].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
     const caps=validateCapabilities(capabilities);
-    await this.registry.announce(deviceId,token,caps);
+    await this.registry.announce(deviceId,token,caps,protocolVersion);
     // Declared capabilities are not permissions: parent must explicitly approve them.
-    return {ok:true,deviceId,declaredCapabilities:caps,approvedCapabilities:this.registry.get(deviceId)?.capabilities??[]};
+    return {ok:true,deviceId,protocolVersion,declaredCapabilities:caps,approvedCapabilities:this.registry.get(deviceId)?.capabilities??[]};
   }
   async approve(actor,deviceId,capabilities){
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
@@ -76,6 +78,7 @@ export class DeviceGateway {
       if(!device||device.revoked)throw new Error('UNKNOWN_DEVICE');
       if(!device.capabilities.includes(capability))return {ok:false,message:'DEVICE_CAPABILITY_NOT_APPROVED'};
       if(!this.online(deviceId))return {ok:false,message:'DEVICE_OFFLINE'};
+      if(capability==='sim.navigation.goto'&&this.jobs.some(j=>j.deviceId===deviceId&&j.capability===capability&&!terminal.has(j.status)))return {ok:false,message:'DEVICE_NAVIGATION_BUSY'};
       const now=this.clock();
       const job={id:`job-${randomUUID()}`,actor,deviceId,capability,params:sanitized,requestId,status:'queued',createdMs:now,createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString(),reason:null};
       this.jobs.unshift(job);if(this.jobs.length>200)this.jobs.length=200;
@@ -89,13 +92,37 @@ export class DeviceGateway {
     return this.#exclusive(async()=>{
       const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
       if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
+      if(!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'DEVICE_CAPABILITY_NOT_APPROVED'};
       if(job.status===status)return {ok:true,job:{...job},duplicate:true};
       if(terminal.has(job.status))return {ok:false,message:'TASK_ALREADY_TERMINAL'};
       if(status==='running'&&job.status!=='queued')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.status!=='running')return {ok:false,message:'INVALID_TASK_TRANSITION'};
+      if(status==='succeeded'&&job.capability==='sim.navigation.goto'&&this.registry.get(deviceId)?.protocolVersion===2 && (job.telemetry?.phase!=='arrived'||job.telemetry.progress!==100))return {ok:false,message:'NAVIGATION_ARRIVAL_EVIDENCE_REQUIRED'};
       job.status=status;job.updatedAt=new Date(this.clock()).toISOString();if(status==='failed')job.reason=reason||'Device reported failure';
       await this.save();this.#notify(deviceId,{type:'job.updated',job});
       return {ok:true,job:{...job}};
+    });
+  }
+  async telemetry(deviceId,token,{jobId,sequence,phase,progress,pose,mapVersion}){
+    if(!this.registry.authenticate(deviceId,token))throw new Error('DEVICE_UNAUTHORIZED');
+    if(typeof jobId!=='string'||!/^job-[0-9a-f-]{36}$/.test(jobId)||!Number.isSafeInteger(sequence)||sequence<1||sequence>10000||!['planning','moving','arrived','blocked'].includes(phase)||!Number.isInteger(progress)||progress<0||progress>100||mapVersion!==SIM_MAP_VERSION||!pose||typeof pose!=='object'||Array.isArray(pose)||Object.keys(pose).sort().join(',')!=='heading,x,y'||![pose.x,pose.y,pose.heading].every(Number.isFinite)||pose.heading<-Math.PI-0.01||pose.heading>Math.PI+0.01||occupied(pose.x,pose.y))throw new Error('INVALID_NAVIGATION_FEEDBACK');
+    if((phase==='arrived')!== (progress===100))throw new Error('INVALID_NAVIGATION_FEEDBACK');
+    return this.#exclusive(async()=>{
+      const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
+      if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
+      if(job.capability!=='sim.navigation.goto'||job.status!=='running'||this.registry.get(deviceId)?.protocolVersion!==2||!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'NAVIGATION_FEEDBACK_NOT_ALLOWED'};
+      if(job.telemetry && sequence<=job.telemetry.sequence)return {ok:false,message:'NAVIGATION_FEEDBACK_OUT_OF_ORDER'};
+      if(job.telemetry && progress<job.telemetry.progress)return {ok:false,message:'NAVIGATION_PROGRESS_REGRESSION'};
+      if((!job.telemetry&&phase!=='planning')||(job.telemetry?.phase==='planning'&&!['planning','moving','arrived','blocked'].includes(phase))||(job.telemetry?.phase==='blocked'))return {ok:false,message:'INVALID_NAVIGATION_PHASE'};
+      if(phase==='arrived'){
+        const target=MAP.destinations[job.params.destination];
+        if(Math.hypot(pose.x-target.x,pose.y-target.y)>0.5)return {ok:false,message:'NAVIGATION_TARGET_MISMATCH'};
+      }
+      if(job.telemetry?.phase==='arrived')return {ok:false,message:'NAVIGATION_ALREADY_ARRIVED'};
+      job.telemetry={sequence,phase,progress,pose:{x:pose.x,y:pose.y,heading:pose.heading},mapVersion,updatedAt:new Date(this.clock()).toISOString()};
+      job.updatedAt=job.telemetry.updatedAt;
+      await this.save();this.#notify(deviceId,{type:'navigation.feedback',jobId,telemetry:job.telemetry});
+      return {ok:true,jobId,telemetry:{...job.telemetry}};
     });
   }
   async cancel(actor,jobId){
