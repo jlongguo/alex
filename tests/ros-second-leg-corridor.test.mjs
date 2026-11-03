@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -64,6 +65,8 @@ test('second-leg failure evidence covers collision intervention, path and speed'
     'collision_state_received', 'global_plan', 'plan_received',
     'mean_abs_linear_mps', 'ROS failed goal diagnostics:',
     'sim_real_time_factor', 'position_trace', 'sim_seconds',
+    'laser_clearance', 'local_footprint', 'points_inside_0_19m',
+    'requested_yaw_rad', 'goal_arrival_heading',
     'odom_distance_m', 'NAV2_GOAL_TIMEOUT_CANCEL_',
   ]) assert.ok(smoke.includes(needle), needle);
   const tuning = read('robotics/ros2/alex_sim/alex_sim/nav2_tuning.py');
@@ -72,4 +75,25 @@ test('second-leg failure evidence covers collision intervention, path and speed'
   assert.match(tuning, /follow_path\['time_steps'\] = max\(1, round\(horizon \/ 0\.10\)\)/);
   assert.match(tuning, /checker\['movement_time_allowance'\] = max/);
   assert.match(tuning, /collision_monitor\['base_frame_id'\] = 'base_link'/);
+});
+
+test('arrival quaternion is aligned with the current navigation leg and never changes destination', () => {
+  const source = `import math, sys
+sys.path.insert(0, 'robotics/ros2/alex_sim/alex_sim')
+from acceptance import DOCK, DESK, STORY, ACCEPTANCE_ROUTE, goal_arrival_heading
+for start, goal in [((0.7, 2.8), DESK), ((1.7, 1.6), STORY), ((4.9, 1.7), DOCK)]:
+    yaw, z, w = goal_arrival_heading(start, goal)
+    assert abs(yaw - math.atan2(goal.y-start[1], goal.x-start[0])) < 1e-10
+    assert abs(z*z + w*w - 1.0) < 1e-10
+assert [(goal.x,goal.y) for goal in ACCEPTANCE_ROUTE] == [(1.7,1.6),(4.9,1.7),(0.7,2.8)]
+for invalid in [None, (float('nan'),1), (2,)]:
+    try: goal_arrival_heading(invalid, DESK)
+    except (ValueError,TypeError): pass
+    else: raise AssertionError('accepted invalid pose')
+try: goal_arrival_heading((DESK.x, DESK.y), DESK)
+except ValueError: pass
+else: raise AssertionError('accepted degenerate yaw')
+print('PASS')`;
+  const result = spawnSync('python3', ['-c', source], {cwd: root, encoding: 'utf8', timeout: 10000});
+  assert.equal(result.status, 0, result.stderr);
 });
