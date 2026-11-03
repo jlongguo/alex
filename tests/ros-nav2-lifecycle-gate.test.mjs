@@ -70,4 +70,8 @@ test('ROS smoke checks lifecycle ACTIVE before each goal, keeps strict feedback 
  assert.match(smoke,/NAV2_GOAL_REJECTED/);
  assert.match(smoke,/summarize_leg\(goal, pose/);
  assert.match(smoke,/clock_scan_odom_map_tf_nav2_ready/);
+ assert.match(smoke,/record_goal_diagnostics\(status, response\.result\)/);
+ assert.match(smoke,/nav2_error_code/);
+ assert.match(smoke,/minimum_distance_remaining_m/);
+ assert.match(smoke,/number_of_recoveries/);
 });
