@@ -16,7 +16,7 @@ PROBES = {
     "scan": "/scan",
 }
 
-def run_gz(args, timeout=5):
+def run_gz(args, timeout=8):
     try:
         proc = subprocess.run(["gz", *args], capture_output=True, text=True,
                               errors="replace", timeout=timeout, check=False)
@@ -33,14 +33,18 @@ def run_gz(args, timeout=5):
 def probe():
     topics = run_gz(["topic", "--list"])
     services = run_gz(["service", "--list"])
-    names = set(topics["stdout"].splitlines()) if topics["status"] == "ok" else set()
-    service_names = set(services["stdout"].splitlines()) if services["status"] == "ok" else set()
+    names = set(topics["stdout"].splitlines())
+    service_names = set(services["stdout"].splitlines())
     def sample(item):
         label, topic = item
+        # Gazebo may advertise the unqualified root /clock.
+        if label == "clock" and topic not in names and "/clock" in names:
+            topic = "/clock"
         if topic not in names:
             return label, {"topic": topic, "advertised": False,
                            "message_received": False, "probe_status": "not_advertised"}
-        data = run_gz(["topic", "--echo", "--topic", topic, "-n", "1"], timeout=4)
+        # Harmonic CLI supports -e -t; do not rely on an unsupported -n flag.
+        data = run_gz(["topic", "-e", "-t", topic], timeout=5)
         return label, {"topic": topic, "advertised": True,
                        "message_received": bool(data["stdout"].strip()),
                        "probe_status": data["status"],
@@ -50,13 +54,18 @@ def probe():
     paused_match = re.search(r"\bpaused\s*:\s*(true|false)\b",
                              samples["world_stats"].get("sample_prefix", ""), flags=re.I)
     paused = paused_match.group(1).lower() == "true" if paused_match else None
-    control = "/world/alex_home/control" in service_names
-    if not control:
-        hint = "Gazebo world service missing: inspect startup, model and plugin errors."
+    control_name = "/world/alex_home/control"
+    # CLI failure/timeout is unknown, not evidence that the world disappeared.
+    control = (True if control_name in service_names else
+               False if services["status"] == "ok" else None)
+    if control is None:
+        hint = "Gazebo service discovery unavailable: inspect status/stderr; world state unverified."
+    elif not control:
+        hint = "Gazebo world control service absent from successful CLI discovery: inspect server lifetime."
     elif paused:
         hint = "Gazebo world is paused: check -r launch and world controls."
     elif not samples["clock"]["message_received"]:
-        hint = "Gazebo clock has no sample: world may be stopped or transport unavailable."
+        hint = "Gazebo clock not observed: inspect source topic and simulator progress."
     elif not samples["odom"]["message_received"]:
         hint = "Gazebo clock observed, odom absent: check robot DiffDrive plugin."
     elif not samples["scan"]["message_received"]:
@@ -66,6 +75,7 @@ def probe():
     return {"schema": "alex.dev/gz-transport/v1",
             "world_control_available": control, "world_paused": paused,
             "topics_status": topics["status"], "services_status": services["status"],
+            "topics_stderr": topics["stderr"], "services_stderr": services["stderr"],
             "topics": sorted(names)[:80], "samples": samples, "hint": hint,
             "note": "Diagnostic only; not a ROS navigation acceptance result."}
 

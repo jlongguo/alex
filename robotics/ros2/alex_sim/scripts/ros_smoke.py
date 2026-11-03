@@ -52,7 +52,7 @@ def main():
     from tf2_ros import Buffer, TransformListener
     from geometry_msgs.msg import PoseStamped
     from nav2_msgs.action import NavigateToPose
-    from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
+    from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
     report = {'schema': 'alex.dev/ros-acceptance/v1', 'mode': 'route' if args.route else 'navigate' if args.navigate else 'graph',
               'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
@@ -92,10 +92,14 @@ def main():
         for transform in msg.transforms:
             frames.add((transform.header.frame_id.lstrip('/'), transform.child_frame_id.lstrip('/')))
 
+    # Gazebo CLOCK QoS is BEST_EFFORT: an integer depth alone would create
+    # a RELIABLE subscription that DDS refuses to match to the bridge.
+    clock_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT,
+                           durability=DurabilityPolicy.VOLATILE)
     subs = [
-        node.create_subscription(Clock, '/clock', clock_received, 10),
+        node.create_subscription(Clock, '/clock', clock_received, clock_qos),
         node.create_subscription(LaserScan, '/scan', received('scan', latest_scan), qos_profile_sensor_data),
-        node.create_subscription(Odometry, '/odom', received('odom', latest_odom), 10),
+        node.create_subscription(Odometry, '/odom', received('odom', latest_odom), qos_profile_sensor_data),
         node.create_subscription(OccupancyGrid, '/map', map_received, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
         node.create_subscription(TFMessage, '/tf', tf_recv, 10),
         node.create_subscription(TFMessage, '/tf_static', tf_recv, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
