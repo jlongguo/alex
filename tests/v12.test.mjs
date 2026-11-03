@@ -41,7 +41,7 @@ test('v0.12 Nav2 tuning keeps nested ROS params and controller plugin with no Py
   assert.equal(mppi.batch_size,500);
   assert.equal(mppi.model_dt,0.1);
   assert.equal(mppi.time_steps,28);
-  assert.equal(mppi.model_dt*mppi.time_steps,2.8);
+  assert.ok(Math.abs(mppi.model_dt*mppi.time_steps-2.8)<1e-9);
   assert.equal(mppi.visualize,false);
   assert.equal(config.controller_server.ros__parameters.general_goal_checker.xy_goal_tolerance,0.08);
   for(const costmap of ['local_costmap','global_costmap']){
@@ -88,7 +88,7 @@ for candidate in ({'amcl': {'ros__parameters': {}}},
                        **source['controller_server']['ros__parameters'],
                        'FollowPath':{
                            **source['controller_server']['ros__parameters']['FollowPath'],
-                           'batch_size':0}}},
+                           'batch_size':0}}}},
                   {**source, 'controller_server':{'ros__parameters':{
                        **source['controller_server']['ros__parameters'],
                        'FollowPath':{
