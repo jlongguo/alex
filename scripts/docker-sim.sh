@@ -43,7 +43,8 @@ prepare() {
   mkdir -p "$REPORTS"
   export ALEX_DOCKER_UID="${ALEX_DOCKER_UID:-$(id -u)}"
   export ALEX_DOCKER_GID="${ALEX_DOCKER_GID:-$(id -g)}"
-  # Rootless Docker preserves ownership via the caller's uid/gid on bind mounts.
+  [[ "$ALEX_DOCKER_UID" =~ ^[0-9]+$ && "$ALEX_DOCKER_GID" =~ ^[0-9]+$ ]] || die 'ALEX_DOCKER_UID and ALEX_DOCKER_GID must be numeric.'
+  # The bind-mounted source must remain owned by its regular host user.
 }
 
 build() {
@@ -57,10 +58,23 @@ ensure_image() {
   fi
 }
 
+# Docker named volumes are initially root-owned. Correct ONLY the container-only
+# node_modules volume with a temporary CAP_CHOWN; normal ROS/npm stays nonroot.
+init_node_modules() {
+  local owner="${ALEX_DOCKER_UID}:${ALEX_DOCKER_GID}"
+  msg "Preparing Docker node_modules volume for UID:GID $owner"
+  if ! compose run --rm -T --no-deps --user 0:0 --cap-add CHOWN sim bash -lc \
+      "set -euo pipefail; target=/workspace/alex/node_modules; current=\$(stat -c '%u:%g' \"\$target\"); if [[ \"\$current\" != '$owner' ]]; then chown -R -- '$owner' \"\$target\"; fi"; then
+    die 'Could not initialize the Docker dependency volume. Check Docker volume ownership and user namespace settings.'
+  fi
+}
+
 run_sim() {
   ensure_image
-  # -T allows CI / piped shells without a pseudo-terminal.
-  compose run --rm -T sim bash -lc "$1"
+  init_node_modules
+  # Normal service retains cap_drop ALL and no-new-privileges.
+  compose run --rm -T sim bash -lc \
+    "test -w /workspace/alex/node_modules || { echo 'Docker node_modules is not writable by the nonroot service user' >&2; exit 2; }; $1"
 }
 
 npm_setup='npm install --ignore-scripts --no-package-lock --no-audit --no-fund'
@@ -118,12 +132,12 @@ main() {
       docker compose version
       msg 'Container uses software/host-supported EGL. GPU LiDAR on Docker Desktop may be unavailable.'
       ;;
-    setup|build) build ;;
+    setup|build) build; init_node_modules ;;
     check) command_check ;;
     preflight) command_preflight ;;
     accept) command_accept ;;
     all) rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json"; build; command_check; command_preflight; command_accept ;;
-    shell) ensure_image; compose run --rm sim bash ;;
+    shell) ensure_image; init_node_modules; compose run --rm sim bash ;;
     down) compose down ;;
   esac
 }
