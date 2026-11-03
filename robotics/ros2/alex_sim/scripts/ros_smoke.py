@@ -56,6 +56,7 @@ def main():
     from nav2_msgs.msg import CollisionMonitorState
     from lifecycle_msgs.srv import GetState
     from alex_sim.nav2_lifecycle import Nav2LifecycleGate
+    from alex_sim.gz_pose import query_gz_model_pose
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
     report = {'schema': 'alex.dev/ros-acceptance/v1', 'mode': 'route' if args.route else 'navigate' if args.navigate else 'graph',
@@ -322,6 +323,10 @@ def main():
 
     def run_goal(goal):
         require_active_navigator()
+        # Probe Gazebo's actual 6-DoF model pose before each leg. Map TF and
+        # DiffDrive odometry alone are not sufficient to identify a tipped
+        # physical chassis after stopping at furniture.
+        gazebo_pose_before_goal = query_gz_model_pose()
         start = time.monotonic()
         start_sim_ns = node.get_clock().now().nanoseconds
         position_trace = []
@@ -375,6 +380,8 @@ def main():
                 'global_plan': dict(planned_path),
                 'laser_clearance': last_scan_clearance(),
                 'local_footprint': last_footprint_geometry(),
+                'gazebo_pose_before_goal': gazebo_pose_before_goal,
+                'gazebo_pose_at_goal_end': query_gz_model_pose(),
             }
             save_report(report, args.report)
 
@@ -455,6 +462,7 @@ def main():
         leg = summarize_leg(goal, pose, status=status, feedback_count=feedback['count'],
                             tf_fresh=fresh, odom_distance_m=odom_movement['length'],
                             start_distance_m=start_dist, elapsed=time.monotonic() - start)
+        leg['gazebo_pose_at_arrival'] = query_gz_model_pose()
         report['legs'].append(leg)
         save_report(report, args.report)
         print(f"Verified {goal.name}: position error {leg['position_error_m']}m, odom travel {leg['odom_distance_m']}m, feedback {leg['feedback_count']}", flush=True)
