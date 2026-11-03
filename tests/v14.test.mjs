@@ -97,7 +97,7 @@ test('v0.14 diagnostics are non-authoritative and identify likely bootstrap fail
     writeFileSync(report,JSON.stringify({status:'failed',reason:'CRASH',run_id:'abc',
       last_goal:{goal:'study_desk',velocity_pipeline:{'/cmd_vel':{messages:0}}}}));
     writeFileSync(preflight,JSON.stringify({status:'blocked',blockers:['package:nav2_msgs']}));
-    writeFileSync(log,"Traceback: ModuleNotFoundError: No module named 'alex_sim'\nNAV2_GOAL_TIMEOUT\n[collision_monitor] Failed to get \\"lidar_link\\"->\\"base_footprint\\" frame transform: \\"base_footprint\\" passed to lookupTransform argument target_frame does not exist.\n[controller_server] Failed to make progress\n");
+    writeFileSync(log,"Traceback: ModuleNotFoundError: No module named 'alex_sim'\nNAV2_GOAL_TIMEOUT\n[collision_monitor] Failed to get \"lidar_link\"->\"base_footprint\" frame transform: \"base_footprint\" passed to lookupTransform argument target_frame does not exist.\n[controller_server] Failed to make progress\n");
     const result=run('python3',['scripts/diagnose-ros-acceptance.py','--report',report,'--preflight',preflight,'--log',log,'--out',out]);
     assert.equal(result.status,0,result.stderr);
     const data=JSON.parse(readFileSync(out,'utf8'));
