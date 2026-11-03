@@ -91,7 +91,7 @@ command_preflight() {
 
 command_accept() {
   # A failed build or npm install must never leave an old 'passed' report behind.
-  rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json"
+  rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json" "$REPORTS/gz-transport.json"
   msg 'Running real Gazebo/Nav2 acceptance. Success requires a verified three-leg report.'
   run_sim "$npm_setup && npm run sim:accept"
 }
@@ -105,6 +105,9 @@ show_logs() {
   fi
   if [[ -f "$REPORTS/diagnostics.json" ]]; then
     printf '\n--- Diagnostics ---\n'; cat "$REPORTS/diagnostics.json"
+  fi
+  if [[ -f "$REPORTS/gz-transport.json" ]]; then
+    printf '\n--- Gazebo Transport ---\n'; cat "$REPORTS/gz-transport.json"
   fi
   if [[ -f "$REPORTS/acceptance-launch.log" ]]; then
     printf '\n--- Launch log (last 120 lines) ---\n'; tail -n 120 "$REPORTS/acceptance-launch.log"
@@ -136,7 +139,7 @@ main() {
     check) command_check ;;
     preflight) command_preflight ;;
     accept) command_accept ;;
-    all) rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json"; build; command_check; command_preflight; command_accept ;;
+    all) rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json" "$REPORTS/gz-transport.json"; build; command_check; command_preflight; command_accept ;;
     shell) ensure_image; init_node_modules; compose run --rm sim bash ;;
     down) compose down ;;
   esac

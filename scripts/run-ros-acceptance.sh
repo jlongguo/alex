@@ -54,6 +54,8 @@ launcher=$!
 sleep 2
 if ! kill -0 "$launcher" 2>/dev/null; then
   echo "Gazebo launch terminated early. See $log" >&2
+  python3 scripts/probe-gz-transport.py --out "$ROOT/.local/ros/gz-transport.json" || true
+  head -n 100 "$log" >&2 || true
   tail -40 "$log" >&2 || true
   exit 1
 fi
@@ -63,7 +65,13 @@ else
   smoke_status=$?
   # Print the bounded launch tail in the caller's terminal; the complete log
   # and structured graph snapshot are retained in .local/ros/.
-  echo "ROS acceptance failed (exit $smoke_status). Gazebo/Nav2 launch log tail:" >&2
+  echo "ROS acceptance failed (exit $smoke_status); probing Gazebo Transport before shutdown:" >&2
+  python3 scripts/probe-gz-transport.py --out "$ROOT/.local/ros/gz-transport.json" || true
+  echo '--- Gazebo/Nav2 startup log (first 100 lines) ---' >&2
+  head -n 100 "$log" >&2 || true
+  echo '--- Gazebo process errors/warnings (up to 60 matches) ---' >&2
+  grep -iE 'gazebo|gz sim|ogre|egl|render|libGL|fatal|exception|segmentation|failed to|error:|model://' "$log" | head -n 60 >&2 || true
+  echo '--- Gazebo/Nav2 launch log tail ---' >&2
   tail -n 90 "$log" >&2 || true
   exit "$smoke_status"
 fi
