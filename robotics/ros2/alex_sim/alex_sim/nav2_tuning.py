@@ -36,7 +36,9 @@ def configure_nav2(source):
     controller = nested(data, 'controller_server', 'ros__parameters')
     local = nested(data, 'local_costmap', 'local_costmap', 'ros__parameters')
     global_map = nested(data, 'global_costmap', 'global_costmap', 'ros__parameters')
-    nested(data, 'bt_navigator', 'ros__parameters')
+    bt_navigator = nested(data, 'bt_navigator', 'ros__parameters')
+    behavior = nested(data, 'behavior_server', 'ros__parameters')
+    collision_monitor = nested(data, 'collision_monitor', 'ros__parameters')
 
     amcl.update({
         'use_sim_time': True, 'base_frame_id': 'base_link',
@@ -45,9 +47,38 @@ def configure_nav2(source):
         'initial_pose': {'x': INITIAL_POSE[0], 'y': INITIAL_POSE[1], 'z': 0.0, 'yaw': 0.0},
     })
     for component in ('bt_navigator', 'planner_server', 'controller_server',
-                      'behavior_server', 'smoother_server', 'velocity_smoother'):
+                      'behavior_server', 'smoother_server', 'velocity_smoother',
+                      'collision_monitor'):
         if component in data:
             nested(data, component, 'ros__parameters')['use_sim_time'] = True
+
+    # Gazebo's DiffDrive publishes odom -> base_link; robot_state_publisher
+    # publishes base_link -> lidar_link. There is NO base_footprint frame.
+    # Nav2 Jazzy's stock collision_monitor still defaults to base_footprint,
+    # causing every scan transform to fail and blocking the final /cmd_vel.
+    bt_navigator['robot_base_frame'] = 'base_link'
+    behavior['robot_base_frame'] = 'base_link'
+    collision_monitor['base_frame_id'] = 'base_link'
+    collision_monitor['odom_frame_id'] = 'odom'
+
+    # Preserve the Nav2 safety filter. Controller -> velocity_smoother ->
+    # collision_monitor -> ros_gz_bridge -> Gazebo DiffDrive must remain wired.
+    # Fail closed if a different installed template uses incompatible topics.
+    velocity_chain = {
+        'cmd_vel_in_topic': 'cmd_vel_smoothed',
+        'cmd_vel_out_topic': 'cmd_vel',
+    }
+    for key, expected in velocity_chain.items():
+        if collision_monitor.get(key, expected) != expected:
+            raise IncompatibleNav2Template(
+                f'Unexpected collision_monitor {key}: {collision_monitor[key]!r}')
+        collision_monitor[key] = expected
+    sources = collision_monitor.get('observation_sources', [])
+    if not isinstance(sources, list) or 'scan' not in sources:
+        raise IncompatibleNav2Template('collision_monitor must observe the simulated /scan')
+    scan = nested(collision_monitor, 'scan')
+    if scan.get('type') != 'scan' or scan.get('topic') not in ('scan', '/scan'):
+        raise IncompatibleNav2Template('collision_monitor scan source is incompatible with /scan')
 
     for costmap in (local, global_map):
         costmap['use_sim_time'] = True
