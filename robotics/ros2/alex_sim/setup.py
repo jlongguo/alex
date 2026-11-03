@@ -4,7 +4,7 @@ from os.path import join
 
 package_name = 'alex_sim'
 setup(
-    name=package_name, version='0.11.0',
+    name=package_name, version='0.12.0',
     packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),

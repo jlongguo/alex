@@ -19,3 +19,10 @@
 ## 真实 Agent 接入前
 
 所有调用经过 schema 校验 + PolicyEngine + 明确的设备能力匹配；有风险的操作二次确认。防止工具调用注入、越权跨设备访问、任意 Skill 读取家庭数据。
+
+## v0.12 ROS simulation-only acceptance
+
+- `ALEX_ROS_SIMULATION_ONLY=1` and `ALEX_RUN_ROS_INTEGRATION=1` are both required before launching the three-leg acceptance harness.
+- Domain `77` with `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` is intended to reduce accidental discovery of other ROS networks; **it is not certified isolation**. Do not run any physical robot on the same host/domain.
+- Live navigation acceptance requires a *fresh* independently observed TF pose, Nav2 action success and feedback. A passing offline/CI test suite is never a substitute.
+- A ROS Nav2 cancellation or process-group termination is not a physical emergency stop, and none of these scripts are approved for real motors.

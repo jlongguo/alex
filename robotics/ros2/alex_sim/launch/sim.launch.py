@@ -9,8 +9,6 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from nav2_common.launch import RewrittenYaml
-import yaml
 
 
 def generate_launch_description():
@@ -25,7 +23,6 @@ def generate_launch_description():
     models = share / 'models'
     resource_path = str(models) + os.pathsep + os.environ.get('GZ_SIM_RESOURCE_PATH', '')
     ros_gz = Path(get_package_share_directory('ros_gz_sim'))
-    bringup = Path(get_package_share_directory('nav2_bringup'))
     with_nav2 = LaunchConfiguration('with_nav2')
     # --headless-rendering permits GPU lidar in a headless Gazebo server if EGL works.
     # GUI requires a supported graphics environment; CLI override is documented.
@@ -33,17 +30,16 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(str(ros_gz / 'launch' / 'gz_sim.launch.py')),
         launch_arguments={'gz_args': ['-r -s ', str(world)]}.items(),
     )
-    tuning = yaml.safe_load((share / 'config' / 'nav2_tuning.yaml').read_text())
-    params = RewrittenYaml(
-        source_file=str(bringup / 'params' / 'nav2_params.yaml'),
-        root_key='', param_rewrites={k: str(v) for k, v in tuning.items()},
-        convert_types=True,
-    )
+    # launch-ros-sim.sh generates this from *installed* Jazzy defaults and
+    # validates nested parameters. A missing file must fail closed.
+    params_file = os.environ.get('ALEX_ROS_NAV2_PARAMS_FILE', '')
+    if not params_file or not Path(params_file).is_file():
+        raise RuntimeError('NAV2_PARAMS_NOT_GENERATED: run scripts/launch-ros-sim.sh')
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(bringup / 'launch' / 'bringup_launch.py')),
         launch_arguments={
             'slam': 'False', 'map': str(share / 'maps' / 'alex_home.yaml'),
-            'use_sim_time': 'True', 'params_file': params,
+            'use_sim_time': 'True', 'params_file': params_file,
             'use_composition': 'False', 'autostart': 'True',
         }.items(),
         condition=IfCondition(with_nav2),
@@ -57,6 +53,4 @@ def generate_launch_description():
         Node(package='ros_gz_bridge', executable='parameter_bridge',
              parameters=[{'config_file': str(share / 'config' / 'bridge.yaml')}], output='screen'),
         TimerAction(period=5.0, actions=[nav2]),
-        Node(package='alex_sim', executable='seed_pose', name='alex_seed_amcl_pose',
-             parameters=[{'use_sim_time': True}], condition=IfCondition(with_nav2), output='screen'),
     ])

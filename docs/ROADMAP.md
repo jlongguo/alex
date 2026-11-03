@@ -1,3 +1,8 @@
+# Current v0.12 status (2026-11-03)
+
+- **Code complete, live ROS/Gazebo acceptance unverified.** Strict Jazzy Nav2 parameter generator, ROS-independent goal/TF evidence validators, optional multi-leg real Nav2 smoke, preflight and report files added. See `docs/V0.12.md`.
+- v0.12 normal Node tests and sim static checks do **not** validate physics or real ROS 2 middleware. Next action: execute `npm run sim:accept` on Ubuntu 24.04 + Jazzy/Harmonic and fix observed runtime failures before expanding robot hardware features.
+
 # 后续迭代计划
 
 ## 当前批次已交付（v0.1）

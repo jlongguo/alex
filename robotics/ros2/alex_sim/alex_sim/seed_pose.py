@@ -8,17 +8,18 @@ def main():
         raise SystemExit('SIMULATION_ONLY_FLAG_REQUIRED')
     import rclpy
     from rclpy.node import Node
+    from rclpy.parameter import Parameter
     from geometry_msgs.msg import PoseWithCovarianceStamped
 
     rclpy.init()
-    node = Node('alex_sim_initial_pose')
+    node = Node('alex_sim_initial_pose', parameter_overrides=[Parameter('use_sim_time', value=True)])
     pub = node.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
     deadline = time.monotonic() + 45
     count = 0
     try:
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.25)
-            if pub.get_subscription_count() == 0:
+            if pub.get_subscription_count() == 0 or node.get_clock().now().nanoseconds <= 0:
                 continue
             pose = PoseWithCovarianceStamped()
             pose.header.frame_id = 'map'

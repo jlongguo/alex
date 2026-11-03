@@ -24,6 +24,12 @@ for pkg in ros_gz_sim ros_gz_bridge nav2_bringup nav2_common robot_state_publish
 done
 cd "$ROOT"
 npm run sim:check
+NAV2_PREFIX="$(ros2 pkg prefix nav2_bringup)"
+NAV2_DEFAULT="$NAV2_PREFIX/share/nav2_bringup/params/nav2_params.yaml"
+if [[ ! -f "$NAV2_DEFAULT" ]]; then echo "Missing installed Nav2 template: $NAV2_DEFAULT" >&2; exit 2; fi
+export ALEX_ROS_NAV2_PARAMS_FILE="$ROOT/.local/ros/nav2_params.generated.yaml"
+python3 "$ROOT/robotics/ros2/alex_sim/alex_sim/nav2_tuning.py" \
+  --input "$NAV2_DEFAULT" --output "$ALEX_ROS_NAV2_PARAMS_FILE"
 # All generated/build files remain in .local and never enter Git.
 mkdir -p .local/ros
 colcon --log-base "$ROOT/.local/ros/log" build --base-paths robotics/ros2/alex_sim \
@@ -34,4 +40,6 @@ set +u
 source "$ROOT/.local/ros/install/setup.bash"
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-77}"
+if [[ "$ROS_DOMAIN_ID" != 77 ]]; then echo 'ROS_DOMAIN_ID=77 is required for isolated Alex simulation' >&2; exit 2; fi
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ros2 launch alex_sim sim.launch.py with_nav2:="${ALEX_WITH_NAV2:-true}"

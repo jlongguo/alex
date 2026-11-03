@@ -1,8 +1,17 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.11.0 · reproducible Gazebo assets, ROS 2 Jazzy bringup and opt-in Nav2 smoke test**
+> **v0.12.0 · strict Nav2 parameters and reproducible, fail-closed simulation acceptance**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.12 simulation acceptance (new)
+
+- Adds ROS-free acceptance evidence checks, a strict nested Nav2 parameter generator, and a simulator-only three-leg Nav2 route (dock → desk → story → dock).
+- Run `npm test` and `npm run sim:check` anywhere. Run `npm run sim:preflight` to detect missing ROS/Gazebo without pretending simulation succeeded.
+- On a dedicated Ubuntu 24.04 ROS 2 Jazzy + Gazebo Harmonic workstation, **explicitly opt in** with `ALEX_ROS_SIMULATION_ONLY=1`, `ALEX_RUN_ROS_INTEGRATION=1`, `ROS_DOMAIN_ID=77`, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, then `npm run sim:accept`.
+- Acceptance produces `.local/ros/acceptance-report.json` and `.local/ros/acceptance-launch.log`. Success requires live `/clock`, LiDAR, odom, map, TF, Nav2 feedback, and independently verified positions and odometry travel for **three goals**.
+- The current development/CI environment has **no ROS 2 / Gazebo**; `sim:preflight` reports `blocked` and **no live physics navigation has been verified**.
+- See [`docs/V0.12.md`](docs/V0.12.md) for commands, expected evidence and safety limits.
 
 ## v0.11 Gazebo + ROS2 simulation package (new)
 

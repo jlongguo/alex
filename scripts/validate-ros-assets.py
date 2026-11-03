@@ -55,7 +55,9 @@ bridge = (pkg / 'config/bridge.yaml').read_text()
 assert all(f'/'+x in bridge for x in ('clock','scan','odom','tf','cmd_vel'))
 assert 'ROS_TO_GZ' in bridge and 'GZ_TO_ROS' in bridge
 
-sources = [pkg / 'launch/sim.launch.py', pkg / 'alex_sim/seed_pose.py', pkg / 'scripts/ros_smoke.py', root / 'robotics/ros2/nav2_action_client.py']
+sources = [pkg / 'launch/sim.launch.py', pkg / 'alex_sim/seed_pose.py', pkg / 'alex_sim/nav2_tuning.py', pkg / 'alex_sim/acceptance.py', pkg / 'scripts/ros_smoke.py', root / 'scripts/ros-preflight.py', root / 'robotics/ros2/nav2_action_client.py']
 for source in sources:
     compile(source.read_text(), str(source), 'exec')
-print('Validated XML, PGM, map origin, robot frames, simulated navigation topics and Python syntax (NO ROS2 runtime)')
+assert 'ALEX_ROS_NAV2_PARAMS_FILE' in (pkg / 'launch/sim.launch.py').read_text()
+assert '--route' in (pkg / 'scripts/ros_smoke.py').read_text()
+print('Validated XML, PGM, map origin, frames, nested Nav2 parameter generation and Python syntax (NO ROS2 runtime)')
