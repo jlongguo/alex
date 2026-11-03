@@ -120,7 +120,7 @@ test('physics support triangle places the mass-weighted chassis COM behind the a
   const comX = (1.3 * -0.04 + 0.025 * -0.09) / total;
   assert.ok(comX < -0.02 && comX > -0.075, `COM ${comX} must remain in 3-point wheel/caster support`);
   // This triangle has wheel contact x=0, y=+/-0.145 and caster x=-0.09.
-  const lateralHalfwidthAtCom = 0.145 * (-comX / 0.09);
+  const lateralHalfwidthAtCom = 0.145 * ((comX + 0.09) / 0.09);
   assert.ok(lateralHalfwidthAtCom > 0.045);
   assert.equal(1.3 / total > 0.85, true);
 });
