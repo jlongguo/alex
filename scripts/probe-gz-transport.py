@@ -61,11 +61,11 @@ def probe():
     if control is None:
         hint = "Gazebo service discovery unavailable: inspect status/stderr; world state unverified."
     elif not control:
-        hint = "Gazebo world control service absent from successful CLI discovery: inspect server lifetime."
+        hint = "Gazebo world service missing: world control service absent from successful CLI discovery; inspect server lifetime."
     elif paused:
         hint = "Gazebo world is paused: check -r launch and world controls."
     elif not samples["clock"]["message_received"]:
-        hint = "Gazebo clock not observed: inspect source topic and simulator progress."
+        hint = "Gazebo clock has no sample: clock not observed; inspect source topic and simulator progress."
     elif not samples["odom"]["message_received"]:
         hint = "Gazebo clock observed, odom absent: check robot DiffDrive plugin."
     elif not samples["scan"]["message_received"]:
