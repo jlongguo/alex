@@ -239,11 +239,16 @@ def main():
             sample.update(messages=0, nonzero_messages=0,
                           peak_linear_mps=0.0, peak_angular_rps=0.0)
 
-        def record_goal_diagnostics(status):
+        def record_goal_diagnostics(status, result_message=None):
             pose, fresh = current_tf_pose()
             report['last_goal'] = {
                 'goal': goal.name, 'action_status': status,
                 'feedback_count': feedback['count'],
+                'distance_remaining_m': feedback['last_remaining_m'],
+                'minimum_distance_remaining_m': feedback['minimum_remaining_m'],
+                'number_of_recoveries': feedback['number_of_recoveries'],
+                'nav2_error_code': getattr(result_message, 'error_code', None),
+                'wall_seconds': round(time.monotonic() - start, 2),
                 'start_distance_m': round(start_dist, 3),
                 'odom_distance_m': round(odom_movement['length'], 3),
                 'map_pose': [round(v, 4) for v in pose] if pose else None,
@@ -262,12 +267,18 @@ def main():
         nav_goal.pose.pose.position.x = goal.x
         nav_goal.pose.pose.position.y = goal.y
         nav_goal.pose.pose.orientation.w = 1.0
-        feedback = {'count': 0}
+        feedback = {'count': 0, 'last_remaining_m': None,
+                    'minimum_remaining_m': None, 'number_of_recoveries': 0}
 
         def handle_feedback(data):
             fb = data.feedback
             if math.isfinite(fb.distance_remaining) and fb.distance_remaining >= 0:
                 feedback['count'] += 1
+                remaining = round(fb.distance_remaining, 3)
+                feedback['last_remaining_m'] = remaining
+                prev = feedback['minimum_remaining_m']
+                feedback['minimum_remaining_m'] = min(prev, remaining) if prev is not None else remaining
+                feedback['number_of_recoveries'] = int(fb.number_of_recoveries)
 
         request = action.send_goal_async(nav_goal, feedback_callback=handle_feedback)
         spin_until(lambda: request.done(), 10, stage='NAV2_GOAL_SUBMISSION')
@@ -300,7 +311,7 @@ def main():
             raise RuntimeError('NAV2_GOAL_TIMEOUT_CANCEL_' + ('ACKNOWLEDGED' if cancellation.done() else 'UNCONFIRMED'))
         response = result.result()
         status = 'SUCCEEDED' if response.status == GoalStatus.STATUS_SUCCEEDED else f'STATUS_{response.status}'
-        record_goal_diagnostics(status)
+        record_goal_diagnostics(status, response.result)
         # Wait for a genuinely fresh map->base_link TF, independent of Action result.
         pose, fresh = current_tf_pose()
         if not fresh:
