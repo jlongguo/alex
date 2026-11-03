@@ -30,6 +30,22 @@ lidar = m.find('.//sensor[@type="gpu_lidar"]')
 assert lidar.find('lidar/scan/horizontal/samples').text == '360'
 assert lidar.find('gz_frame_id').text == 'lidar_link'
 assert lidar.find('ray') is None
+# GPU lidar must see the environment but never render Alex's own visuals.
+# SDF visibility semantics are bitwise: mask & visual_flags != 0 means visible.
+lidar_mask = int(lidar.find('lidar/visibility_mask').text)
+robot_visual_flags = [int(v.find('visibility_flags').text) for v in m.findall('.//visual')]
+assert len(robot_visual_flags) == 4
+assert set(robot_visual_flags) == {2}
+assert all((lidar_mask & flag) == 0 for flag in robot_visual_flags)
+assert (lidar_mask & 0xFFFFFFFF) != 0
+# Do not create a large blind zone to hide self returns; visibility filtering
+# should preserve the close-range lidar specification.
+assert float(lidar.find('lidar/range/min').text) == 0.06
+
+for joint_name in ('left_wheel_joint', 'right_wheel_joint'):
+    joint = m.find(f'./joint[@name="{joint_name}"]')
+    effort = joint.find('axis/limit/effort')
+    assert effort is not None and float(effort.text) >= 1_000_000
 
 drive = m.find('./plugin[@name="gz::sim::systems::DiffDrive"]')
 assert drive is not None
