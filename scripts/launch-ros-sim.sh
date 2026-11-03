@@ -2,44 +2,7 @@
 # Local ROS 2 Jazzy + Gazebo Harmonic only. Never use with physical robots.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ "${ALEX_ROS_SIMULATION_ONLY:-}" != "1" ]]; then
-  echo 'Set ALEX_ROS_SIMULATION_ONLY=1 to explicitly acknowledge simulation-only operation.' >&2
-  exit 2
-fi
-if [[ -z "${ROS_DISTRO:-}" && -f /opt/ros/jazzy/setup.bash ]]; then
-  # shellcheck disable=SC1091
-  set +u
-  source /opt/ros/jazzy/setup.bash
-  set -u
-fi
-if [[ "${ROS_DISTRO:-}" != "jazzy" ]]; then
-  echo 'ROS 2 Jazzy is required. Source /opt/ros/jazzy/setup.bash first.' >&2
-  exit 2
-fi
-for exe in ros2 gz colcon python3; do
-  if ! command -v "$exe" >/dev/null 2>&1; then echo "Missing executable: $exe" >&2;exit 2;fi
-done
-for pkg in ros_gz_sim ros_gz_bridge nav2_bringup nav2_common robot_state_publisher; do
-  if ! ros2 pkg prefix "$pkg" >/dev/null 2>&1; then echo "Missing ROS package: $pkg" >&2;exit 2;fi
-done
-cd "$ROOT"
-npm run sim:check
-NAV2_PREFIX="$(ros2 pkg prefix nav2_bringup)"
-NAV2_DEFAULT="$NAV2_PREFIX/share/nav2_bringup/params/nav2_params.yaml"
-if [[ ! -f "$NAV2_DEFAULT" ]]; then echo "Missing installed Nav2 template: $NAV2_DEFAULT" >&2; exit 2; fi
-export ALEX_ROS_NAV2_PARAMS_FILE="$ROOT/.local/ros/nav2_params.generated.yaml"
-python3 "$ROOT/robotics/ros2/alex_sim/alex_sim/nav2_tuning.py" \
-  --input "$NAV2_DEFAULT" --output "$ALEX_ROS_NAV2_PARAMS_FILE"
-# All generated/build files remain in .local and never enter Git.
-mkdir -p .local/ros
-colcon --log-base "$ROOT/.local/ros/log" build --base-paths robotics/ros2/alex_sim \
-  --build-base "$ROOT/.local/ros/build" --install-base "$ROOT/.local/ros/install" \
-  --packages-select alex_sim --symlink-install --event-handlers console_direct+
+# Must be sourced; package discovery and PYTHONPATH must survive into ros2 launch.
 # shellcheck disable=SC1091
-set +u
-source "$ROOT/.local/ros/install/setup.bash"
-set -u
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-77}"
-if [[ "$ROS_DOMAIN_ID" != 77 ]]; then echo 'ROS_DOMAIN_ID=77 is required for isolated Alex simulation' >&2; exit 2; fi
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+source "$ROOT/scripts/prepare-ros-sim.sh"
 ros2 launch alex_sim sim.launch.py with_nav2:="${ALEX_WITH_NAV2:-true}"

@@ -14,11 +14,13 @@ sys.path.insert(0, str(ROOT / 'robotics/ros2/alex_sim'))
 from alex_sim.acceptance import ACCEPTANCE_ROUTE  # noqa: E402
 
 
-def verify_report(report):
+def verify_report(report, expected_run_id=None):
     if not isinstance(report, dict) or report.get('schema') != 'alex.dev/ros-acceptance/v1':
         raise ValueError('INVALID_ACCEPTANCE_SCHEMA')
     if report.get('status') != 'passed' or report.get('mode') != 'route':
         raise ValueError('ROUTE_NOT_PASSED')
+    if expected_run_id is not None and (not expected_run_id or report.get('run_id') != expected_run_id):
+        raise ValueError('ACCEPTANCE_RUN_ID_MISMATCH')
     if report.get('simulation_only') is not True:
         raise ValueError('NOT_SIMULATION_ONLY')
     if 'clock_scan_odom_map_tf_nav2_ready' not in report.get('checks', []):
@@ -51,10 +53,11 @@ def verify_report(report):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--report', required=True)
+    parser.add_argument('--run-id', help='Require evidence from exactly this acceptance invocation')
     args = parser.parse_args()
     try:
         data = json.loads(Path(args.report).read_text(encoding='utf8'))
-        verify_report(data)
+        verify_report(data, args.run_id)
     except (OSError, ValueError, TypeError) as exc:
         print('ROS acceptance report INVALID:', exc, file=sys.stderr)
         return 1

@@ -97,9 +97,11 @@ test('v0.12 graph and route smoke contains a real Nav2 Action client and artifac
 
 test('v0.12 simulated launch generates ROS Nav2 params, does not bridge to a real robot',()=>{
   const launch=readFileSync(resolve(root,'scripts/launch-ros-sim.sh'),'utf8');
-  assert.match(launch,/ALEX_ROS_NAV2_PARAMS_FILE/);
-  assert.match(launch,/nav2_tuning.py/);
-  assert.match(launch,/ALEX_ROS_SIMULATION_ONLY/);
+  const prep=readFileSync(resolve(root,'scripts/prepare-ros-sim.sh'),'utf8');
+  assert.match(launch,/source.*prepare-ros-sim\.sh/);
+  assert.match(prep,/ALEX_ROS_NAV2_PARAMS_FILE/);
+  assert.match(prep,/nav2_tuning.py/);
+  assert.match(prep,/ALEX_ROS_SIMULATION_ONLY/);
   const bridge=readFileSync(resolve(root,pkg+'config/bridge.yaml'),'utf8');
   assert.match(bridge,/direction: ROS_TO_GZ/);
   assert.ok(!bridge.includes('real_motor'));

@@ -108,3 +108,10 @@
 - Differential-drive Gazebo model, ROS URDF/TF, simulated lidar/odometry, topic bridge and Jazzy/Nav2 bringup scaffold.
 - Opt-in ROS integration smoke suite requiring an installed ROS 2 Jazzy/Gazebo/Nav2 system, plus offline asset tests.
 - Pending: **actual** ROS 2/Gazebo/Nav2 execution, SLAM, validated navigation traces, safe hardware controller.
+
+
+## v0.14 · ROS runtime acceptance reliability (offline verified)
+
+- Share the sourced ROS workspace between Nav2 server and independent acceptance client.
+- Validate a per-attempt run ID and preserve fail-closed reporting; emit read-only diagnostics as CI artifacts.
+- Test overlay environment propagation using isolated shell and ROS stubs. Real Gazebo navigation still needs an approved Ubuntu runner.

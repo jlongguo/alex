@@ -40,3 +40,4 @@ jobs:
             .local/ros/acceptance-report.json
             .local/ros/acceptance-launch.log
             .local/ros/preflight.json
+            .local/ros/diagnostics.json

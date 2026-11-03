@@ -1,8 +1,16 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.13.0 · ROS launch execution validation and trustworthy simulation acceptance evidence**
+> **v0.14.0 · shared ROS overlay, acceptance run IDs and diagnostics**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.14 ROS workspace sharing and acceptance diagnostics
+
+- `scripts/prepare-ros-sim.sh` is now **sourced by both** the acceptance parent and Gazebo/Nav2 launcher. Colcon workspace and Python imports are shared; wrong domain, missing simulation opt-in or mismatched `alex_sim` package path fail closed.
+- Each live acceptance run has a unique `run_id`; final verification requires the same ID, preventing accidental reuse of stale `passed` evidence.
+- All attempts write `.local/ros/diagnostics.json`, with read-only preflight blockers and bounded log hints. This is not evidence of successful navigation.
+- `npm test` includes an offline fake-ROS overlay test plus tampering and blocked-run tests. **Live Gazebo/Nav2 remains unverified here.**
+- See [`docs/V0.14.md`](docs/V0.14.md) for the exact acceptance boundary.
 
 ## v0.13 ROS startup & acceptance integrity
 

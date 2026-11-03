@@ -54,7 +54,8 @@ def main():
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 
     report = {'schema': 'alex.dev/ros-acceptance/v1', 'mode': 'route' if args.route else 'navigate' if args.navigate else 'graph',
-              'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True}
+              'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
+              'run_id': os.environ.get('ALEX_ROS_ACCEPTANCE_RUN_ID') or __import__('uuid').uuid4().hex}
     save_report(report, args.report)
     rclpy.init()
     node = rclpy.create_node('alex_ros_sim_acceptance', parameter_overrides=[Parameter('use_sim_time', value=True)])
