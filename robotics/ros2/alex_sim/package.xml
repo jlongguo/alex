@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>alex_sim</name><version>0.12.0</version>
+  <name>alex_sim</name><version>0.13.0</version>
   <description>Simulation-only Gazebo Harmonic + ROS 2 Jazzy bringup for Alex</description>
   <maintainer email="noreply@example.invalid">Alex project</maintainer>
   <license>UNLICENSED</license>

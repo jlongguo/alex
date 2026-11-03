@@ -1,8 +1,17 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.12.0 · strict Nav2 parameters and reproducible, fail-closed simulation acceptance**
+> **v0.13.0 · ROS launch execution validation and trustworthy simulation acceptance evidence**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.13 ROS startup & acceptance integrity
+
+- Fixes a genuine `nav2_bringup` launch-time NameError and tests the **executed** Launch description offline (not just Python syntax).
+- Enables explicit Gazebo EGL headless GPU LiDAR rendering for the live acceptance runner; no ROS runtime is claimed on machines without it.
+- Resets stale `passed` evidence on every attempt, writes `blocked`/`failed` for startup errors, and verifies all three legs before reporting acceptance.
+- Adds an **opt-in manual** GitHub Actions job for a dedicated ROS/Gazebo simulation-only runner, never automatic PR or push execution.
+- Local offline suite: **98 automated tests passed**; real Gazebo/Nav2 integration still not run in this environment.
+- See [`docs/V0.13.md`](docs/V0.13.md) for precise requirements and safety limitations.
 
 ## v0.12 simulation acceptance (new)
 

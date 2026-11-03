@@ -1,0 +1,42 @@
+# Explicitly launched on a dedicated simulation-only machine. NOT general CI.
+name: ROS Gazebo Nav2 Acceptance (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nav2-simulation:
+    if: ${{ vars.ALEX_SIM_RUNNER_APPROVED == 'true' }}
+    runs-on: [self-hosted, linux, x64, alex-ros-sim]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source and offline ROS assets
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run sim:check
+      - name: Run isolated Gazebo + Nav2 navigation acceptance
+        shell: bash
+        env:
+          ALEX_ROS_SIMULATION_ONLY: '1'
+          ALEX_RUN_ROS_INTEGRATION: '1'
+          ALEX_GZ_HEADLESS_RENDERING: '1'
+          ROS_DOMAIN_ID: '77'
+          ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          npm run sim:accept
+      - name: Upload acceptance report and launch logs even on failure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alex-ros-gazebo-acceptance
+          if-no-files-found: warn
+          path: |
+            .local/ros/acceptance-report.json
+            .local/ros/acceptance-launch.log
+            .local/ros/preflight.json
