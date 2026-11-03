@@ -42,6 +42,16 @@ test('v0.12 Nav2 tuning keeps nested ROS params and controller plugin with no Py
     assert.equal(c.use_sim_time,true);
   }
   assert.equal(config.bt_navigator.ros__parameters.use_sim_time,true);
+  assert.equal(config.bt_navigator.ros__parameters.robot_base_frame,'base_link');
+  assert.equal(config.behavior_server.ros__parameters.robot_base_frame,'base_link');
+  const monitor=config.collision_monitor.ros__parameters;
+  assert.equal(monitor.base_frame_id,'base_link');
+  assert.equal(monitor.odom_frame_id,'odom');
+  assert.equal(monitor.cmd_vel_in_topic,'cmd_vel_smoothed');
+  assert.equal(monitor.cmd_vel_out_topic,'cmd_vel');
+  assert.deepEqual(monitor.observation_sources,['scan']);
+  assert.equal(monitor.scan.topic,'scan');
+  assert.equal(monitor.use_sim_time,true);
 });
 
 test('v0.12 incompatible Nav2 defaults fail closed instead of silently ignoring overrides',()=>{
@@ -52,7 +62,12 @@ from nav2_tuning import configure_nav2, IncompatibleNav2Template
 source=json.loads(Path(sys.argv[2]).read_text(encoding='utf8'))
 for candidate in ({'amcl': {'ros__parameters': {}}},
                   {**source,'controller_server':{'ros__parameters':{'controller_plugins':['Other']}}},
-                  {**source,'local_costmap':{'local_costmap':{'ros__parameters':{}}}}):
+                  {**source,'local_costmap':{'local_costmap':{'ros__parameters':{}}}},
+                  {**source,'collision_monitor':{'ros__parameters':{}}},
+                  {**source,'collision_monitor':{'ros__parameters':{
+                       **source['collision_monitor']['ros__parameters'],
+                       'cmd_vel_out_topic':'unsafe_bypass'
+                   }}}):
   try: configure_nav2(candidate)
   except IncompatibleNav2Template: pass
   else: raise RuntimeError('unsafe tuning accepted an incompatible template')`,pypath,jsonFixture]);
@@ -72,7 +87,7 @@ test('v0.12 YAML CLI either round-trips Nav2 settings or reports how to install 
     }
     assert.equal(res.status,0,res.stderr);
     const text=readFileSync(out,'utf8');
-    for(const pattern of [/base_frame_id: base_link/,/set_initial_pose: true/,/x: 0\.7/,/y: 2\.8/,
+    for(const pattern of [/base_frame_id: base_link/,/cmd_vel_in_topic: cmd_vel_smoothed/,/cmd_vel_out_topic: cmd_vel/,/set_initial_pose: true/,/x: 0\.7/,/y: 2\.8/,
       /robot_radius: 0\.19/,/inflation_radius: 0\.24/,/xy_goal_tolerance: 0\.08/,
       /vx_max: 0\.2/,/plugin: nav2_mppi_controller::MPPIController/,/use_sim_time: true/]) {
       assert.match(text,pattern);
