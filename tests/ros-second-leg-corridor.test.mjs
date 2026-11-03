@@ -67,6 +67,8 @@ test('second-leg failure evidence covers collision intervention, path and speed'
     'sim_real_time_factor', 'position_trace', 'sim_seconds',
     'laser_clearance', 'initial_laser_clearance', 'SIM_LIDAR_SELF_HIT',
     'local_footprint', 'points_inside_0_19m',
+    'gazebo_pose_before_goal', 'gazebo_pose_at_goal_end',
+    'gazebo_pose_at_arrival', 'query_gz_model_pose',
     'requested_yaw_rad', 'goal_arrival_heading',
     'odom_distance_m', 'NAV2_GOAL_TIMEOUT_CANCEL_',
   ]) assert.ok(smoke.includes(needle), needle);
@@ -108,4 +110,42 @@ test('GPU lidar visibility mask excludes only robot visuals and wheel joints hav
   const lidarMask = 4294967293n, robotVisualFlag = 2n;
   assert.equal(lidarMask & robotVisualFlag, 0n);
   assert.notEqual(lidarMask & 0xffffffffn, 0n);
+});
+
+test('physics support triangle places the mass-weighted chassis COM behind the axle', () => {
+  const model = read('robotics/ros2/alex_sim/models/alex_bot/model.sdf');
+  assert.match(model, /<inertial><pose>-0\.04 0 0 0 0 0<\/pose><mass>1\.3<\/mass>/);
+  assert.match(model, /<pose>-0\.09 0 0\.027 0 0 0<\/pose>/);
+  const total = 1.3 + 0.08 + 0.08 + 0.025;
+  const comX = (1.3 * -0.04 + 0.025 * -0.09) / total;
+  assert.ok(comX < -0.02 && comX > -0.075, `COM ${comX} must remain in 3-point wheel/caster support`);
+  // This triangle has wheel contact x=0, y=+/-0.145 and caster x=-0.09.
+  const lateralHalfwidthAtCom = 0.145 * (-comX / 0.09);
+  assert.ok(lateralHalfwidthAtCom > 0.045);
+  assert.equal(1.3 / total > 0.85, true);
+});
+
+test('read-only ground-truth Gazebo pose parser extracts pitch and yaw, fails on invalid output', () => {
+  const script = `import sys
+sys.path.insert(0, 'robotics/ros2/alex_sim/alex_sim')
+from gz_pose import parse_gz_model_pose
+raw = """Requesting state for world [alex_home]...
+Model: [55]
+- Name: alex_bot
+- Pose [ XYZ (m) ] [ RPY (rad) ]:
+[1.6574 | 1.6432 | 0.0000]
+[0.025 | -0.820 | 0.0115]
+"""
+result = parse_gz_model_pose(raw)
+assert result['available']
+assert result['xyz_m'] == [1.6574, 1.6432, 0.0]
+assert result['rpy_rad'] == [0.025, -0.82, 0.0115]
+assert result['max_abs_tilt_rad'] == 0.82
+for invalid in ('', 'Pose [ XYZ (m) ] [ RPY (rad) ]:', raw.replace('0.025', 'NaN')):
+    try: parse_gz_model_pose(invalid)
+    except ValueError: pass
+    else: raise RuntimeError('accepted invalid Gazebo model pose')
+print('PASS')`;
+  const result = spawnSync('python3', ['-c', script], {cwd: root, encoding:'utf8', timeout:10000});
+  assert.equal(result.status, 0, result.stderr);
 });
