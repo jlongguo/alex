@@ -57,7 +57,16 @@ if ! kill -0 "$launcher" 2>/dev/null; then
   tail -40 "$log" >&2 || true
   exit 1
 fi
-npm run sim:smoke -- --route --timeout 120 --goal-timeout 180 --report "$report"
+if npm run sim:smoke -- --route --timeout 120 --goal-timeout 180 --report "$report"; then
+  :
+else
+  smoke_status=$?
+  # Print the bounded launch tail in the caller's terminal; the complete log
+  # and structured graph snapshot are retained in .local/ros/.
+  echo "ROS acceptance failed (exit $smoke_status). Gazebo/Nav2 launch log tail:" >&2
+  tail -n 90 "$log" >&2 || true
+  exit "$smoke_status"
+fi
 # Never accept a graph-only, single-leg or malformed / stale report as success.
 if ! python3 scripts/verify-ros-report.py --report "$report" --run-id "$ALEX_ROS_ACCEPTANCE_RUN_ID"; then
   python3 scripts/ros-evidence.py --report "$report" --status failed --reason 'REPORT_VERIFICATION_FAILED' --if-status passed >/dev/null || true

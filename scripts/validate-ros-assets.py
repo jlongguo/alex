@@ -25,6 +25,12 @@ m = model.find('./model')
 assert {'base_link', 'left_wheel', 'right_wheel', 'caster'} <= {x.get('name') for x in m.findall('./link')}
 assert {'left_wheel_joint', 'right_wheel_joint'} <= {x.get('name') for x in m.findall('./joint')}
 assert m.find('.//sensor[@type="gpu_lidar"]/topic').text == '/scan'
+# Harmonic GPU lidar uses <lidar> and <gz_frame_id>, not Classic ray/frame_id.
+lidar = m.find('.//sensor[@type="gpu_lidar"]')
+assert lidar.find('lidar/scan/horizontal/samples').text == '360'
+assert lidar.find('gz_frame_id').text == 'lidar_link'
+assert lidar.find('ray') is None
+
 drive = m.find('./plugin[@name="gz::sim::systems::DiffDrive"]')
 assert drive is not None
 assert drive.find('odom_topic').text == '/odom'
@@ -53,6 +59,8 @@ assert re.search(r'^resolution: 0\.1$', map_yaml, re.M)
 assert 'origin: [-0.05, -0.05, 0.0]' in map_yaml
 bridge = (pkg / 'config/bridge.yaml').read_text()
 assert all(f'/'+x in bridge for x in ('clock','scan','odom','tf','cmd_vel'))
+assert 'gz_topic_name: /world/alex_home/clock' in bridge
+
 assert 'ROS_TO_GZ' in bridge and 'GZ_TO_ROS' in bridge
 
 sources = [pkg / 'launch/sim.launch.py', pkg / 'alex_sim/seed_pose.py', pkg / 'alex_sim/nav2_tuning.py', pkg / 'alex_sim/acceptance.py', pkg / 'scripts/ros_smoke.py', root / 'scripts/ros-preflight.py', root / 'robotics/ros2/nav2_action_client.py']

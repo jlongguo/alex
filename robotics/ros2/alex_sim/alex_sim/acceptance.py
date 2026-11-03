@@ -67,3 +67,72 @@ def summarize_leg(goal, tf_pose, *, status, feedback_count, tf_fresh, odom_dista
             'position_error_m': err, 'feedback_count': feedback_count,
             'odom_distance_m': round(odom_distance_m, 3),
             'wall_seconds': round(elapsed, 2), 'verified': True}
+
+
+# ROS-agnostic graph diagnostics. Missing data must NEVER satisfy acceptance.
+GRAPH_TF_EDGES = (('odom', 'base_link'), ('map', 'odom'), ('base_link', 'lidar_link'))
+GRAPH_TOPICS = ('/clock', '/scan', '/odom', '/map', '/tf', '/tf_static')
+
+
+def graph_readiness_snapshot(seen, frames, clock_times, *, odom_samples,
+                             scan_samples, scan_ranges, map_valid,
+                             tf_fresh, nav2_ready, observed_topics=(), publisher_counts=None):
+    """Return bounded evidence for ROS_GRAPH_TIMEOUT without importing rclpy.
+
+    The snapshot is diagnostic only; the existing strict verify_graph / TF
+    checks remain the authoritative gate for navigation and acceptance.
+    """
+    missing = []
+    if 'clock' not in seen:
+        missing.append('clock_missing')
+    elif len(clock_times) < 2 or clock_times[-1] <= clock_times[0]:
+        missing.append('clock_not_advancing')
+    if 'scan' not in seen or scan_samples == 0:
+        missing.append('scan_missing')
+    elif scan_ranges < 10:
+        missing.append('scan_insufficient_ranges')
+    if 'odom' not in seen or odom_samples == 0:
+        missing.append('odom_missing')
+    elif odom_samples < 2:
+        missing.append('odom_insufficient_samples')
+    if not map_valid:
+        missing.append('map_missing_or_invalid')
+    for parent, child in GRAPH_TF_EDGES:
+        if (parent, child) not in frames:
+            missing.append('tf_missing:' + parent + '->' + child)
+    if not tf_fresh:
+        missing.append('map_to_base_link_tf_not_fresh')
+    if not nav2_ready:
+        missing.append('navigate_to_pose_not_ready')
+
+    hints = []
+    if 'clock_missing' in missing or 'clock_not_advancing' in missing:
+        hints.append('Check Gazebo server lifecycle and /clock GZ_TO_ROS bridge in acceptance-launch.log')
+    if any(x.startswith('scan_') for x in missing):
+        hints.append('Check Gazebo gpu_lidar EGL/OGRE2 rendering and /scan ros_gz_bridge')
+    if any(x.startswith('odom_') or x == 'tf_missing:odom->base_link' for x in missing):
+        hints.append('Check Gazebo DiffDrive, /odom and /tf Pose_V bridge')
+    if 'map_missing_or_invalid' in missing:
+        hints.append('Check Nav2 map_server activation and alex_home.yaml map dimensions')
+    if 'tf_missing:base_link->lidar_link' in missing:
+        hints.append('Check robot_state_publisher /tf_static and robot_description')
+    if 'tf_missing:map->odom' in missing or 'map_to_base_link_tf_not_fresh' in missing:
+        hints.append('Check AMCL initial pose, laser scans and the full map->odom->base_link TF chain')
+    if 'navigate_to_pose_not_ready' in missing:
+        hints.append('Check Nav2 lifecycle manager /bt_navigator startup and action server')
+    return {
+        'ready_candidate': not missing,
+        'missing': missing,
+        'hints': hints,
+        'clock_observations': len(clock_times),
+        'odom_samples': odom_samples,
+        'scan_samples': scan_samples,
+        'scan_ranges': scan_ranges,
+        'map_valid': bool(map_valid),
+        'tf_fresh': bool(tf_fresh),
+        'nav2_action_ready': bool(nav2_ready),
+        'observed_tf_edges': [f'{a}->{b}' for a, b in sorted(frames)][:32],
+        'observed_topics': sorted(set(observed_topics))[:80],
+        'publishers': {name: max(0, int((publisher_counts or {}).get(name, 0)))
+                       for name in GRAPH_TOPICS},
+    }
