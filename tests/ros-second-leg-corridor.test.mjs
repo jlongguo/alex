@@ -97,3 +97,14 @@ print('PASS')`;
   const result = spawnSync('python3', ['-c', source], {cwd: root, encoding: 'utf8', timeout: 10000});
   assert.equal(result.status, 0, result.stderr);
 });
+
+test('GPU lidar visibility mask excludes only robot visuals and wheel joints have effort bounds', () => {
+  const model = read('robotics/ros2/alex_sim/models/alex_bot/model.sdf');
+  assert.match(model, /<visibility_mask>4294967293<\/visibility_mask>/);
+  assert.equal((model.match(/<visibility_flags>2<\/visibility_flags>/g) || []).length, 4);
+  assert.equal((model.match(/<effort>1000000<\/effort>/g) || []).length, 2);
+  assert.match(model, /<range><min>0\.06<\/min><max>5\.0<\/max>/);
+  const lidarMask = 4294967293n, robotVisualFlag = 2n;
+  assert.equal(lidarMask & robotVisualFlag, 0n);
+  assert.notEqual(lidarMask & 0xffffffffn, 0n);
+});
