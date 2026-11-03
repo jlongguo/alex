@@ -52,6 +52,8 @@ def main():
     from tf2_ros import Buffer, TransformListener
     from geometry_msgs.msg import PoseStamped
     from nav2_msgs.action import NavigateToPose
+    from lifecycle_msgs.srv import GetState
+    from alex_sim.nav2_lifecycle import Nav2LifecycleGate
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
     report = {'schema': 'alex.dev/ros-acceptance/v1', 'mode': 'route' if args.route else 'navigate' if args.navigate else 'graph',
@@ -107,6 +109,9 @@ def main():
     tf_buffer = Buffer(cache_time=Duration(seconds=10))
     tf_listener = TransformListener(tf_buffer, node, spin_thread=False)
     action = ActionClient(node, NavigateToPose, '/navigate_to_pose')
+    # An advertised Nav2 action does not mean that its lifecycle node is active.
+    navigator_state_client = node.create_client(GetState, '/bt_navigator/get_state')
+    navigator_gate = Nav2LifecycleGate()
 
     def graph_snapshot():
         try:
@@ -176,7 +181,29 @@ def main():
                 return False
         return False
 
+    def navigator_is_active():
+        return navigator_gate.poll(
+            now=time.monotonic(),
+            service_ready=navigator_state_client.service_is_ready(),
+            action_ready=action.server_is_ready(),
+            request_state=lambda: navigator_state_client.call_async(GetState.Request()))
+
+    def require_active_navigator():
+        # Requery ACTIVE before every navigation leg. A static sleep or only
+        # server_is_ready() may race with Nav2's configure -> activate cycle.
+        try:
+            spin_until(navigator_is_active, min(args.timeout, 120),
+                       stage='NAV2_LIFECYCLE_ACTIVE')
+        finally:
+            report['nav2_lifecycle'] = navigator_gate.snapshot()
+            save_report(report, args.report)
+        if 'bt_navigator_lifecycle_active' not in report['checks']:
+            report['checks'].append('bt_navigator_lifecycle_active')
+            save_report(report, args.report)
+        print('Nav2 bt_navigator ACTIVE; goal submission permitted', flush=True)
+
     def run_goal(goal):
+        require_active_navigator()
         start = time.monotonic()
         initial_tf, _ = current_tf_pose()
         if initial_tf is None:
@@ -203,6 +230,10 @@ def main():
         spin_until(lambda: request.done(), 10, stage='NAV2_GOAL_SUBMISSION')
         handle = request.result()
         if not handle or not handle.accepted:
+            # A goal rejected after an ACTIVE lifecycle response is a
+            # separate Nav2 fault, not a reason to blindly retry.
+            report['nav2_lifecycle'] = navigator_gate.snapshot()
+            save_report(report, args.report)
             raise RuntimeError('NAV2_GOAL_REJECTED')
         result = handle.get_result_async()
         deadline = time.monotonic() + args.goal_timeout
