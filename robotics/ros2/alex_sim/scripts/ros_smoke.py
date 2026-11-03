@@ -50,7 +50,7 @@ def main():
     from nav_msgs.msg import Odometry, OccupancyGrid
     from tf2_msgs.msg import TFMessage
     from tf2_ros import Buffer, TransformListener
-    from geometry_msgs.msg import PoseStamped
+    from geometry_msgs.msg import PoseStamped, Twist
     from nav2_msgs.action import NavigateToPose
     from lifecycle_msgs.srv import GetState
     from alex_sim.nav2_lifecycle import Nav2LifecycleGate
@@ -67,6 +67,29 @@ def main():
     latest_odom = []
     latest_scan = []
     validated_map = []
+    # Diagnostics only: never publish commands or treat traffic as navigation
+    # success. A failed goal must show which part of Nav2's velocity pipeline
+    # actually emitted Twist messages into the Gazebo bridge.
+    command_topics = ('/cmd_vel_nav', '/cmd_vel_smoothed', '/cmd_vel')
+    command_samples = {
+        topic: {'messages': 0, 'nonzero_messages': 0,
+                'peak_linear_mps': 0.0, 'peak_angular_rps': 0.0}
+        for topic in command_topics
+    }
+
+    def command_received(topic):
+        def callback(message):
+            sample = command_samples[topic]
+            sample['messages'] += 1
+            linear = abs(message.linear.x)
+            angular = abs(message.angular.z)
+            if math.isfinite(linear):
+                sample['peak_linear_mps'] = max(sample['peak_linear_mps'], linear)
+            if math.isfinite(angular):
+                sample['peak_angular_rps'] = max(sample['peak_angular_rps'], angular)
+            if (math.isfinite(linear) and linear > 1e-4) or (math.isfinite(angular) and angular > 1e-4):
+                sample['nonzero_messages'] += 1
+        return callback
 
     def received(label, value=None):
         def callback(message):
@@ -105,6 +128,8 @@ def main():
         node.create_subscription(OccupancyGrid, '/map', map_received, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
         node.create_subscription(TFMessage, '/tf', tf_recv, 10),
         node.create_subscription(TFMessage, '/tf_static', tf_recv, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
+        *[node.create_subscription(Twist, topic, command_received(topic), 10)
+          for topic in command_topics],
     ]
     tf_buffer = Buffer(cache_time=Duration(seconds=10))
     tf_listener = TransformListener(tf_buffer, node, spin_thread=False)
@@ -210,6 +235,24 @@ def main():
             raise RuntimeError('INITIAL_TF_MISSING')
         start_dist = math.hypot(initial_tf[0] - goal.x, initial_tf[1] - goal.y)
         odom_movement = {'length': 0.0, 'last': None}
+        for sample in command_samples.values():
+            sample.update(messages=0, nonzero_messages=0,
+                          peak_linear_mps=0.0, peak_angular_rps=0.0)
+
+        def record_goal_diagnostics(status):
+            pose, fresh = current_tf_pose()
+            report['last_goal'] = {
+                'goal': goal.name, 'action_status': status,
+                'feedback_count': feedback['count'],
+                'start_distance_m': round(start_dist, 3),
+                'odom_distance_m': round(odom_movement['length'], 3),
+                'map_pose': [round(v, 4) for v in pose] if pose else None,
+                'tf_fresh': fresh,
+                'velocity_pipeline': {
+                    topic: dict(sample) for topic, sample in command_samples.items()
+                },
+            }
+            save_report(report, args.report)
 
         # Already localized to the same map; goal is sent only to Gazebo's Nav2.
         nav_goal = NavigateToPose.Goal()
@@ -249,6 +292,7 @@ def main():
                     odom_movement['length'] += delta
                 odom_movement['last'] = point
         if not result.done():
+            record_goal_diagnostics('TIMEOUT')
             cancellation = handle.cancel_goal_async()
             cancel_deadline = time.monotonic() + 4
             while rclpy.ok() and time.monotonic() < cancel_deadline and not cancellation.done():
@@ -256,6 +300,7 @@ def main():
             raise RuntimeError('NAV2_GOAL_TIMEOUT_CANCEL_' + ('ACKNOWLEDGED' if cancellation.done() else 'UNCONFIRMED'))
         response = result.result()
         status = 'SUCCEEDED' if response.status == GoalStatus.STATUS_SUCCEEDED else f'STATUS_{response.status}'
+        record_goal_diagnostics(status)
         # Wait for a genuinely fresh map->base_link TF, independent of Action result.
         pose, fresh = current_tf_pose()
         if not fresh:
