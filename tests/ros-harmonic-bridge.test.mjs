@@ -15,9 +15,10 @@ test('Harmonic gpu_lidar uses lidar configuration and a TF-compatible frame', ()
   assert.match(read('urdf/alex_bot.urdf'), /link name="lidar_link"/);
 });
 
-test('Gazebo clock bridge uses world-qualified clock to tolerate Gazebo /clock fallback', () => {
+test('Gazebo single-world clock bridge uses the observed root /clock', () => {
   const cfg = read('config/bridge.yaml');
-  assert.match(cfg, /ros_topic_name: \/clock\s+#[^\n]*\n\s+gz_topic_name: \/world\/alex_home\/clock/);
+  assert.match(cfg, /ros_topic_name: \/clock[\s\S]*?gz_topic_name: \/clock/);
+  assert.doesNotMatch(cfg, /gz_topic_name: \/world\/alex_home\/clock/);
   assert.match(cfg, /direction: GZ_TO_ROS/);
   assert.match(cfg, /ros_topic_name: \/scan/);
   assert.match(read('worlds/alex_home.sdf'), /<world name="alex_home">/);

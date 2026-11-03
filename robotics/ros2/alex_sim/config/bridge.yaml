@@ -1,7 +1,8 @@
 # ROS <-> Gazebo topic bridge, simulation only. Never bridge to hardware /cmd_vel.
 - ros_topic_name: /clock
-  # Gazebo always publishes the fully qualified world clock; /clock may be absent.
-  gz_topic_name: /world/alex_home/clock
+  # The single-world Alex Gazebo process publishes root /clock (verified live).
+  # World-qualified clock is a fallback only when root /clock is occupied.
+  gz_topic_name: /clock
   ros_type_name: rosgraph_msgs/msg/Clock
   gz_type_name: gz.msgs.Clock
   direction: GZ_TO_ROS

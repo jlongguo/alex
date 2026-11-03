@@ -44,5 +44,5 @@ test('Launcher preserves fail-closed acceptance and adds root-cause evidence',()
   assert.match(run,/tail -n 90 "\$log"/);
   assert.match(run,/exit "\$smoke_status"/);
   assert.match(docker,/gz-transport\.json/);
-  assert.match(cfg,/gz_topic_name: \/world\/alex_home\/clock[\s\S]*?qos_profile: CLOCK/);
+  assert.match(cfg,/gz_topic_name: \/clock[\s\S]*?qos_profile: CLOCK/);
 });

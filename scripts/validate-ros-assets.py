@@ -59,7 +59,8 @@ assert re.search(r'^resolution: 0\.1$', map_yaml, re.M)
 assert 'origin: [-0.05, -0.05, 0.0]' in map_yaml
 bridge = (pkg / 'config/bridge.yaml').read_text()
 assert all(f'/'+x in bridge for x in ('clock','scan','odom','tf','cmd_vel'))
-assert 'gz_topic_name: /world/alex_home/clock' in bridge
+assert 'gz_topic_name: /clock' in bridge
+assert 'gz_topic_name: /world/alex_home/clock' not in bridge
 
 assert 'ROS_TO_GZ' in bridge and 'GZ_TO_ROS' in bridge
 

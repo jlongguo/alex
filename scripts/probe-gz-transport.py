@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""Bounded, read-only Gazebo Transport probe while the world is still running.
-This is diagnostic evidence and cannot count as Nav2 navigation acceptance.
+"""Read-only Gazebo Transport probe before shutting down failed ROS acceptance.
+
+Topic discovery can return an empty list even while direct clock echo receives
+live samples. Never gate sampling on a successful --list result.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 
 PROBES = {
-    "world_stats": "/world/alex_home/stats",
-    "clock": "/world/alex_home/clock",
-    "odom": "/odom",
-    "scan": "/scan",
+    "clock": ["/clock", "/world/alex_home/clock"],
+    "world_stats": ["/world/alex_home/stats", "/stats"],
+    "odom": ["/odom"],
+    "scan": ["/scan"],
 }
 
-def run_gz(args, timeout=8):
+def run_gz(args, timeout=5):
     try:
         proc = subprocess.run(["gz", *args], capture_output=True, text=True,
                               errors="replace", timeout=timeout, check=False)
@@ -35,49 +38,61 @@ def probe():
     services = run_gz(["service", "--list"])
     names = set(topics["stdout"].splitlines())
     service_names = set(services["stdout"].splitlines())
+
     def sample(item):
-        label, topic = item
-        # Gazebo may advertise the unqualified root /clock.
-        if label == "clock" and topic not in names and "/clock" in names:
-            topic = "/clock"
-        if topic not in names:
-            return label, {"topic": topic, "advertised": False,
-                           "message_received": False, "probe_status": "not_advertised"}
-        # Harmonic CLI supports -e -t; do not rely on an unsupported -n flag.
-        data = run_gz(["topic", "-e", "-t", topic], timeout=5)
-        return label, {"topic": topic, "advertised": True,
-                       "message_received": bool(data["stdout"].strip()),
-                       "probe_status": data["status"],
-                       "sample_prefix": data["stdout"][:400], "stderr": data["stderr"]}
+        label, candidates = item
+        ordered = sorted(candidates, key=lambda name: name not in names)
+        attempts = []
+        for topic in ordered:
+            data = run_gz(["topic", "-e", "-t", topic], timeout=4)
+            received = bool(data["stdout"].strip())
+            attempts.append({"topic": topic, "status": data["status"],
+                             "received": received, "stderr": data["stderr"]})
+            if received:
+                return label, {"topic": topic, "advertised": topic in names,
+                               "message_received": True, "probe_status": data["status"],
+                               "sample_prefix": data["stdout"][:400],
+                               "stderr": data["stderr"], "attempts": attempts}
+        topic = ordered[0]
+        return label, {"topic": topic, "advertised": topic in names,
+                       "message_received": False,
+                       "probe_status": attempts[0]["status"],
+                       "sample_prefix": "", "stderr": attempts[0]["stderr"],
+                       "attempts": attempts}
+
     with ThreadPoolExecutor(max_workers=4) as executor:
         samples = dict(executor.map(sample, PROBES.items()))
     paused_match = re.search(r"\bpaused\s*:\s*(true|false)\b",
                              samples["world_stats"].get("sample_prefix", ""), flags=re.I)
     paused = paused_match.group(1).lower() == "true" if paused_match else None
     control_name = "/world/alex_home/control"
-    # CLI failure/timeout is unknown, not evidence that the world disappeared.
     control = (True if control_name in service_names else
                False if services["status"] == "ok" else None)
-    if control is None:
-        hint = "Gazebo service discovery unavailable: inspect status/stderr; world state unverified."
-    elif not control:
-        hint = "Gazebo world service missing: world control service absent from successful CLI discovery; inspect server lifetime."
-    elif paused:
-        hint = "Gazebo world is paused: check -r launch and world controls."
+    if paused:
+        hint = "Gazebo world is paused: inspect -r launch and world controls."
     elif not samples["clock"]["message_received"]:
-        hint = "Gazebo clock has no sample: clock not observed; inspect source topic and simulator progress."
+        if control is None:
+            hint = "Gazebo service discovery unavailable; clock has no sample and world state unverified."
+        elif not control:
+            hint = "Gazebo world service missing from discovery; clock has no sample; check server lifetime."
+        else:
+            hint = "Gazebo clock has no sample: clock not observed; inspect physics and sensors."
     elif not samples["odom"]["message_received"]:
         hint = "Gazebo clock observed, odom absent: check robot DiffDrive plugin."
     elif not samples["scan"]["message_received"]:
         hint = "Gazebo clock and odom observed, scan absent: check GPU LiDAR EGL/OGRE2."
+    elif control is None:
+        hint = "Gazebo samples observed, but service discovery unverified; inspect ROS bridge and QoS."
     else:
-        hint = "Gazebo has samples: inspect ROS bridge mapping and QoS."
+        hint = "Gazebo clock/odom/scan samples observed; inspect ROS bridge and QoS."
+
     return {"schema": "alex.dev/gz-transport/v1",
             "world_control_available": control, "world_paused": paused,
             "topics_status": topics["status"], "services_status": services["status"],
             "topics_stderr": topics["stderr"], "services_stderr": services["stderr"],
             "topics": sorted(names)[:80], "samples": samples, "hint": hint,
-            "note": "Diagnostic only; not a ROS navigation acceptance result."}
+            "gz_partition": os.environ.get("GZ_PARTITION"),
+            "note": "Read-only diagnosis; NOT ROS navigation acceptance."}
 
 def main():
     parser = argparse.ArgumentParser()
