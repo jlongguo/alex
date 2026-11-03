@@ -18,6 +18,8 @@ PATTERNS = (
     ('sensor_bridge', ('/scan', 'LIDAR', 'laser', 'ros_gz_bridge')),
     ('collision_monitor_tf', ('base_footprint" passed to lookupTransform',
                               'Failed to get "lidar_link"->"base_footprint" frame transform')),
+    ('collision_monitor_intervention', ('Robot to approach for', 'Robot to continue normal operation')),
+    ('controller_rate_jitter', ('Control loop missed its desired rate',)),
     ('controller_progress', ('Failed to make progress',
                              'Timed out while waiting for action server to acknowledge goal')),
     ('nav2_action', ('NavigateToPose', 'NAV2_GOAL', 'planner_server', 'controller_server')),
