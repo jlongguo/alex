@@ -263,6 +263,9 @@ def main():
     def run_goal(goal):
         require_active_navigator()
         start = time.monotonic()
+        start_sim_ns = node.get_clock().now().nanoseconds
+        position_trace = []
+        next_pose_sample = start
         initial_tf, _ = current_tf_pose()
         if initial_tf is None:
             raise RuntimeError('INITIAL_TF_MISSING')
@@ -278,6 +281,9 @@ def main():
 
         def record_goal_diagnostics(status, result_message=None):
             pose, fresh = current_tf_pose()
+            wall_seconds = max(0.001, time.monotonic() - start)
+            sim_seconds = max(0.0, (
+                node.get_clock().now().nanoseconds - start_sim_ns) / 1_000_000_000)
             report['last_goal'] = {
                 'goal': goal.name, 'action_status': status,
                 'feedback_count': feedback['count'],
@@ -285,7 +291,10 @@ def main():
                 'minimum_distance_remaining_m': feedback['minimum_remaining_m'],
                 'number_of_recoveries': feedback['number_of_recoveries'],
                 'nav2_error_code': getattr(result_message, 'error_code', None),
-                'wall_seconds': round(time.monotonic() - start, 2),
+                'wall_seconds': round(wall_seconds, 2),
+                'sim_seconds': round(sim_seconds, 2),
+                'sim_real_time_factor': round(sim_seconds / wall_seconds, 3),
+                'position_trace': list(position_trace),
                 'start_distance_m': round(start_dist, 3),
                 'odom_distance_m': round(odom_movement['length'], 3),
                 'map_pose': [round(v, 4) for v in pose] if pose else None,
@@ -339,6 +348,19 @@ def main():
         deadline = time.monotonic() + args.goal_timeout
         while rclpy.ok() and time.monotonic() < deadline and not result.done():
             rclpy.spin_once(node, timeout_sec=0.1)
+            if time.monotonic() >= next_pose_sample:
+                pose, fresh = current_tf_pose()
+                if pose is not None and fresh:
+                    position_trace.append({
+                        'wall_seconds': round(time.monotonic() - start, 1),
+                        'x': round(pose[0], 3), 'y': round(pose[1], 3),
+                        'distance_remaining_m': feedback['last_remaining_m'],
+                        'collision_action': (
+                            collision_state['last']['action_type']
+                            if collision_state['last'] else None),
+                    })
+                    del position_trace[:-40]
+                next_pose_sample = time.monotonic() + 5.0
             if latest_odom:
                 p = latest_odom[-1].pose.pose.position
                 point = (p.x, p.y)
