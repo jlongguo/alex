@@ -11,6 +11,12 @@ services:
       - type: bind
         source: .
         target: /workspace/alex
+      # Isolate Linux npm modules from macOS pnpm dependencies.
+      - type: volume
+        source: sim_node_modules
+        target: /workspace/alex/node_modules
+        volume:
+          nocopy: true
     user: "${ALEX_DOCKER_UID:-1000}:${ALEX_DOCKER_GID:-1000}"
     environment:
       ALEX_ROS_SIMULATION_ONLY: "1"
@@ -28,3 +34,7 @@ services:
       - ALL
     # No privileged mode, host networking, GPU devices, or physical motor access.
     command: ["bash"]
+
+# Named volume persists between ephemeral simulation containers.
+volumes:
+  sim_node_modules:
