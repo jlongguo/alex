@@ -90,3 +90,9 @@
 - Experimental ROS 2 Nav2 ActionClient bridge to the existing virtual device protocol; Gazebo-only, opt-in.
 - Goal conversion and pose/feedback/cancel handling with guarded failure semantics.
 - Next: add a matching URDF/Gazebo world and run real Nav2 integration tests.
+
+## v0.11 implemented: reproducible Gazebo assets (static verification only)
+- A generated household Gazebo world and Nav2 occupancy map share the canonical TS grid.
+- Differential-drive Gazebo model, ROS URDF/TF, simulated lidar/odometry, topic bridge and Jazzy/Nav2 bringup scaffold.
+- Opt-in ROS integration smoke suite requiring an installed ROS 2 Jazzy/Gazebo/Nav2 system, plus offline asset tests.
+- Pending: **actual** ROS 2/Gazebo/Nav2 execution, SLAM, validated navigation traces, safe hardware controller.

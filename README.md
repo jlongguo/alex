@@ -1,8 +1,16 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.10.0 · grid navigation bridge, authenticated pose telemetry, parent-approved plans and multi-device simulation**
+> **v0.11.0 · reproducible Gazebo assets, ROS 2 Jazzy bringup and opt-in Nav2 smoke test**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
+
+## v0.11 Gazebo + ROS2 simulation package (new)
+
+- Generated Gazebo world + ROS Nav2 occupancy map from the existing shared 60×34 TypeScript household grid, with consistent map origin and named destinations.
+- Simulation-only differential-drive robot SDF, robot URDF, lidar, odometry, TF and ROS/Gazebo topic bridges.
+- ROS 2 Jazzy `alex_sim` launch package, Nav2/AMCL initial-pose integration and an explicit opt-in live ROS smoke test.
+- `npm run sim:check` validates assets without installing ROS. `ALEX_ROS_SIMULATION_ONLY=1 npm run sim:launch` requires an **actual Jazzy + Gazebo environment**.
+- **No actual Gazebo/ROS2 execution has been validated in this environment.** See [`docs/V0.11.md`](docs/V0.11.md).
 
 ## v0.10 Nav2 simulation bridge
 
@@ -113,7 +121,7 @@ curl -N http://127.0.0.1:4317/api/events
 ## 本批不包含
 
 - 真实 LLM/Agent、ASR、TTS、相机、麦克风、机器人实体固件
-- ROS 2 / Nav2 / SLAM / Gazebo 的真实导航集成
+- ROS 2 / Nav2 / Gazebo 的真实运行与导航联调（仅有仿真资源及待运行的集成测试）；SLAM 尚未实现
 - 完整家庭记忆/账户系统（v0.3 仅本机密码会话和手动记忆条目）
 - 第三方 Skill 沙箱、真实设备配对/远程固件升级
 - 经认证的功能安全及防撞控制
