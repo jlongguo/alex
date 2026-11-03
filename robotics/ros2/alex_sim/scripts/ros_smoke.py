@@ -38,7 +38,8 @@ def main():
         raise SystemExit('Invalid acceptance timeouts')
 
     from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
-                                     verify_graph, graph_readiness_snapshot, GRAPH_TOPICS)
+                                     verify_graph, graph_readiness_snapshot, GRAPH_TOPICS,
+                                     goal_arrival_heading)
     import rclpy
     from action_msgs.msg import GoalStatus
     from rclpy.action import ActionClient
@@ -50,7 +51,7 @@ def main():
     from nav_msgs.msg import Odometry, OccupancyGrid, Path as RosPath
     from tf2_msgs.msg import TFMessage
     from tf2_ros import Buffer, TransformListener
-    from geometry_msgs.msg import PoseStamped, Twist
+    from geometry_msgs.msg import PoseStamped, Twist, PolygonStamped
     from nav2_msgs.action import NavigateToPose
     from nav2_msgs.msg import CollisionMonitorState
     from lifecycle_msgs.srv import GetState
@@ -67,6 +68,7 @@ def main():
     clock_times = []
     latest_odom = []
     latest_scan = []
+    latest_footprint = []
     validated_map = []
     # Record active collision intervention and the latest global replan.
     # These subscriptions observe state only and never command the robot.
@@ -161,6 +163,8 @@ def main():
         node.create_subscription(CollisionMonitorState, '/collision_monitor_state',
                                  collision_state_received, 10),
         node.create_subscription(RosPath, '/plan', plan_received, 10),
+        node.create_subscription(PolygonStamped, '/local_costmap/published_footprint',
+                                 received('footprint', latest_footprint), 10),
         *[node.create_subscription(Twist, topic, command_received(topic), 10)
           for topic in command_topics],
     ]
@@ -260,6 +264,62 @@ def main():
             save_report(report, args.report)
         print('Nav2 bt_navigator ACTIVE; goal submission permitted', flush=True)
 
+    def last_scan_clearance():
+        # Check what the collision monitor's /scan source can actually see
+        # near a stalled goal. Report in the robot base frame, not laser frame.
+        if not latest_scan:
+            return {'available': False, 'reason': 'no_laser_scan'}
+        scan = latest_scan[-1]
+        evidence = {'available': False, 'frame_id': scan.header.frame_id,
+                    'valid_ranges': 0, 'points_inside_0_19m': None,
+                    'min_base_range_m': None}
+        try:
+            transform = tf_buffer.lookup_transform('base_link', scan.header.frame_id, Time())
+            q = transform.transform.rotation
+            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
+                             1 - 2 * (q.y * q.y + q.z * q.z))
+            sn, cs = math.sin(yaw), math.cos(yaw)
+            tx, ty = transform.transform.translation.x, transform.transform.translation.y
+            best, inside, count = math.inf, 0, 0
+            for i, distance in enumerate(scan.ranges):
+                if not math.isfinite(distance) or not (scan.range_min <= distance <= scan.range_max):
+                    continue
+                angle = scan.angle_min + i * scan.angle_increment
+                x, y = distance * math.cos(angle), distance * math.sin(angle)
+                bx, by = tx + cs * x - sn * y, ty + sn * x + cs * y
+                radial = math.hypot(bx, by)
+                best = min(best, radial)
+                count += 1
+                if radial <= 0.19:
+                    inside += 1
+            evidence.update(available=True, valid_ranges=count,
+                            points_inside_0_19m=inside,
+                            min_base_range_m=round(best, 3) if count else None)
+        except Exception as exc:
+            evidence['reason'] = type(exc).__name__
+        return evidence
+
+    def last_footprint_geometry():
+        if not latest_footprint:
+            return {'available': False}
+        poly = latest_footprint[-1]
+        evidence = {'available': True, 'frame_id': poly.header.frame_id,
+                    'vertices': len(poly.polygon.points), 'max_base_radius_m': None}
+        try:
+            transform = tf_buffer.lookup_transform('base_link', poly.header.frame_id, Time())
+            q = transform.transform.rotation
+            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
+                             1 - 2 * (q.y * q.y + q.z * q.z))
+            sn, cs = math.sin(yaw), math.cos(yaw)
+            tx, ty = transform.transform.translation.x, transform.transform.translation.y
+            radii = [math.hypot(tx + cs*p.x - sn*p.y, ty + sn*p.x + cs*p.y)
+                     for p in poly.polygon.points]
+            if radii:
+                evidence['max_base_radius_m'] = round(max(radii), 3)
+        except Exception as exc:
+            evidence['reason'] = type(exc).__name__
+        return evidence
+
     def run_goal(goal):
         require_active_navigator()
         start = time.monotonic()
@@ -270,6 +330,7 @@ def main():
         if initial_tf is None:
             raise RuntimeError('INITIAL_TF_MISSING')
         start_dist = math.hypot(initial_tf[0] - goal.x, initial_tf[1] - goal.y)
+        requested_yaw, goal_qz, goal_qw = goal_arrival_heading(initial_tf, goal)
         odom_movement = {'length': 0.0, 'last': None}
         for sample in command_samples.values():
             sample.update(messages=0, nonzero_messages=0,
@@ -286,6 +347,7 @@ def main():
                 node.get_clock().now().nanoseconds - start_sim_ns) / 1_000_000_000)
             report['last_goal'] = {
                 'goal': goal.name, 'action_status': status,
+                'requested_yaw_rad': round(requested_yaw, 4),
                 'feedback_count': feedback['count'],
                 'distance_remaining_m': feedback['last_remaining_m'],
                 'minimum_distance_remaining_m': feedback['minimum_remaining_m'],
@@ -311,6 +373,8 @@ def main():
                     'transitions': list(collision_state['transitions']),
                 },
                 'global_plan': dict(planned_path),
+                'laser_clearance': last_scan_clearance(),
+                'local_footprint': last_footprint_geometry(),
             }
             save_report(report, args.report)
 
@@ -321,7 +385,10 @@ def main():
         nav_goal.pose.header.stamp = node.get_clock().now().to_msg()
         nav_goal.pose.pose.position.x = goal.x
         nav_goal.pose.pose.position.y = goal.y
-        nav_goal.pose.pose.orientation.w = 1.0
+        # A heading aligned with the current leg avoids asking the robot
+        # to rotate toward arbitrary map +X next to the desk/bookshelf.
+        nav_goal.pose.pose.orientation.z = goal_qz
+        nav_goal.pose.pose.orientation.w = goal_qw
         feedback = {'count': 0, 'last_remaining_m': None,
                     'minimum_remaining_m': None, 'number_of_recoveries': 0}
 
