@@ -62,6 +62,28 @@ def clock_values(message):
     return values
 
 
+def sample_clock(listed_topics, runner=cmd):
+    """Probe ROOT and world-qualified clock directly, even when topic discovery is empty.
+
+    A fresh gz CLI process may return an incomplete topic list; it is not
+    evidence the simulator physics loop is stopped.
+    """
+    candidates = ["/clock", "/world/alex_home/clock"]
+    if "/world/alex_home/clock" in listed_topics and "/clock" not in listed_topics:
+        candidates.reverse()
+    attempts = []
+    for candidate in candidates:
+        result = runner(["topic", "-e", "-t", candidate], timeout=4)
+        ticks = clock_values(result["output"])
+        attempts.append({"topic": candidate, "state": result["state"],
+                         "stderr": result["stderr"], "observations": len(ticks),
+                         "sample_prefix": result["output"][:500],
+                         "advanced": len(ticks) >= 2 and ticks[-1] > ticks[0]})
+        if attempts[-1]["advanced"]:
+            return candidate, attempts
+    return None, attempts
+
+
 def probe(out, deadline_seconds=35):
     report = {"schema": "alex.dev/gazebo-physics-isolation/v1",
               "mode": "physics_only_no_sensors", "status": "not_run",
@@ -78,37 +100,56 @@ def probe(out, deadline_seconds=35):
             env["GZ_SIM_RESOURCE_PATH"] = str(MODELS) + os.pathsep + env.get("GZ_SIM_RESOURCE_PATH", "")
             env["ROS_DOMAIN_ID"] = "77"
             env["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
+            # CLI and simulator must share the same Gazebo Transport partition.
+            env["GZ_PARTITION"] = env.get("GZ_PARTITION") or "alex-simulation-ros77"
+            os.environ["GZ_PARTITION"] = env["GZ_PARTITION"]
+            report["gz_partition"] = env["GZ_PARTITION"]
+            report["gz_ip"] = env.get("GZ_IP", "")
             with log.open("w", encoding="utf-8") as stream:
                 proc = subprocess.Popen(["gz", "sim", "-v", "3", "-r", "-s", str(world)],
                                         env=env, stdout=stream, stderr=subprocess.STDOUT,
                                         start_new_session=True)
                 try:
                     stop = time.monotonic() + deadline_seconds
-                    topic = None
-                    listed = None
-                    while time.monotonic() < stop and proc.poll() is None:
-                        listed = cmd(["topic", "--list"], timeout=3)
-                        topics = set(listed["output"].splitlines())
-                        topic = "/clock" if "/clock" in topics else (
-                            "/world/alex_home/clock" if "/world/alex_home/clock" in topics else None)
-                        if topic is not None:
+                    attempts = []
+                    observed_topics = set()
+                    last_listing = None
+                    any_clock_ticks = False
+                    advanced_topic = None
+                    while proc.poll() is None and time.monotonic() < stop:
+                        last_listing = cmd(["topic", "--list"], timeout=3)
+                        observed_topics.update(last_listing["output"].splitlines())
+                        # Topic discovery must never be a prerequisite for echo.
+                        remaining = stop - time.monotonic()
+                        if remaining < 9:
+                            break
+                        advanced, checks = sample_clock(observed_topics)
+                        attempts.extend(checks)
+                        any_clock_ticks |= any(c["observations"] > 0 for c in checks)
+                        if advanced:
+                            advanced_topic = advanced
                             break
                         time.sleep(1)
-                    report["clock_topic"] = topic
-                    report["topic_list_state"] = listed["state"] if listed else "not_attempted"
-                    if topic:
-                        clock = cmd(["topic", "-e", "-t", topic], timeout=6)
-                        ticks = clock_values(clock["output"])
-                        report["clock_advanced"] = len(set(ticks)) >= 2 and ticks[-1] > ticks[0]
-                        report["clock_observations"] = len(ticks)
-                        report["clock_echo_state"] = clock["state"]
-                        report["clock_sample_prefix"] = clock["output"][:450]
-                        odom = cmd(["topic", "-e", "-t", "/odom"], timeout=3)
-                        report["odom_message_received"] = bool(odom["output"].strip())
-                        report["odom_echo_state"] = odom["state"]
-                        report["odom_sample_prefix"] = odom["output"][:250]
+                    report["clock_topic"] = advanced_topic
+                    report["topic_list_state"] = last_listing["state"] if last_listing else "not_attempted"
+                    report["topic_list_stderr"] = last_listing["stderr"] if last_listing else ""
+                    report["listed_topics"] = sorted(observed_topics)[:50]
+                    report["clock_echo_attempts"] = attempts[-12:]
+                    report["clock_observations"] = sum(a["observations"] for a in attempts)
+                    report["clock_advanced"] = bool(advanced_topic)
+                    # Odom is probed independently of Gazebo topic list too.
+                    odom = cmd(["topic", "-e", "-t", "/odom"], timeout=3)
+                    report["odom_message_received"] = bool(odom["output"].strip())
+                    report["odom_echo_state"] = odom["state"]
+                    report["odom_sample_prefix"] = odom["output"][:250]
+                    report["odom_echo_stderr"] = odom["stderr"]
+                    if advanced_topic:
+                        report["status"] = "clock_advancing"
+                    elif not observed_topics and not any_clock_ticks:
+                        report["status"] = "transport_discovery_or_clock_unavailable"
+                    else:
+                        report["status"] = "clock_not_advancing"
                     report["gazebo_exited_early"] = proc.poll() is not None
-                    report["status"] = "clock_advancing" if report["clock_advanced"] else "clock_unavailable_or_static"
                 finally:
                     try:
                         os.killpg(proc.pid, signal.SIGTERM)

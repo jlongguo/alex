@@ -28,6 +28,8 @@ services:
       GALLIUM_DRIVER: "${ALEX_GALLIUM_DRIVER:-llvmpipe}"
       ROS_DOMAIN_ID: "77"
       ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      # Fixed partition across Gazebo, bridge and diagnostic CLI in one container.
+      GZ_PARTITION: "${ALEX_GZ_PARTITION:-alex-simulation-ros77}"
       HOME: /tmp/alex
       npm_config_cache: /tmp/alex/npm-cache
       XDG_CACHE_HOME: /tmp/alex/cache
