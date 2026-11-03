@@ -14,6 +14,7 @@ Alex Docker ROS simulation (Ubuntu 24.04 / Jazzy / Harmonic)
   setup      Build the container image and prepare local reports directory
   check      Run npm tests and ROS asset/Launch offline checks inside container
   preflight  Require the container's ROS prerequisites to be ready
+  physics    Test Gazebo clock/odom with Sensors and OGRE2 disabled (diagnostic ONLY)
   accept     Run real Gazebo/Nav2 three-goal navigation acceptance (can take time)
   all        setup -> check -> preflight -> accept (stops on first failure)
   shell      Start an interactive container shell
@@ -89,6 +90,12 @@ command_preflight() {
   run_sim 'python3 scripts/ros-preflight.py --require --json .local/ros/preflight.json'
 }
 
+command_physics() {
+  rm -f "$REPORTS/physics-only.json"
+  msg 'Checking isolated Gazebo physics/clock without Sensors/OGRE2; NOT Nav2 acceptance'
+  run_sim 'python3 scripts/probe-gz-physics.py --out .local/ros/physics-only.json'
+}
+
 command_accept() {
   # A failed build or npm install must never leave an old 'passed' report behind.
   rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json" "$REPORTS/gz-transport.json"
@@ -105,6 +112,9 @@ show_logs() {
   fi
   if [[ -f "$REPORTS/diagnostics.json" ]]; then
     printf '\n--- Diagnostics ---\n'; cat "$REPORTS/diagnostics.json"
+  fi
+  if [[ -f "$REPORTS/physics-only.json" ]]; then
+    printf '\n--- Physics-only isolation (NOT navigation acceptance) ---\n'; cat "$REPORTS/physics-only.json"
   fi
   if [[ -f "$REPORTS/gz-transport.json" ]]; then
     printf '\n--- Gazebo Transport ---\n'; cat "$REPORTS/gz-transport.json"
@@ -123,7 +133,7 @@ main() {
   case "$action" in
     help|-h|--help) usage; return 0 ;;
     logs) show_logs; return 0 ;;
-    setup|build|check|preflight|accept|all|shell|down|doctor) ;;
+    setup|build|check|preflight|physics|accept|all|shell|down|doctor) ;;
     *) usage >&2; die "Unknown command: $action" ;;
   esac
   require_docker
@@ -138,6 +148,7 @@ main() {
     setup|build) build; init_node_modules ;;
     check) command_check ;;
     preflight) command_preflight ;;
+    physics) command_physics ;;
     accept) command_accept ;;
     all) rm -f "$REPORTS/acceptance-report.json" "$REPORTS/diagnostics.json" "$REPORTS/gz-transport.json"; build; command_check; command_preflight; command_accept ;;
     shell) ensure_image; init_node_modules; compose run --rm sim bash ;;

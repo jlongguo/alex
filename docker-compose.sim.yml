@@ -22,6 +22,10 @@ services:
       ALEX_ROS_SIMULATION_ONLY: "1"
       ALEX_RUN_ROS_INTEGRATION: "1"
       ALEX_GZ_HEADLESS_RENDERING: "${ALEX_GZ_HEADLESS_RENDERING:-1}"
+      # Docker Desktop commonly lacks a mapped rendering GPU; prefer Mesa CPU GL.
+      # Override to 0 / a different driver only on a verified accelerated host.
+      LIBGL_ALWAYS_SOFTWARE: "${ALEX_LIBGL_ALWAYS_SOFTWARE:-1}"
+      GALLIUM_DRIVER: "${ALEX_GALLIUM_DRIVER:-llvmpipe}"
       ROS_DOMAIN_ID: "77"
       ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
       HOME: /tmp/alex
