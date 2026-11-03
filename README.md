@@ -1,16 +1,20 @@
 # Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
 
-> **v0.9.0 · grid navigation bridge, authenticated pose telemetry, parent-approved plans and multi-device simulation**
+> **v0.10.0 · grid navigation bridge, authenticated pose telemetry, parent-approved plans and multi-device simulation**
 >
 > 这是一个可运行的架构验证项目，不是具备真实自主导航或通用 AI 能力的成品。
 
+## v0.10 Nav2 simulation bridge
+
+Optional experimental `ALEX_NAV_BACKEND=ros2` adapter for a **matching ROS 2/Nav2 Gazebo simulation only**. The existing grid simulator remains the default. This version provides goal/feedback/cancellation protocol and strict final pose verification, but **has NOT been tested against an installed ROS 2/Nav2/Gazebo stack**. It never sends motor commands. See [`docs/V0.10.md`](docs/V0.10.md).
+
 ## v0.9 新增
 
-- 虚拟机器人利用现有的 A* 家庭地图实际计算路径，逐步向家庭中枢反馈位置、进度与朝向；不再用固定延迟假装导航完成。
-- Device Gateway v2 认证设备导航遥测、序号和目标到达，未到达的 v2 导航任务不能回报成功。
-- 家长控制台展示外部虚拟设备坐标地图；旧 v1 协议保留测试兼容。
-- 仍未接入实体电机、ROS 2、Gazebo 或物理碰撞保护，详见 docs/V0.9.md。
-- 本地 68 项自动化测试通过（含虚拟设备 HTTP/SSE 联调）。
+- 机器人虚拟设备采用共享的 A* 网格寻路，不再使用固定延时假装完成导航；通过受控 `GridNavigationBridge` 反馈路线进度、位置和朝向。
+- Device Gateway v2 接收经过设备认证的导航状态，并验证序号、进度、地图和目标点；未到达的导航任务不可报告成功。
+- 家长控制台新增外部虚拟设备的位置地图，配合多设备工作流验证。没有实体电机控制，也没有真实 ROS 2/Gazebo 物理仿真。
+- 原有 v1 设备协议仍保留兼容；v2 设备要求到达证明。见 `docs/V0.9.md`。
+- 本地 68 项测试通过；包括真实 Node 虚拟设备进程通过 SSE/HTTP 回传导航轨迹。
 
 ## v0.8 新增
 
