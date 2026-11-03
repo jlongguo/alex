@@ -49,6 +49,23 @@ for joint_name in ('left_wheel_joint', 'right_wheel_joint'):
     effort = joint.find('axis/limit/effort')
     assert effort is not None and float(effort.text) >= 1_000_000
 
+# Support triangle: two driving-wheel ground contacts at x=0, y=+/-0.145,
+# and rear caster ground contact at x=-0.09, y=0. The mass-weighted COM must
+# be strictly inside, not on the wheel axle edge. This is a physical
+# stability invariant, independent of Nav2's 2D map and footprint tolerance.
+links_for_com = [m.find(f'./link[@name="{name}"]')
+                 for name in ('base_link', 'left_wheel', 'right_wheel', 'caster')]
+masses = [float(link.find('inertial/mass').text) for link in links_for_com]
+def link_coordinate(link, segment):
+    pose = link.find(segment)
+    return float(pose.text.split()[0]) if pose is not None else 0.0
+xs = [link_coordinate(link, 'pose') + link_coordinate(link, 'inertial/pose')
+      for link in links_for_com]
+overall_com_x = sum(mass * x for mass, x in zip(masses, xs)) / sum(masses)
+caster_x = link_coordinate(links_for_com[-1], 'pose')
+assert -0.075 < overall_com_x < -0.02, (overall_com_x, caster_x)
+assert caster_x < overall_com_x < 0.0
+
 drive = m.find('./plugin[@name="gz::sim::systems::DiffDrive"]')
 assert drive is not None
 assert drive.find('odom_topic').text == '/odom'
