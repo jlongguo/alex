@@ -466,6 +466,15 @@ def main():
         report['graph'] = graph_snapshot()
         report['checks'].append('clock_scan_odom_map_tf_nav2_ready')
         report['initial_pose'] = list(current_tf_pose()[0])
+        initial_clearance = last_scan_clearance()
+        report['initial_laser_clearance'] = initial_clearance
+        if (initial_clearance.get('available')
+                and initial_clearance.get('points_inside_0_19m', 0) > 0):
+            save_report(report, args.report)
+            raise RuntimeError(
+                'SIM_LIDAR_SELF_HIT:'
+                + str(initial_clearance['points_inside_0_19m'])
+                + '_POINTS_INSIDE_ROBOT_RADIUS')
         save_report(report, args.report)
         print('ROS graph ready with advancing clock, fresh map TF, laser, odom, map and NavigateToPose', flush=True)
         goals = ACCEPTANCE_ROUTE if args.route else (DESK,) if args.navigate else ()
