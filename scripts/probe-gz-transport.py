@@ -74,7 +74,7 @@ def probe():
         if control is None:
             hint = "Gazebo service discovery unavailable; clock has no sample and world state unverified."
         elif not control:
-            hint = "Gazebo world service missing from discovery; clock has no sample; check server lifetime."
+            hint = "Gazebo world service missing: world control service absent from discovery; clock has no sample; check server lifetime."
         else:
             hint = "Gazebo clock has no sample: clock not observed; inspect physics and sensors."
     elif not samples["odom"]["message_received"]:
