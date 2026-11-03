@@ -30,7 +30,7 @@
     <main class="main">
       <div class="header">
         <div><div class="eyebrow" id="page-eyebrow">HOME / CONTROL CENTER</div><h1>家庭智能中枢 <span>／</span> <em id="page-title">总览</em></h1><p id="page-description">一个大脑，多个技能，一台正在成长的机器人。</p></div>
-        <div class="header-right"><div class="connect-dot"></div><span id="connection">连接中...</span><div class="divider-v"></div><span class="time" id="clock">--:--</span><button type="button" id="logout" class="secondary-btn hidden">退出</button></div>
+        <div class="header-right"><div class="connect-dot"></div><span id="connection">连接中...</span><div class="divider-v"></div><span class="time" id="clock">--:--</span><span id="auth-session-status" class="auth-session-status" role="status" aria-live="polite">检测身份中…</span><button type="button" id="auth-entry" class="secondary-btn hidden" aria-haspopup="dialog" aria-controls="auth-overlay">家长登录</button><button type="button" id="logout" class="secondary-btn hidden">退出</button></div>
       </div>
       <section id="global-safety" class="global-safety" aria-label="全局模拟安全控制">
         <div class="global-safety-readout"><span class="safety-symbol" aria-hidden="true">◉</span><strong>机器人安全</strong><span id="global-safety-state" aria-live="polite">读取中…</span><small>仅软件模拟，非物理急停</small></div>
@@ -84,7 +84,7 @@
       </div>
       <section class="panel events-panel" id="device-access-note" data-nav-view="devices" role="status">
         <div class="panel-header"><div><div class="eyebrow">DEVICE ACCESS</div><h2>需要家长授权</h2></div></div>
-        <p class="helper">设备配对、能力审批及虚拟任务派发仅向已验证的家长账户开放。请在服务器设置 AUTH_MODE=local 后使用家长密码登录。本机 Demo 模式不能管理配对设备。</p>
+        <p class="helper">设备配对、能力审批及虚拟任务派发仅向已验证的家长账户开放。演示模式没有家长会话，必须先启用本地认证。</p><button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>家长登录 / 配置授权</button>
       </section>
       <section class="panel events-panel" id="skills-explorer" data-nav-view="skills">
         <div class="panel-header"><div><div class="eyebrow">SKILL REGISTRY</div><h2>已安装技能</h2></div><span class="version-label">SIMULATION ONLY</span></div>
@@ -115,7 +115,7 @@
       <section class="panel events-panel" data-nav-view="tasks" id="tasks-intro">
         <div class="panel-header"><div><div class="eyebrow">AGENT / TASK CENTER</div><h2>受控任务工作区</h2></div><span class="pill">SIMULATION ONLY</span></div>
         <p>工作流、计划图、家长审核归在同一工作区。儿童可以提交计划建议；移动和设备执行仍必须由经过认证的家长批准。</p>
-        <p id="tasks-access-note" class="helper hidden" role="status">工作流与计划执行需要 AUTH_MODE=local 的家长账户。儿童账户只能提交建议，不可批准。</p>
+        <p id="tasks-access-note" class="helper hidden" role="status">工作流与计划执行需要 AUTH_MODE=local 的家长账户。儿童账户只能提交建议，不可批准。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>家长登录 / 切换身份</button></p>
       </section>
       <section class="panel events-panel" id="workflow-section" data-nav-view="tasks">
         <div class="panel-header"><div><div class="eyebrow">WORKFLOW ORCHESTRATOR</div><h2>跨设备技能编排 <span class="version-label">V0.6 SIMULATION</span></h2></div><span class="pill">PARENT ONLY</span></div>
@@ -155,7 +155,7 @@
       <section class="panel events-panel" data-nav-view="events"><div class="panel-header"><div><div class="eyebrow">PARENT AUDIT</div><h2>操作审计</h2></div></div><p id="audit-access-note" class="helper">家长本地登录后可查看服务器操作审计。</p><div id="audit-list" class="event-list" aria-live="polite"></div></section>
       <section class="panel events-panel" data-nav-view="family">
         <div class="panel-header"><div><div class="eyebrow">FAMILY / PRIVACY</div><h2>家庭档案与记忆</h2></div></div>
-        <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。</p>
+        <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>打开家长授权</button></p>
         <div id="family-private" class="hidden">
           <h3>学习者档案</h3>
           <form id="profile-form" class="command-form">
@@ -187,6 +187,14 @@
       <button type="submit">登录家庭中枢</button>
       <p id="auth-error" role="alert"></p>
     </form>
+    <section id="auth-demo-guide" class="auth-card hidden" aria-labelledby="auth-demo-title">
+      <h2 id="auth-demo-title">启用本地家长授权</h2>
+      <p>当前服务器运行在演示模式，页面上的角色选择不等于经过验证的家长身份。不能在 Demo 模式直接授权设备或审批任务。</p>
+      <p>请先停止当前服务，在项目根目录运行下面的命令。脚本会在终端安全地询问家长密码（至少 12 位），密码不会发送给当前页面。</p>
+      <pre class="auth-command">bash scripts/start-local.sh</pre>
+      <p>重新打开控制台后，选择「家长」并输入刚才设置的密码，即可进行设备配对、任务审批和家庭管理。如需儿童身份，可在启动前单独配置 ALEX_CHILD_PIN。</p>
+      <button id="auth-demo-close" type="button">返回演示模式</button>
+    </section>
   </div>
 </body>
 </html>

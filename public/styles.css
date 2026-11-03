@@ -41,3 +41,13 @@ body[data-current-page="overview"] .lower-grid[data-nav-view="overview"]{display
 body [data-nav-view].hidden,body [data-nav-view].hidden[data-nav-view]{display:none!important}
 .global-safety{position:sticky;top:8px;z-index:45}
 @media(max-width:620px){.global-safety{top:4px}}
+
+/* Parent authentication entry is always discoverable, including in demo mode. */
+.header-right{flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.auth-session-status{font-size:11px;color:#678095;white-space:nowrap}
+#auth-entry{border:1px solid #7fcbc0;color:#197766;background:#ebf9f4;font-weight:700;white-space:nowrap}
+#auth-entry:hover{background:#d6f4e9}
+.auth-inline-button{margin:10px 0 0;padding:8px 12px;font-size:12px;display:inline-flex}
+.auth-command{background:#eff5f3;border:1px solid #d6e3e0;border-radius:9px;padding:12px;overflow-x:auto;white-space:pre-wrap;font-size:13px;color:#194d40}
+#auth-demo-guide{width:min(100%,480px)}
+@media(max-width:620px){.header-right{width:100%;justify-content:flex-start}.auth-session-status{font-size:10px}}
