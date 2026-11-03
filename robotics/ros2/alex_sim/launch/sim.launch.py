@@ -33,7 +33,8 @@ def generate_launch_description():
     headless = os.environ.get('ALEX_GZ_HEADLESS_RENDERING', '0')
     if headless not in ('0', '1'):
         raise RuntimeError('INVALID_HEADLESS_RENDERING_FLAG')
-    gz_args = '-r -s ' + ('--headless-rendering ' if headless == '1' else '') + str(world)
+    # Verbose Gazebo startup is needed to diagnose render / plugin / model failures.
+    gz_args = '-v 4 -r -s ' + ('--headless-rendering ' if headless == '1' else '') + str(world)
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(ros_gz / 'launch' / 'gz_sim.launch.py')),
         launch_arguments={'gz_args': gz_args}.items(),
