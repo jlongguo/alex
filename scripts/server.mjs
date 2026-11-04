@@ -108,7 +108,7 @@ const send = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'?409:message==='CHILD_CLOUD_TEXT_DISABLED'?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'||message==='COMPANION_TURN_CANCELLED'?409:message==='CHILD_CLOUD_TEXT_DISABLED'?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -141,6 +141,24 @@ const principalFor = req => {
   if(!session.authenticated||!session.actor)throw new Error('UNAUTHENTICATED');
   return session.learnerId?'learner:'+session.learnerId:session.actor;
 };
+// In-flight model requests are tracked by verified server-side principal.
+const activeCompanionControllers=new Map();
+function trackCompanion(principal,controller){
+ const set=activeCompanionControllers.get(principal)??new Set();
+ set.add(controller);activeCompanionControllers.set(principal,set);
+ return ()=>{
+   set.delete(controller);
+   if(!set.size)activeCompanionControllers.delete(principal);
+ };
+}
+function abortCompanion(principal){
+ for(const controller of activeCompanionControllers.get(principal)??[])
+   controller.abort();
+}
+function abortAllChildCompanion(){
+ for(const principal of activeCompanionControllers.keys())
+   if(principal==='child'||principal.startsWith('learner:'))abortCompanion(principal);
+}
 const server=http.createServer(asyncWrap(async(req,res)=>{
   const pathname=new URL(req.url??'/',`http://${req.headers.host ?? 'localhost'}`).pathname;
   const origin=req.headers.origin;
@@ -267,6 +285,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     // transcript, even session metadata, may leak through error events.
     conversations.get(actor,input.id);
     const cancel=new AbortController();
+    const forget=trackCompanion(actor,cancel);
     res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
     res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8',
       'Cache-Control':'no-store, no-transform','Connection':'keep-alive',
@@ -295,7 +314,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       await audit.record({actor:auth.current(req).actor??'anonymous',
         learnerId:auth.current(req).learnerId,
         action:'companion.stream',outcome:'denied'}).catch(()=>{});
-    }
+    }finally{forget();}
     return;
   }
   // Text conversation is separate from commands, plans and device control.
@@ -420,6 +439,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,privacy:await learnerPrivacy.set(actor,data.profileId,data.preferences,
           id=>profiles.list().some(p=>p.id===id))};
+        // Best-effort live revocation of already-open SSE and JSON calls.
+        // The server remains authoritative on every subsequent model turn.
+        if(!result.privacy.preferences.cloudTextAllowed)
+          abortCompanion('learner:'+data.profileId);
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,plan:await learningPlans.assign(actor,{
@@ -437,7 +460,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:true,session:await conversations.open(principalFor(req),data.mode,{lessonId:data.lessonId})};
       }else if(pathname==='/api/companion/turn'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
-        result={ok:true,...await conversations.turn(principalFor(req),data.id,data.text)};
+        const principal=principalFor(req),controller=new AbortController();
+        const forget=trackCompanion(principal,controller);
+        try{
+          result={ok:true,...await conversations.turn(principal,data.id,data.text,
+            {signal:controller.signal})};
+        }finally{forget();}
       }else if(pathname==='/api/companion/delete'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result=await conversations.remove(principalFor(req),data.id);
@@ -506,6 +534,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           // The profile cannot authenticate after deletion, even if cleanup
           // subsequently fails. Delete related transcript evidence as well.
           auth.revokeLearner(data.id);
+          abortCompanion('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -521,6 +550,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           deletedConversations=await conversations.erase(actor,data.scope);
         const deletedLearningPlans=await learningPlans.eraseForPrivacy(actor,data.scope);
         const clearedLearnerPrivacy=await learnerPrivacy.clearForPrivacy(actor,data.scope);
+        if(['child','all'].includes(data.scope))abortAllChildCompanion();
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,
           note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
