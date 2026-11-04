@@ -146,7 +146,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           const id=learnerCredentials.verify(code,pin);
           return id&&profiles.list().some(p=>p.id===id)?id:null;
         });
-      await audit.record({actor:login.actor,action:'auth.login',outcome:'allowed'});
+      await audit.record({actor:login.actor,learnerId:login.learnerId,
+        action:'auth.login',outcome:'allowed'});
       res.setHeader('Set-Cookie',login.cookie);
       send(res,200,{ok:true,actor:login.actor,...(login.learnerId?{learnerId:login.learnerId}:{})});
     }catch(err){
@@ -270,14 +271,17 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       write('committed',{session:result.session,assistant:result.assistant,
                           source:result.source,milestone:result.milestone});
       res.end();
-      await audit.record({actor,action:'companion.stream',outcome:'allowed'});
+      await audit.record({actor:auth.actor(req),learnerId:auth.current(req).learnerId,
+        action:'companion.stream',outcome:'allowed'});
     }catch(error){
       if(!cancel.signal.aborted){
         write('error',{error:error instanceof Error?error.message:'CHAT_STREAM_FAILED',
           partialDiscarded:true});
         res.end();
       }
-      await audit.record({actor,action:'companion.stream',outcome:'denied'}).catch(()=>{});
+      await audit.record({actor:auth.current(req).actor??'anonymous',
+        learnerId:auth.current(req).learnerId,
+        action:'companion.stream',outcome:'denied'}).catch(()=>{});
     }
     return;
   }
@@ -493,7 +497,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         // Persist the command before returning success. Device motion is simulated only.
         await store.save(core.snapshot());
       }
-      await audit.record({actor,action:pathname,outcome:result.ok?'allowed':'denied',requestId:typeof data.requestId==='string'?data.requestId:undefined});
+      await audit.record({actor,learnerId:auth.current(req).learnerId,
+        action:pathname,outcome:result.ok?'allowed':'denied',
+        requestId:typeof data.requestId==='string'?data.requestId:undefined});
       send(res,result.ok?200:409,result);
     }catch(err){
       await audit.record({actor,action:pathname,outcome:'error'});
