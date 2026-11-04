@@ -98,7 +98,11 @@ export class FamilyAuth {
 export class AuditLog {
   constructor(file) {this.file=resolve(file);this.queue=Promise.resolve();}
   async record(entry) {
-    const event={timestamp:new Date().toISOString(),actor:entry.actor ?? 'anonymous',action:String(entry.action).slice(0,100),outcome:entry.outcome,requestId:entry.requestId ?? null};
+    const learnerId=typeof entry.learnerId==='string'
+      && /^profile-[0-9a-f-]{36}$/.test(entry.learnerId)?entry.learnerId:null;
+    const event={timestamp:new Date().toISOString(),actor:entry.actor ?? 'anonymous',
+      learnerId,action:String(entry.action).slice(0,100),outcome:entry.outcome,
+      requestId:entry.requestId ?? null};
     this.queue=this.queue.catch(()=>{}).then(async()=>{
       await mkdir(dirname(this.file),{recursive:true,mode:0o700});
       await appendFile(this.file,JSON.stringify(event)+'\n',{encoding:'utf8',mode:0o600});
