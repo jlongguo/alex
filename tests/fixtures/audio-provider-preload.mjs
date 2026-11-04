@@ -18,6 +18,13 @@ globalThis.fetch=async(input,options)=>{
       const args=JSON.parse(options.body);
       if(args.model!=='fixture-tts'||args.voice!=='alloy')
         throw new Error('Unexpected TTS model');
+      if(args.input==='SLOW_AUDIO_CANCEL_TEST')
+        return new Promise((resolve,reject)=>{
+          if(options.signal?.aborted)
+            return reject(new Error('fixture upstream cancelled'));
+          options.signal.addEventListener('abort',
+            ()=>reject(new Error('fixture upstream cancelled')),{once:true});
+        });
       return new Response(Buffer.alloc(1024,0x42),{
         status:200,headers:{'content-type':'audio/mpeg'}
       });
