@@ -519,7 +519,9 @@ $('privacy-erase').addEventListener('click',async()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null,companionRecognition=null;
+const terminalRuntime=new globalThis.AlexTerminalRuntime();
 function companionState(next) {
+ terminalRuntime.transition(next,{reason:'browser-ui'});
  const labels={
   idle:'Alex · 等待交流',listening:'Alex · 正在听写（浏览器识别）',
   thinking:'Alex · 正在生成文字',speaking:'Alex · 本地朗读中',
@@ -563,9 +565,14 @@ function speakCompanion(text,mode){
  const utterance=new SpeechSynthesisUtterance(text);
  utterance.lang=mode==='english'?'en-US':'zh-CN';
  utterance.rate=mode==='english'?.85:1;
- utterance.onend=()=>companionState('idle');
- utterance.onerror=()=>{companionState('error');companionNotice('浏览器朗读失败，可以继续使用文字。',true);};
  companionState('speaking');
+ const revision=terminalRuntime.snapshot().revision;
+ utterance.onend=()=>{if(terminalRuntime.current(revision))companionState('idle');};
+ utterance.onerror=()=>{
+  if(terminalRuntime.current(revision)){
+   companionState('error');companionNotice('浏览器朗读失败，可以继续使用文字。',true);
+  }
+ };
  window.speechSynthesis.speak(utterance);
 }
 async function refreshCompanionProgress(){
@@ -781,15 +788,25 @@ $('companion-microphone').addEventListener('click',()=>{
  recognition.lang=$('companion-mode').value==='english'?'en-US':'zh-CN';
  recognition.interimResults=false;recognition.maxAlternatives=1;
  recognition.onresult=event=>{
+  if(companionRecognition!==recognition)return; // stale browser callback
   $('companion-text').value=event.results?.[0]?.[0]?.transcript?.slice(0,500)??'';
   companionNotice('语音已转为文本，请检查后点击发送。');
  };
- recognition.onerror=()=>{companionState('error');companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);};
- recognition.onend=()=>{if(companionRecognition===recognition)companionRecognition=null;if($('companion-runtime').dataset.state==='listening')companionState('idle');};
+ recognition.onerror=()=>{
+  if(companionRecognition===recognition){
+   companionState('error');companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);
+  }
+ };
+ recognition.onend=()=>{
+  if(companionRecognition!==recognition)return;
+  companionRecognition=null;
+  if($('companion-runtime').dataset.state==='listening')companionState('idle');
+ };
  try{recognition.start();companionState('listening');companionNotice('仅在浏览器授权后识别；可能调用浏览器厂商服务。');}
  catch{companionRecognition=null;companionState('error');companionNotice('浏览器无法启动语音识别。',true);}
 });
 window.addEventListener('pagehide',()=>{
+ terminalRuntime.interrupt('pagehide');
  companionAbort?.abort();
  if(companionRecognition){companionRecognition.abort();companionRecognition=null;}
  stopCompanionSpeech();
