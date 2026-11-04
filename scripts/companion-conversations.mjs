@@ -3,11 +3,15 @@ import {JsonStateStore} from './state-store.mjs';
 import {COMPANION_MODES,opening,offlineReply} from './companion-dialogue.mjs';
 
 const copy = value => structuredClone(value);
-const validActor = actor => {
-  if(!['parent','child'].includes(actor))throw new Error('INVALID_ACTOR');
+const roleOf = principal => {
+  if(principal==='parent')return 'parent';
+  if(principal==='child'||/^learner:profile-[0-9a-f-]{36}$/.test(principal??''))return 'child';
+  throw new Error('INVALID_COMPANION_PRINCIPAL');
 };
+const ownedKey = session => session.principal??session.actor; // v1 migration
 const validId = id => typeof id==='string' && /^[0-9a-f-]{36}$/.test(id);
-const MAX_SESSIONS_PER_ROLE = 16;
+const MAX_SESSIONS_PER_PRINCIPAL = 16;
+const MAX_TOTAL_SESSIONS = 224; // parent, legacy child, up to 12 named learners
 const MAX_MESSAGES = 32;
 const MAX_USER_CHARS = 500;
 
@@ -28,11 +32,13 @@ export class CompanionConversations {
     if(!this.store)return;
     const data=await this.store.load();
     if(!data)return;
-    if(data.version!==1||!Array.isArray(data.sessions)||data.sessions.length>2*MAX_SESSIONS_PER_ROLE)
+    if(data.version!==1||!Array.isArray(data.sessions)||data.sessions.length>MAX_TOTAL_SESSIONS)
       throw new Error('INVALID_CONVERSATION_FILE');
     const next=new Map();
     for(const session of data.sessions) {
       if(!validId(session?.id)||!['parent','child'].includes(session.actor)
+        ||(session.principal!==undefined
+          &&(roleOf(session.principal)!==session.actor))
         ||!COMPANION_MODES.includes(session.mode)||!Number.isInteger(session.step)
         ||session.step<0||session.step>5||typeof session.context!=='string'||session.context.length>50
         ||!(session.round===undefined || (Number.isInteger(session.round)&&session.round>=0&&session.round<=100000))
@@ -46,10 +52,10 @@ export class CompanionConversations {
         throw new Error('INVALID_CONVERSATION_FILE');
       next.set(session.id,{...copy(session),round:session.round??0,milestones:session.milestones??[]});
     }
-    for(const role of ['parent','child']) {
-      if([...next.values()].filter(s=>s.actor===role).length>MAX_SESSIONS_PER_ROLE)
+    const owners=new Set([...next.values()].map(ownedKey));
+    for(const owner of owners)
+      if([...next.values()].filter(s=>ownedKey(s)===owner).length>MAX_SESSIONS_PER_PRINCIPAL)
         throw new Error('INVALID_CONVERSATION_FILE');
-    }
     this.#sessions=next;
   }
   #enqueue(task) {
@@ -61,33 +67,33 @@ export class CompanionConversations {
     if(this.store)await this.store.save({version:1,sessions:[...next.values()]});
     this.#sessions=next;
   }
-  #owned(actor,id) {
-    validActor(actor);
+  #owned(principal,id) {
+    roleOf(principal);
     if(!validId(id))throw new Error('INVALID_CONVERSATION_ID');
     const session=this.#sessions.get(id);
     // Return the same response for nonexistent and other-role IDs.
-    if(!session||session.actor!==actor)throw new Error('UNKNOWN_CONVERSATION');
+    if(!session||ownedKey(session)!==principal)throw new Error('UNKNOWN_CONVERSATION');
     return session;
   }
-  list(actor) {
-    validActor(actor);
-    return [...this.#sessions.values()].filter(s=>s.actor===actor)
+  list(principal) {
+    roleOf(principal);
+    return [...this.#sessions.values()].filter(s=>ownedKey(s)===principal)
       .sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))
       .map(s=>({id:s.id,mode:s.mode,createdAt:s.createdAt,
                  updatedAt:s.updatedAt,turns:s.messages.filter(m=>m.role==='user').length}));
   }
-  get(actor,id) {return copy(this.#owned(actor,id));}
-  async open(actor,mode) {
-    validActor(actor);
+  get(principal,id) {return copy(this.#owned(principal,id));}
+  async open(principal,mode) {
+    const actor=roleOf(principal);
     if(!COMPANION_MODES.includes(mode))throw new Error('INVALID_COMPANION_MODE');
     return this.#enqueue(async()=>{
       this.authorizeMode(actor,mode);
       const next=new Map(this.#sessions);
-      const mine=[...next.values()].filter(s=>s.actor===actor)
+      const mine=[...next.values()].filter(s=>ownedKey(s)===principal)
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
-      while(mine.length>=MAX_SESSIONS_PER_ROLE)next.delete(mine.shift().id);
+      while(mine.length>=MAX_SESSIONS_PER_PRINCIPAL)next.delete(mine.shift().id);
       const now=new Date().toISOString(),id=randomUUID();
-      const session={id,actor,mode,step:0,context:'',round:0,milestones:[],
+      const session={id,actor,principal,mode,step:0,context:'',round:0,milestones:[],
         createdAt:now,updatedAt:now,
         messages:[{role:'assistant',text:opening(mode,Boolean(this.provider)),source:'intro'}]};
       next.set(id,session);
@@ -95,21 +101,21 @@ export class CompanionConversations {
       return copy(session);
     });
   }
-  async turn(actor,id,text) {
-    return this.#processTurn(actor,id,text,{});
+  async turn(principal,id,text) {
+    return this.#processTurn(principal,id,text,{});
   }
-  async streamTurn(actor,id,text,{signal,onDelta=()=>{}}={}) {
+  async streamTurn(principal,id,text,{signal,onDelta=()=>{}}={}) {
     if(typeof onDelta!=='function')throw new Error('INVALID_COMPANION_CALLBACK');
-    return this.#processTurn(actor,id,text,{signal,onDelta,stream:true});
+    return this.#processTurn(principal,id,text,{signal,onDelta,stream:true});
   }
-  async #processTurn(actor,id,text,{signal,onDelta,stream=false}) {
-    validActor(actor);
+  async #processTurn(principal,id,text,{signal,onDelta,stream=false}) {
+    const actor=roleOf(principal);
     if(typeof text!=='string'||!text.trim()||text.length>MAX_USER_CHARS
       ||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text))
       throw new Error('INVALID_COMPANION_INPUT');
     return this.#enqueue(async()=>{
       if(signal?.aborted)throw new Error('COMPANION_TURN_CANCELLED');
-      const current=this.#owned(actor,id);
+      const current=this.#owned(principal,id);
       this.authorizeMode(actor,current.mode);
       const input=text.trim();
       const user={role:'user',text:input,source:'user'};
@@ -155,16 +161,20 @@ export class CompanionConversations {
               milestone:finished?copy(milestones.at(-1)):null,session:copy(updated)};
     });
   }
-  // Evidence is coarse completion metadata only, never chat text, grades
-  // or pronunciation claims. Parent may inspect child aggregate explicitly.
-  progress(actor,scope=actor) {
-    validActor(actor);
-    if(!['parent','child','all'].includes(scope))throw new Error('INVALID_LEARNING_SCOPE');
-    if(actor!=='parent'&&scope!==actor)throw new Error('PARENT_REQUIRED');
-    const sessions=[...this.#sessions.values()]
-      .filter(s=>scope==='all'||s.actor===scope);
+  // Text-only evidence, never actual pronunciation or general proficiency.
+  // A learner can read only their verified principal. Parent may inspect
+  // all child learners as a group or a named learner intentionally.
+  progress(principal,scope=principal) {
+    const actor=roleOf(principal);
+    if(!['parent','child','all'].includes(scope)
+      && !/^learner:profile-[0-9a-f-]{36}$/.test(scope??''))
+      throw new Error('INVALID_LEARNING_SCOPE');
+    if(actor!=='parent'&&scope!==principal)throw new Error('PARENT_REQUIRED');
+    const sessions=[...this.#sessions.values()].filter(s=>
+      scope==='all'||(scope==='child'?s.actor==='child':ownedKey(s)===scope));
     const records=sessions.flatMap(s=>(s.milestones??[]).map(m=>({
-      actor:s.actor,sessionId:s.id,mode:s.mode,kind:m.kind,round:m.round,at:m.at
+      actor:s.actor,principal:ownedKey(s),sessionId:s.id,mode:s.mode,
+      kind:m.kind,round:m.round,at:m.at
     }))).sort((a,b)=>b.at.localeCompare(a.at));
     return {
       scope,englishTextExercisesCompleted:records.filter(r=>r.kind==='english_a1_text').length,
@@ -172,10 +182,10 @@ export class CompanionConversations {
       recent:copy(records.slice(0,50))
     };
   }
-  async remove(actor,id) {
-    validActor(actor);
+  async remove(principal,id) {
+    roleOf(principal);
     return this.#enqueue(async()=>{
-      this.#owned(actor,id);
+      this.#owned(principal,id);
       const next=new Map(this.#sessions);next.delete(id);
       await this.#commit(next);
       return {ok:true};
@@ -192,6 +202,20 @@ export class CompanionConversations {
       }
       await this.#commit(next);
       return removed;
+    });
+  }
+  async eraseLearner(actor,profileId) {
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    if(!/^profile-[0-9a-f-]{36}$/.test(profileId??''))
+      throw new Error('INVALID_LEARNER_PROFILE');
+    const principal='learner:'+profileId;
+    return this.#enqueue(async()=>{
+      const next=new Map(this.#sessions);
+      let count=0;
+      for(const [id,session] of next)
+        if(ownedKey(session)===principal){next.delete(id);count++;}
+      await this.#commit(next);
+      return count;
     });
   }
   // Explicit parent-only /api/privacy/export, never general GET conversations.
