@@ -13,9 +13,10 @@ const b='learner:profile-22222222-2222-4222-8222-222222222222';
 
 test('R4 trusted Skill curriculum is versioned, filtered and cannot execute untrusted lesson IDs',()=>{
  const courses=courseCatalog();
- assert.equal(courses.length,4);
+ assert.equal(courses.length,5);
  assert.equal(coursesForMode('english').length,3);
  assert.equal(coursesForMode('story').length,1);
+ assert.equal(coursesForMode('quiz').length,1);
  for(const item of courses){
   assert.match(item.version,/^\d+\.\d+\.\d+$/);
   assert.ok(item.targetStep>=3);
@@ -184,4 +185,27 @@ test('R4 transcript/evidence atomic snapshot stays unchanged on persistence fail
  await assert.rejects(()=>hub.turn(a,session.id,'Hello Alex'),/SIMULATED_DISK_FAILURE/);
  assert.deepEqual(hub.get(a,session.id),previous);
  assert.equal(hub.progress(a).englishTextExercisesCompleted,0);
+});
+
+
+test('R4 quiz is a separate safe text Skill with checked choices and evidence',async()=>{
+ const hub=new CompanionConversations();
+ const s=await hub.open(a,'quiz',{lessonId:'science.everyday.discovery'});
+ assert.equal(s.mode,'quiz');
+ assert.equal(s.lessonId,'science.everyday.discovery');
+ assert.match(s.messages[0].text,/植物/);
+ let step=await hub.turn(a,s.id,'B');
+ assert.equal(step.session.step,0);
+ for(const answer of ['A','选A','左']){
+   step=await hub.turn(a,s.id,answer);
+   assert.equal(step.source,'offline');
+ }
+ assert.equal(step.session.step,3);
+ assert.equal(step.learningEvidence.kind,'science_quiz_text');
+ assert.equal(hub.progress(a).scienceTextQuizzesCompleted,1);
+ assert.equal(hub.progress(a).englishTextExercisesCompleted,0);
+ await hub.turn(a,s.id,'重新开始');
+ assert.equal(hub.get(a,s.id).step,0);
+ await hub.remove(a,s.id);
+ assert.equal(hub.progress(a).scienceTextQuizzesCompleted,0);
 });
