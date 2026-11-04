@@ -293,9 +293,8 @@ export class CompanionConversations {
       }
       const evidence=this.#evidence.filter(e=>
         !(scope==='all'||scope===e.actor));
-      const evidenceRemoved=this.#evidence.length-evidence.length;
       await this.#commit(next,evidence);
-      return removed+evidenceRemoved; // includes orphaned evidence from rotations
+      return removed; // Preserve v1 count semantics; evidence is erased too.
     });
   }
   async eraseLearner(actor,profileId) {
