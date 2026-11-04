@@ -204,7 +204,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -220,6 +220,45 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(!/^\d{1,15}$/.test(cursor)){send(res,400,{ok:false,error:'INVALID_EVENT_CURSOR'});return;}
     send(res,200,{events:plans.getEvents(Number(cursor))});return;
   }
+  // SSE streamed replies have provisional token events and exactly one
+  // authoritative committed event; no unfinished text is persisted. This
+  // remains an authenticated local text endpoint, never a device command.
+  if(req.method==='POST' && pathname==='/api/companion/stream'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const actor=auth.actor(req);
+    const input=await body(req);
+    // Validate ownership before sending SSE headers; no other-role
+    // transcript, even session metadata, may leak through error events.
+    conversations.get(actor,input.id);
+    const cancel=new AbortController();
+    res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
+    res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8',
+      'Cache-Control':'no-store, no-transform','Connection':'keep-alive',
+      'X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'});
+    const write=(event,data)=>{
+      if(cancel.signal.aborted||res.destroyed)throw new Error('COMPANION_TURN_CANCELLED');
+      res.write('event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n');
+    };
+    try{
+      write('ready',{id:input.id,provisional:true});
+      const result=await conversations.streamTurn(actor,input.id,input.text,{
+        signal:cancel.signal,onDelta:delta=>write('delta',{text:delta})
+      });
+      // Never interpret the model's text as a command or skill invocation.
+      write('committed',{session:result.session,assistant:result.assistant,
+                          source:result.source,milestone:result.milestone});
+      res.end();
+      await audit.record({actor,action:'companion.stream',outcome:'allowed'});
+    }catch(error){
+      if(!cancel.signal.aborted){
+        write('error',{error:error instanceof Error?error.message:'CHAT_STREAM_FAILED',
+          partialDiscarded:true});
+        res.end();
+      }
+      await audit.record({actor,action:'companion.stream',outcome:'denied'}).catch(()=>{});
+    }
+    return;
+  }
   // Text conversation is separate from commands, plans and device control.
   // Demo-mode actor switching is never a secure transcript boundary.
   if(req.method==='GET' && (pathname==='/api/companion/sessions'||pathname==='/api/companion/session')){
@@ -231,6 +270,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
+  }
+  if(req.method==='GET' && pathname==='/api/companion/progress'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const actor=auth.actor(req);
+    const scope=new URL(req.url,`http://${incomingHost}`).searchParams.get('scope')??actor;
+    send(res,200,{progress:conversations.progress(actor,scope)});return;
   }
   if(req.method==='GET' && pathname==='/api/workflows'){
     const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
