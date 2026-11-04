@@ -49,7 +49,7 @@ test('R7 server checks login/permission on ingress and never exports source audi
    assert.ok(server.includes('/api/audio/'+path));
  assert.match(server,/audioAllowed\(principal,'asr'\)/);
  assert.match(server,/audioIngress\.cancelAllChildren\(\)/);
- assert.match(server,/audioIngress\.cancel\('learner:'\+data\.id\)/);
+ assert.match(server,/audioIngress\.erasePrincipal\('learner:'\+data\.id\)/);
  assert.match(source,/scrub\(session\)/);
  assert.doesNotMatch(source,/writeFile|appendFile|INSERT INTO|localStorage/);
 });
