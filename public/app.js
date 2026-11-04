@@ -803,6 +803,7 @@ function speakCompanion(text,mode){
   $('companion-read-aloud').checked=false;companionNotice('家长尚未授权朗读。',true);return;
  }
  try{
+  cloudAudioBridge.interrupt('browser-speech-start');
   voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
     rate:mode==='english'?.85:1});
  }catch(err){companionNotice(err.message,true);companionState('error');}
@@ -1039,6 +1040,43 @@ $('companion-delete').addEventListener('click',async()=>{
  }catch(err){companionNotice(err.message,true);}
  finally{companionBusy=false;}
 });
+$('companion-cloud-record').disabled=true;
+$('companion-cloud-speak').disabled=true;
+$('companion-audio-cancel').disabled=true;
+$('companion-cloud-record').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ if(cloudAudioBridge.snapshot().recording){
+  cloudAudioBridge.stopCapture();return;
+ }
+ await refreshCompanionPrivacy(true);
+ if(!audioCapabilities.inputAllowed){
+  companionNotice('没有单独的云端录音授权，或尚未配置语音供应商。',true);return;
+ }
+ voiceBridge.interrupt('cloud-capture-start');
+ try{await cloudAudioBridge.startCapture({
+   language:$('companion-mode').value==='english'?'en':'zh'
+ });}
+ catch(err){companionNotice(err.message,true);}
+});
+$('companion-cloud-speak').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ await refreshCompanionPrivacy(true);
+ if(!audioCapabilities.outputAllowed){
+  companionNotice('没有单独的云端朗读授权，或尚未配置语音供应商。',true);return;
+ }
+ const messages=$('companion-messages').querySelectorAll(
+   '.companion-message[data-role="assistant"] p');
+ const reply=messages.length?messages[messages.length-1].textContent?.trim():'';
+ if(!reply){companionNotice('没有可朗读的回复。',true);return;}
+ voiceBridge.interrupt('cloud-speech-start');
+ await cloudAudioBridge.speak(reply.slice(0,500),{
+   language:$('companion-mode').value==='english'?'en':'zh'
+ });
+});
+$('companion-audio-cancel').addEventListener('click',async()=>{
+ cloudAudioBridge.interrupt('user-cancel');
+ if(authorizedActor)fetch('/api/audio/cancel',{method:'POST'}).catch(()=>{});
+});
 $('companion-microphone').disabled=true;
 $('companion-read-aloud').disabled=true;
 $('companion-microphone').addEventListener('click',async()=>{
@@ -1051,6 +1089,7 @@ $('companion-microphone').addEventListener('click',async()=>{
   if(voiceBridge.snapshot().state==='listening'){
    voiceBridge.stopListening();companionNotice('已停止语音识别。');return;
   }
+  cloudAudioBridge.interrupt('browser-webspeech-start');
   voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
   companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
  }catch(err){companionNotice(err.message,true);}
