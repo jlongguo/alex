@@ -79,7 +79,9 @@ export class CompanionConversations {
     // v1 backfill: historical completion records were stored inside the
     // conversation object. Migrate them idempotently without keeping
     // the child's raw answers in this independent ledger.
-    const evidence=Array.isArray(data.evidence)?structuredClone(data.evidence):[];
+    if(data.evidence!==undefined&&!Array.isArray(data.evidence))
+      throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+    let evidence=Array.isArray(data.evidence)?structuredClone(data.evidence):[];
     if(evidence.length>MAX_EVIDENCE)throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
     const seen=new Set();
     for(const row of evidence){
@@ -87,19 +89,32 @@ export class CompanionConversations {
       if(seen.has(row.id))throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
       seen.add(row.id);
     }
-    for(const session of next.values()){
-      const course=resolveCourse(session.mode,session.lessonId);
-      if(!course)continue;
-      for(const m of session.milestones??[]){
-        const id=session.id+':'+m.round;
-        if(!seen.has(id)){
-          const row={id,sessionId:session.id,actor:session.actor,
-            principal:ownedKey(session),lessonId:course.id,lessonVersion:1,
-            kind:m.kind,round:m.round,at:m.at};
-          validateEvidence(row);
-          evidence.push(row);seen.add(id);
+    // Backfill once for pre-R4 snapshots only. New snapshots include a
+    // deliberate independent ledger, so retention eviction must not be
+    // silently reversed by old session milestone arrays.
+    if(data.evidence===undefined){
+      for(const session of next.values()){
+        const course=resolveCourse(session.mode,session.lessonId);
+        if(!course)continue;
+        for(const m of session.milestones??[]){
+          const id=session.id+':'+m.round;
+          if(!seen.has(id)){
+            const row={id,sessionId:session.id,actor:session.actor,
+              principal:ownedKey(session),lessonId:course.id,
+              lessonVersion:1,kind:m.kind,round:m.round,at:m.at};
+            validateEvidence(row);
+            evidence.push(row);seen.add(id);
+          }
         }
       }
+      evidence.sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));
+      const counters=new Map(),retained=[];
+      for(const event of evidence.slice().reverse()){
+        const count=counters.get(event.principal)??0;
+        if(count>=MAX_EVIDENCE_PER_PRINCIPAL)continue;
+        counters.set(event.principal,count+1);retained.push(event);
+      }
+      evidence=retained.reverse().slice(-MAX_EVIDENCE);
     }
     if(evidence.length>MAX_EVIDENCE)throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
     for(const owner of new Set(evidence.map(e=>e.principal))){
