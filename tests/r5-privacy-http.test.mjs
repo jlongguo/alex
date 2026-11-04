@@ -48,6 +48,15 @@ test('R5 HTTP privacy: two learner profiles have separate default-denied and par
  try{
   server=await boot(env);
   const {base}=server;
+  const voiceAsset=await fetch(base+'/voice-session.js');
+  assert.equal(voiceAsset.status,200,'real browser voice code must be servable');
+  assert.match(voiceAsset.headers.get('content-type'),/text\/javascript/);
+  assert.match(voiceAsset.headers.get('content-security-policy'),/script-src 'self'/);
+  assert.match(await voiceAsset.text(),/class AlexVoiceBridge/);
+  const page=await fetch(base+'/');
+  const html=await page.text();
+  assert.ok(html.indexOf('/voice-session.js')<html.indexOf('/app.js'),
+    'browser must load voice bridge before app code');
   assert.equal((await get(base,'/api/learner/privacy')).status,401);
   const parent=(await post(base,'/api/auth/login',{
    role:'parent',secret:env.ALEX_PARENT_PASSWORD})).cookie;
