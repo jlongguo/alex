@@ -17,8 +17,9 @@ const MAX_USER_CHARS = 500;
 export class CompanionConversations {
   #sessions=new Map();
   #queue=Promise.resolve();
-  constructor({provider=null,persist=false,file='.local/conversations.json'}={}) {
+  constructor({provider=null,persist=false,file='.local/conversations.json',authorizeMode=()=>{}}={}) {
     this.provider=provider;
+    this.authorizeMode=authorizeMode;
     this.persist=Boolean(persist);
     this.store=this.persist?new JsonStateStore(file):null;
   }
@@ -76,6 +77,7 @@ export class CompanionConversations {
     validActor(actor);
     if(!COMPANION_MODES.includes(mode))throw new Error('INVALID_COMPANION_MODE');
     return this.#enqueue(async()=>{
+      this.authorizeMode(actor,mode);
       const next=new Map(this.#sessions);
       const mine=[...next.values()].filter(s=>s.actor===actor)
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
@@ -95,6 +97,7 @@ export class CompanionConversations {
       throw new Error('INVALID_COMPANION_INPUT');
     return this.#enqueue(async()=>{
       const current=this.#owned(actor,id);
+      this.authorizeMode(actor,current.mode);
       const input=text.trim();
       const user={role:'user',text:input,source:'user'};
       let reply, step=current.step, context=current.context, source='offline';
