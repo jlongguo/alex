@@ -1,3 +1,11 @@
+# Alex R6 主线更新（2026-11-05）
+
+R6 PR #41 从已包含 R5 源码的最新 main 开发：[短音频 Provider、云端 ASR/TTS、媒体传输与家长权限](AI_COMPANION_R6_AUDIO.md)。完成 typed HTTPS adapter、独立 cloudAudioInputAllowed/cloudAudioOutputAllowed 授权、默认禁止的旧配置迁移、音频二进制接口、请求限流与终止、浏览器主动录音/播放及配套回归测试。外部供应商由 CI fixture 截获，不表示已现场调用真实儿童语音供应商。
+
+下一阶段 R7：真正的流式音频 / VAD / 双向实时协议、可评估的音频延迟和声学质量；随后是多学习者加密事务数据库、预算配额、数据保留/删除和家庭产品 UX。导航仿真继续作为可选支线，不得阻塞 AI 终端主线。
+
+---
+
 # Alex R5 主线进度（2026-11-04）
 
 R5 的实际编码包括：[逐人隐私授权与真实浏览器 Web Speech 规范](AI_COMPANION_R5_VOICE_PRIVACY.md)。PR #40 基于尚未合并的 R4 PR #39。家长管理每个孩子的云模型、麦克风、朗读开关；有明确的服务端授权和模型回合复核、受控提示偏好、浏览器语音打断与人工提交、角色隔离及隐私清理。离线 Skill 不因云模型未授权而被禁用。
