@@ -2,6 +2,17 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R4：课程、计划及独立学习成果
+
+- GET /api/learning/catalog：经本地验证的用户可查看已安装、允许执行的固定文本课程 ID、版本和描述。
+- POST /api/companion/open：新增可选 lessonId（仅对应 english/story/quiz 等互动模式），打开指定的课程会话；自由 chat 不能携带 lessonId。
+- POST /api/skills/invoke：仍经过 SkillRegistry / PolicyEngine 检查，可为互动课程携带匹配的 lessonId。
+- GET /api/learning/plans 和 GET /api/learning/overview：家长可查看所有课程计划、按 profileId 筛选，独立学习者只能看自己的计划和已完成/目标次数。
+- POST /api/learning/assign、/api/learning/change、/api/learning/delete：家长分配、暂停/恢复、删除课程目标；不会自动执行任何设备动作。
+- GET /api/companion/progress?scope=self：新增 byCourse、scienceTextQuizzesCompleted、retentionLimit；仅统计系统确认完成的离线文本练习，不是模型生成成绩。
+- GET /api/privacy/export 包含 learningPlans、learningEvidence；POST /api/privacy/erase 在 child/all 范围清理相关课程计划及文字完成证据。明确删除聊天或学习者也清理对应记录；自动会话轮换除外。
+- 完整保留、升级及功能限制见 [R4](AI_COMPANION_R4_CURRICULUM.md)。
+
 ## AI 互动终端 R3：独立学习者与虚拟呈现回执
 
 - POST /api/auth/login 支持 role=learner、code（家长提供的 12 位十六进制登录代码）和 secret（该学习者专属 PIN）；成功的服务器会话返回 child 角色及 learnerId。
