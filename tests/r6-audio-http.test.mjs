@@ -126,6 +126,11 @@ test('R6 actual HTTP routes enforce separate child ASR/TTS approval, allowlists 
   assert.equal(generated.type,'audio/mpeg');
   assert.equal(generated.bytes,1024);
   assert.match(generated.cache,/no-store/);
+  const audioAudit=(await get(base,'/api/audit',parent)).data.events;
+  assert.ok(audioAudit.some(e=>e.action==='audio.transcribe'&&e.learnerId===p.id));
+  assert.ok(audioAudit.some(e=>e.action==='audio.speak'&&e.learnerId===p.id));
+  assert.ok(audioAudit.every(e=>!('text' in e)&&!('audio' in e)&&!('apiKey' in e)));
+  assert.equal(JSON.stringify(audioAudit).includes('Hello, Alex.'),false);
   // Cancel a real in-flight localhost JSON request routed to a deliberately
   // stalled fake HTTPS speech provider; no audio may be committed afterward.
   const delayed=fetch(base+'/api/audio/speak',{method:'POST',headers:{
