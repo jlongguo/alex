@@ -21,6 +21,7 @@ import {LearningPlans} from './learning-plans.mjs';
 import {LearnerPrivacy} from './learner-privacy.mjs';
 import {CompatibleAudioProvider,MAX_AUDIO_UPLOAD_BYTES,MAX_AUDIO_MS} from './audio-provider.mjs';
 import {AudioTurnGate,readAudioUpload} from './audio-transport.mjs';
+import {AudioIngressSessions,readAudioChunk} from './audio-ingress-sessions.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -38,6 +39,7 @@ const learnerCredentials=new LearnerCredentials(
 const learnerPrivacy=new LearnerPrivacy(
   process.env.ALEX_LEARNER_PRIVACY_FILE??resolve(appDir,'.local','learner-privacy.json'));
 const audioGate=new AudioTurnGate();
+const audioIngress=new AudioIngressSessions();
 const audioMode=process.env.ALEX_AUDIO_PROVIDER??'disabled';
 if(!['disabled','compatible'].includes(audioMode))throw new Error('INVALID_AUDIO_PROVIDER_MODE');
 const audioProvider=audioMode==='compatible'?new CompatibleAudioProvider({
@@ -120,7 +122,10 @@ const send = (res, status, data) => {
   res.end(JSON.stringify(data));
 };
 const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLED','AUDIO_PROVIDER_NOT_CONFIGURED',
-  'AUDIO_ALREADY_ACTIVE','AUDIO_REQUEST_CANCELLED'].includes(message)?409:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+  'AUDIO_ALREADY_ACTIVE','AUDIO_REQUEST_CANCELLED','AUDIO_ALREADY_FINISHING',
+  'AUDIO_TURN_NOT_RECORDING'].includes(message)?409:
+  message==='AUDIO_SERVER_BUSY'?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
+  'AUDIO_TURN_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -147,6 +152,8 @@ const tickTimer=setInterval(()=>core.tick(.1),100);
 const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Gateway expiry:',err.message)),1000);
 const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('Workflow tick:',err.message)),250);
 const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
+const audioSweepTimer=setInterval(()=>audioIngress.sweep(),2000);
+audioSweepTimer.unref?.();
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
 
 const principalFor = req => {
@@ -365,13 +372,82 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       outputAllowed:Boolean(audioProvider&&prefs.voiceOutputAllowed&&prefs.cloudAudioOutputAllowed),
       maxAudioBytes:MAX_AUDIO_UPLOAD_BYTES,maxDurationMs:MAX_AUDIO_MS,
       supportedMimeTypes:['audio/webm','audio/ogg','audio/mp4','audio/wav','audio/mpeg'],
-      recordingMode:'short-clip',uploadsPersisted:false,cloudVendorProcessing:!!audioProvider});return;
+      recordingMode:'short-clip',incrementalTransport:true,
+      upstreamASRMode:'batch-after-finish',uploadsPersisted:false,
+      cloudVendorProcessing:!!audioProvider});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/turn/start'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    const started=audioIngress.open(principal,{
+      mime:params.mime,language:params.language??'zh'});
+    send(res,200,{ok:true,turn:started});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/turn/chunk'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const id=req.headers['x-alex-turn-id'];
+    const seq=Number(req.headers['x-alex-chunk-seq']);
+    // Validate identity/ownership before buffering any uploaded bytes.
+    audioIngress.status(principal,id);
+    const {mime,bytes}=await readAudioChunk(req);
+    const result=audioIngress.append(principal,id,{seq,mime,data:bytes});
+    send(res,200,{ok:true,...result});return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/turn/status'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
+    send(res,200,{ok:true,turn:audioIngress.status(principal,id)});return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/turn/metrics'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    send(res,200,{ok:true,scope:'self',metrics:audioIngress.metrics(principal),
+      rawAudioStored:false,textStored:false});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/turn/finish'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    audioIngress.status(principal,params.id);
+    res.on('close',()=>{if(!res.writableEnded){
+      audioIngress.cancel(principal,params.id);audioGate.cancel(principal);
+    }});
+    const result=await audioIngress.finish(principal,params.id,{
+      authorized:()=>audioAllowed(principal,'asr'),
+      transcribe:input=>audioGate.run(principal,'asr',async gateSignal=>
+        audioProvider.transcribe({...input,
+          signal:AbortSignal.any([gateSignal,input.signal])}))
+    });
+    if(!res.destroyed)send(res,200,{ok:true,...result,
+      streamBoundary:'browser-to-Alex-only',upstream:'batch-asr-after-finish'});
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,action:'audio.turn.finish',outcome:'allowed'});
+    return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/turn/cancel'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const params=await body(req);
+    const cancelled=audioIngress.cancel(principal,params.id);
+    if(cancelled)audioGate.cancel(principal);
+    send(res,200,{ok:true,cancelled});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/cancel'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const principal=principalFor(req);
     // Cancellation only applies to this authenticated identity.
-    send(res,200,{ok:true,cancelled:audioGate.cancel(principal)});return;
+    const stopped=audioIngress.cancel(principal);
+    const upstream=audioGate.cancel(principal);
+    send(res,200,{ok:true,cancelled:stopped||upstream});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/transcribe'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -543,8 +619,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(!result.privacy.preferences.cloudTextAllowed)
           abortCompanion('learner:'+data.profileId);
         if(!result.privacy.preferences.cloudAudioInputAllowed||
-          !result.privacy.preferences.cloudAudioOutputAllowed)
+          !result.privacy.preferences.cloudAudioOutputAllowed){
           audioGate.cancel('learner:'+data.profileId);
+          audioIngress.cancel('learner:'+data.profileId);
+        }
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,plan:await learningPlans.assign(actor,{
@@ -638,6 +716,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           auth.revokeLearner(data.id);
           abortCompanion('learner:'+data.id);
           audioGate.cancel('learner:'+data.id);
+          audioIngress.cancel('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -655,6 +734,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         const clearedLearnerPrivacy=await learnerPrivacy.clearForPrivacy(actor,data.scope);
         if(['child','all'].includes(data.scope)){
           abortAllChildCompanion();audioGate.cancelChild();
+          audioIngress.cancelAllChildren();
         }
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,
@@ -743,5 +823,5 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   res.end(bytes);
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
-function shutdown(){clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
+function shutdown(){clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
