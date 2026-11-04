@@ -104,6 +104,16 @@ export class LearningPlans {
       return removed;
     });
   }
+  async eraseForPrivacy(actor,scope){
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    if(!['parent','child','all'].includes(scope))throw new Error('INVALID_LEARNING_ERASE_SCOPE');
+    if(scope==='parent')return 0;
+    return this.#exclusive(async()=>{
+      const count=this.#rows.length;
+      if(count)await this.#commit([]);
+      return count;
+    });
+  }
   exportForParent(actor){
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
     return clone(this.#rows);
