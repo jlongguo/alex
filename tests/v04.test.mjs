@@ -108,7 +108,8 @@ test('v0.4 HTTP: pairing, auth boundary, profile privacy and restart',{timeout:2
   assert.equal((await get('/api/memory',undefined)).status,401);
   const prof=await post('/api/profiles',{nickname:'Explorer',ageBand:'6-8',interests:['robots']},parent);
   assert.equal(prof.status,200);
-  assert.equal((await get('/api/profiles',kid)).data.profiles.length,1);
+  assert.equal((await get('/api/profiles',kid)).data.profiles.length,0,
+    'Shared child PIN cannot enumerate family learner profiles');
   await post('/api/memory',{scope:'parent',text:'hidden from children'},parent);
   await post('/api/memory',{scope:'child',text:'enjoys robots'},parent);
   const exported=await get('/api/privacy/export',parent);
