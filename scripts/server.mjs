@@ -8,6 +8,7 @@ import {FamilyAuth,AuditLog} from './family-security.mjs';
 import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
+import {LearnerCredentials} from './learner-credentials.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
 import {MAP} from '../dist/robot/map.js';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
@@ -27,6 +28,8 @@ const audit=new AuditLog(process.env.AUDIT_FILE??resolve(appDir,'.local','audit.
 const memory=new FamilyMemory(process.env.MEMORY_FILE??resolve(appDir,'.local','memory.json'));
 const devices=new DeviceRegistry(process.env.DEVICES_FILE??resolve(appDir,'.local','devices.json'));
 const profiles=new FamilyProfiles(process.env.PROFILES_FILE??resolve(appDir,'.local','profiles.json'));
+const learnerCredentials=new LearnerCredentials(
+  process.env.LEARNER_CREDENTIALS_FILE??resolve(appDir,'.local','learner-credentials.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
 const deviceStreamClients=new Set();
 const agentMemoryEnabled=process.env.AGENT_MEMORY_CONTEXT==='1';
@@ -72,6 +75,7 @@ if(saved)core.restore(saved);
 await memory.load();
 await devices.load();
 await profiles.load();
+await learnerCredentials.load();
 await gateway.load();
 await workflows.load();
 await plans.load();
@@ -120,6 +124,11 @@ const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('W
 const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
 
+const principalFor = req => {
+  const session=auth.current(req);
+  if(!session.authenticated||!session.actor)throw new Error('UNAUTHENTICATED');
+  return session.learnerId?'learner:'+session.learnerId:session.actor;
+};
 const server=http.createServer(asyncWrap(async(req,res)=>{
   const pathname=new URL(req.url??'/',`http://${req.headers.host ?? 'localhost'}`).pathname;
   const origin=req.headers.origin;
@@ -132,10 +141,14 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   if(req.method==='POST' && pathname==='/api/auth/login'){
     try{
       const data=await body(req);
-      const login=auth.login(req,{role:data.role,secret:data.secret});
+      const login=auth.login(req,{role:data.role,secret:data.secret,code:data.code},
+        (code,pin)=>{
+          const id=learnerCredentials.verify(code,pin);
+          return id&&profiles.list().some(p=>p.id===id)?id:null;
+        });
       await audit.record({actor:login.actor,action:'auth.login',outcome:'allowed'});
       res.setHeader('Set-Cookie',login.cookie);
-      send(res,200,{ok:true,actor:login.actor});
+      send(res,200,{ok:true,actor:login.actor,...(login.learnerId?{learnerId:login.learnerId}:{})});
     }catch(err){
       await audit.record({action:'auth.login',outcome:'denied'});
       const message=err instanceof Error?err.message:'AUTH_FAILED';
@@ -204,7 +217,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -225,7 +238,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   // remains an authenticated local text endpoint, never a device command.
   if(req.method==='POST' && pathname==='/api/companion/stream'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
-    const actor=auth.actor(req);
+    const actor=principalFor(req);
     const input=await body(req);
     // Validate ownership before sending SSE headers; no other-role
     // transcript, even session metadata, may leak through error events.
@@ -263,7 +276,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   // Demo-mode actor switching is never a secure transcript boundary.
   if(req.method==='GET' && (pathname==='/api/companion/sessions'||pathname==='/api/companion/session')){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
-    const actor=auth.actor(req);
+    const actor=principalFor(req);
     if(pathname==='/api/companion/sessions'){
       send(res,200,{sessions:conversations.list(actor),provider:conversations.providerKind,
                     transcriptsPersisted:conversations.persist});return;
@@ -273,8 +286,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   }
   if(req.method==='GET' && pathname==='/api/companion/progress'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
-    const actor=auth.actor(req);
-    const scope=new URL(req.url,`http://${incomingHost}`).searchParams.get('scope')??actor;
+    const actor=principalFor(req);
+    const requested=new URL(req.url,`http://${incomingHost}`).searchParams.get('scope');
+    const scope=requested===null||requested==='self'?actor:requested;
     send(res,200,{progress:conversations.progress(actor,scope)});return;
   }
   if(req.method==='GET' && pathname==='/api/workflows'){
@@ -295,8 +309,18 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   }
   if(req.method==='GET' && pathname==='/api/state'){send(res,200,core.state());return;}
   if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:[...core.listDevices(),...devices.list()]});return;}
-  if(req.method==='GET' && pathname==='/api/profiles'){send(res,200,{profiles:profiles.list()});return;}
-  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),memory:memory.exportForParent(actor),devices:devices.list(),companionConversations:conversations.exportForParent(actor),transcriptsPersisted:conversations.persist});return;}
+  if(req.method==='GET' && pathname==='/api/profiles'){
+    const session=auth.current(req);
+    const visible=session.actor==='parent'?profiles.list():
+      session.learnerId?profiles.list().filter(p=>p.id===session.learnerId):[];
+    send(res,200,{profiles:visible});return;
+  }
+  if(req.method==='GET' && pathname==='/api/learners/access'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{learners:learnerCredentials.listForParent('parent')});return;
+  }
+  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),learnerLoginCodes:learnerCredentials.listForParent(actor),memory:memory.exportForParent(actor),devices:devices.list(),companionConversations:conversations.exportForParent(actor),transcriptsPersisted:conversations.persist});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
@@ -319,13 +343,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     try {
       if(pathname==='/api/companion/open'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
-        result={ok:true,session:await conversations.open(actor,data.mode)};
+        result={ok:true,session:await conversations.open(principalFor(req),data.mode)};
       }else if(pathname==='/api/companion/turn'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
-        result={ok:true,...await conversations.turn(actor,data.id,data.text)};
+        result={ok:true,...await conversations.turn(principalFor(req),data.id,data.text)};
       }else if(pathname==='/api/companion/delete'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
-        result=await conversations.remove(actor,data.id);
+        result=await conversations.remove(principalFor(req),data.id);
       }else if(pathname==='/api/companion/erase'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,deletedConversations:await conversations.erase(actor,data.scope)};
@@ -376,8 +400,25 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result=await gateway.cancel(actor,data.jobId);
       }else if(pathname==='/api/profiles'){
         result={ok:true,profile:await profiles.add(actor,data)};
+      }else if(pathname==='/api/learners/set-pin'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,learner:await learnerCredentials.setPin(actor,data.profileId,data.pin,
+          profileId=>profiles.list().some(p=>p.id===profileId))};
+        auth.revokeLearner(data.profileId);
+      }else if(pathname==='/api/learners/revoke'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:await learnerCredentials.revoke(actor,data.profileId)};
+        auth.revokeLearner(data.profileId);
       }else if(pathname==='/api/profiles/delete'){
-        result={ok:await profiles.remove(actor,data.id),message:'Profile deletion processed'};
+        const deleted=await profiles.remove(actor,data.id);
+        if(deleted){
+          // The profile cannot authenticate after deletion, even if cleanup
+          // subsequently fails. Delete related transcript evidence as well.
+          auth.revokeLearner(data.id);
+          await learnerCredentials.revoke(actor,data.id);
+          await conversations.eraseLearner(actor,data.id);
+        }
+        result={ok:deleted,message:'Profile deletion processed'};
       }else if(pathname==='/api/privacy/erase'){
         const removed=await memory.erase(actor,data.scope);
         // Family erasure must cover the opt-in conversation transcript store,
@@ -432,7 +473,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
             if(result.ok&&auth.mode==='local'){
               const manifest=core.skills.list().find(skill=>skill.id===data.id);
               if(manifest?.conversationMode){
-                const session=await conversations.open(actor,manifest.conversationMode);
+                const session=await conversations.open(principalFor(req),manifest.conversationMode);
                 result={...result,session};
               }
             }
