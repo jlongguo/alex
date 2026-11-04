@@ -719,7 +719,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }
     return;
   }
-  const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js','/navigation.js':'navigation.js','/terminal-runtime.js':'terminal-runtime.js','/voice-session.js':'voice-session.js'};
+  const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js','/navigation.js':'navigation.js','/terminal-runtime.js':'terminal-runtime.js','/voice-session.js':'voice-session.js','/audio-session.js':'audio-session.js'};
   if(req.method!=='GET'||!(pathname in assets)){send(res,404,{ok:false,error:'NOT_FOUND'});return;}
   const file=assets[pathname];
   const bytes=await readFile(resolve(publicDir,file));
