@@ -34,7 +34,27 @@
         "model_dt": 0.05,
         "batch_size": 2000,
         "visualize": true,
-        "time_steps": 56
+        "time_steps": 56,
+        "prune_distance": 1.7,
+        "critics": [
+          "ConstraintCritic",
+          "CostCritic",
+          "GoalCritic",
+          "GoalAngleCritic",
+          "PathAlignCritic",
+          "PathFollowCritic",
+          "PathAngleCritic",
+          "PreferForwardCritic"
+        ],
+        "PathAlignCritic": {
+          "offset_from_furthest": 20
+        },
+        "PathFollowCritic": {
+          "offset_from_furthest": 5
+        },
+        "PathAngleCritic": {
+          "offset_from_furthest": 4
+        }
       },
       "controller_frequency": 20
     }
