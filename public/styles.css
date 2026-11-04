@@ -51,3 +51,21 @@ body [data-nav-view].hidden,body [data-nav-view].hidden[data-nav-view]{display:n
 .auth-command{background:#eff5f3;border:1px solid #d6e3e0;border-radius:9px;padding:12px;overflow-x:auto;white-space:pre-wrap;font-size:13px;color:#194d40}
 #auth-demo-guide{width:min(100%,480px)}
 @media(max-width:620px){.header-right{width:100%;justify-content:flex-start}.auth-session-status{font-size:10px}}
+
+
+/* Alex Companion: interaction first, no motion/control privileges */
+.companion-panel { margin-bottom: 20px; }
+.companion-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:14px 0; }
+.companion-tools select { min-height:38px; max-width:240px; }
+.companion-tools button { min-height:38px; }
+.companion-voice { display:flex; align-items:center; gap:6px; font-size:13px; }
+.companion-messages { display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:340px; min-height:100px; border:1px solid rgba(130,151,174,.22); border-radius:12px; padding:14px; margin:12px 0; }
+.companion-message { max-width:85%; border-radius:12px; padding:10px 12px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; background:rgba(114,150,182,.12); }
+.companion-message[data-role="user"] { align-self:flex-end; background:rgba(35,164,132,.15); }
+.companion-message[data-role="assistant"] { align-self:flex-start; }
+.companion-message small { display:block; opacity:.68; margin-bottom:3px; font-size:11px; }
+.companion-message p { margin:0; font-size:14px; }
+#companion-form { display:flex; flex-wrap:wrap; gap:10px; }
+#companion-text { flex:1; min-width:170px; }
+#companion-microphone[disabled] { opacity:.5; }
+@media (max-width:640px) {.companion-message{max-width:96%;}.companion-tools select{flex:1;min-width:130px;}}
