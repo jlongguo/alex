@@ -178,6 +178,26 @@ export class AudioIngressSessions {
         cancelled+=Number(this.cancel(session.principal,session.id));
     return cancelled;
   }
+  erasePrincipal(principal){
+    this.cancel(principal);
+    const had=this.#metrics.delete(principal);
+    this.#starts.delete(principal);
+    return Number(had);
+  }
+  eraseScope(scope){
+    if(!['parent','child','all'].includes(scope))
+      throw new Error('INVALID_AUDIO_ERASE_SCOPE');
+    const principals=new Set([...this.#metrics.keys(),
+      ...this.#starts.keys(),...this.#owners.keys()]);
+    let erased=0;
+    for(const principal of principals){
+      const isChild=principal==='child'||principal.startsWith('learner:');
+      if(scope==='all'||(scope==='parent'&&!isChild)
+        ||(scope==='child'&&isChild))
+        erased+=this.erasePrincipal(principal);
+    }
+    return erased;
+  }
   status(principal,id){
     const session=this.#require(principal,id);
     return {id:session.id,phase:session.phase,nextSeq:session.seq,
