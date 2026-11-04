@@ -26,6 +26,14 @@ controller_server:
       batch_size: 2000
       time_steps: 56
       visualize: true
+      prune_distance: 1.7
+      critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic, PathAlignCritic, PathFollowCritic, PathAngleCritic, PreferForwardCritic]
+      PathAlignCritic:
+        offset_from_furthest: 20
+      PathFollowCritic:
+        offset_from_furthest: 5
+      PathAngleCritic:
+        offset_from_furthest: 4
 bt_navigator:
   ros__parameters:
     robot_base_frame: base_link
