@@ -185,9 +185,7 @@ class AlexStreamingAudioBridge {
     },duration);
     if(autoStopOnSilence){
       try{
-        const monitor=this.monitorFactory();
-        this.#monitor=monitor;
-        void monitor.start(stream,{
+        const monitor=this.monitorFactory({
           onEnd:({voiceDetected})=>{
             if(epoch!==this.#epoch)return;
             if(!voiceDetected){
@@ -195,7 +193,9 @@ class AlexStreamingAudioBridge {
               this.#set('error','没有检测到明显声音；未继续提交 ASR。');
             }else this.stopCapture();
           }
-        }).catch(()=>{});
+        });
+        this.#monitor=monitor;
+        void monitor.start(stream).catch(()=>{});
       }catch{/* No AudioContext: manual stop remains available. */}
     }
     return this.snapshot();
