@@ -20,8 +20,13 @@ export async function collectCompanionSse(body,{signal,onDelta=()=>{}}={}) {
     const choice=event?.choices?.[0];
     if(!choice||typeof choice!=='object')throw new Error('CHAT_STREAM_INVALID_CHUNK');
     if(choice.delta?.tool_calls||choice.delta?.function_call
-      ||choice.message?.tool_calls||choice.finish_reason==='tool_calls')
+      ||choice.message?.tool_calls||choice.finish_reason==='tool_calls'
+      ||choice.finish_reason==='function_call')
       throw new Error('CHAT_STREAM_TOOLS_FORBIDDEN');
+    // Do not save a model response that was cut off by token limits or
+    // suppressed by an upstream content filter as a completed answer.
+    if(choice.finish_reason&&choice.finish_reason!=='stop')
+      throw new Error('CHAT_STREAM_INCOMPLETE_FINISH');
     const delta=choice.delta?.content;
     if(delta!==undefined&&delta!==null){
       if(typeof delta!=='string')throw new Error('CHAT_STREAM_INVALID_CHUNK');
@@ -52,7 +57,9 @@ export async function collectCompanionSse(body,{signal,onDelta=()=>{}}={}) {
     if(!text.trim())throw new Error('CHAT_PROVIDER_INVALID_RESPONSE');
     return text.trim();
   }finally{
-    if(!done||signal?.aborted)await reader.cancel().catch(()=>{});
+    // Always close the reader: an upstream may keep its socket open even
+    // after the logical [DONE] event and shouldn't leak connections.
+    await reader.cancel().catch(()=>{});
     reader.releaseLock();
   }
 }
