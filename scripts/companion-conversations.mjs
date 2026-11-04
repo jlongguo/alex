@@ -165,11 +165,11 @@ export class CompanionConversations {
       .filter(s=>scope==='all'||s.actor===scope);
     const records=sessions.flatMap(s=>(s.milestones??[]).map(m=>({
       actor:s.actor,sessionId:s.id,mode:s.mode,kind:m.kind,round:m.round,at:m.at
-    }))).sort((a,b)=>b.at.localeCompare(a.at)).slice(0,50);
+    }))).sort((a,b)=>b.at.localeCompare(a.at));
     return {
       scope,englishTextExercisesCompleted:records.filter(r=>r.kind==='english_a1_text').length,
       storyBranchesCompleted:records.filter(r=>r.kind==='story_choice').length,
-      recent:copy(records)
+      recent:copy(records.slice(0,50))
     };
   }
   async remove(actor,id) {
