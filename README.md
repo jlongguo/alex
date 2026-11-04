@@ -2,6 +2,13 @@
 
 > AI Companion 主线开发（2026-11-04）：新会话 API、可选真实模型多轮文字聊天、A1 互动英语、分支故事、家庭隐私和浏览器可选语音入口。详情见 [AI Companion MVP](docs/AI_COMPANION_MVP.md)。机器人 ROS2/Gazebo 是可选后端，三段导航仍需真实验证；不能据此推断语音/AI 已验收。
 
+## AI Companion R3 · 独立学习者与虚拟终端 v3
+
+- 家长可为每个学习者档案设置独立 PIN，使用公开登录代码与服务端验证的 learnerId 隔离会话和文字学习记录；共享儿童 PIN 不再能查看其他学习者档案。
+- 终端具备可中断的状态机和受 revision 保护的浏览器朗读/听写回调。
+- 真实虚拟设备进程升级 v3 模拟呈现协议：表情和文字字幕在成功前需回传匹配任务的认证回执；**不代表真实扬声器播放**。
+- 参见 [R3 身份与终端说明](docs/AI_COMPANION_R3_IDENTITY_TERMINAL.md)。本批仍未完成实际儿童体验、实时音频和真实云端模型质量验收。
+
 ## AI Companion R2 · 流式与可中断的虚拟终端
 
 - [R2 Streaming Contract](docs/AI_COMPANION_R2_STREAM.md)：流式文字回复、显式中止、完整提交标记和安全的失败回滚。
