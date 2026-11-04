@@ -65,6 +65,7 @@ test('second-leg failure evidence covers collision intervention, path and speed'
     'collision_state_received', 'global_plan', 'plan_received',
     'mean_abs_linear_mps', 'ROS failed goal diagnostics:',
     'sim_real_time_factor', 'position_trace', 'sim_seconds',
+    'heading_rad', 'velocity_interval', 'mean_abs_angular_rps',
     'laser_clearance', 'initial_laser_clearance', 'SIM_LIDAR_SELF_HIT',
     'local_footprint', 'points_inside_0_19m',
     'gazebo_pose_before_goal', 'gazebo_pose_at_goal_end',
@@ -147,5 +148,46 @@ for invalid in ('', 'Pose [ XYZ (m) ] [ RPY (rad) ]:', raw.replace('0.025', 'NaN
     else: raise RuntimeError('accepted invalid Gazebo model pose')
 print('PASS')`;
   const result = spawnSync('python3', ['-c', script], {cwd: root, encoding:'utf8', timeout:10000});
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('third leg from story corner to dock has traversable static corridors without safety erosion', () => {
+  const map = loadMap();
+  const story = [49,17], dock = [7,28];
+  // This only proves static topology. Real hardware geometry, MPPI and
+  // dynamic obstacles must still be verified by Gazebo acceptance.
+  assert.equal(canTraverse(map, story, dock, 0.24), true);
+  assert.equal(canTraverse(map, story, dock, 0.30), true);
+  assert.equal(canTraverse(map, story, dock, 0.40), false);
+  const tuning = read('robotics/ros2/alex_sim/alex_sim/nav2_tuning.py');
+  assert.match(tuning, /follow_path\['prune_distance'\] = min\(float\(prune\), 1\.2\)/);
+  assert.match(tuning, /\('PathAlignCritic', 8\)/);
+  assert.match(tuning, /\('PathFollowCritic', 3\)/);
+  assert.match(tuning, /\('PathAngleCritic', 2\)/);
+});
+
+test('Gazebo Harmonic pose command uses documented model-info CLI, not unsupported --pose', () => {
+  const script = `import sys
+from unittest.mock import patch
+from types import SimpleNamespace
+sys.path.insert(0, 'robotics/ros2/alex_sim/alex_sim')
+from gz_pose import query_gz_model_pose
+sample = """Requesting state for world [alex_home]...
+Model: [56]
+- Name: alex_bot
+- Pose [ XYZ (m) ] [ RPY (rad) ]:
+[2.010 | 1.655 | 0.110]
+[0.001 | -0.003 | 1.700]
+"""
+with patch('gz_pose.subprocess.run', return_value=SimpleNamespace(returncode=0,stdout=sample,stderr='')) as mock:
+    pose = query_gz_model_pose()
+    assert pose['available']
+    assert pose['xyz_m'] == [2.01,1.655,0.11]
+    assert pose['max_abs_tilt_rad'] == 0.003
+    args = mock.call_args.args[0]
+    assert args == ['gz','model','-m','alex_bot']
+    assert '--pose' not in args
+print('PASS')`;
+  const result = spawnSync('python3', ['-c', script], {cwd:root, encoding:'utf8', timeout:10000});
   assert.equal(result.status, 0, result.stderr);
 });
