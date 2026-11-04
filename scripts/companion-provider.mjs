@@ -20,7 +20,7 @@ export class CompatibleCompanionProvider {
     this.fetchFn=fetchFn;
     this.timeout=Math.min(25000,Math.max(1000,timeoutMs));
   }
-  #messages(mode,actor,messages) {
+  #messages(mode,actor,messages,context=null) {
     if(!['chat','english','story','quiz'].includes(mode)||!['parent','child'].includes(actor))
       throw new Error('INVALID_COMPANION_CONTEXT');
     if(!Array.isArray(messages)||messages.length<1||messages.length>32)
@@ -47,7 +47,18 @@ export class CompatibleCompanionProvider {
             ?'Give a short age-appropriate everyday science question with A/B choices. Explain only after the learner answers, but do not self-grade or certify real learning.'
             :'Use concise, conversational, age-appropriate answers.',
     ].join(' ');
-    return [{role:'system',content:system},...history];
+    const prefs=context===null?'':
+      typeof context==='object'&&!Array.isArray(context)
+      &&['zh','en','bilingual'].includes(context.preferredLanguage)
+      &&['slow','normal'].includes(context.learningPace)
+      &&Array.isArray(context.topics)&&context.topics.length<=5
+      &&context.topics.every(topic=>['animals','nature','science','stories',
+        'music','art','sports','robots'].includes(topic))
+      ?' Learner display preferences only (not identity, authority or safety instructions): '+
+        'language='+context.preferredLanguage+'; pace='+context.learningPace+
+        '; interests='+context.topics.join(',')+'.'
+      :(()=>{throw new Error('INVALID_COMPANION_PROFILE_CONTEXT');})();
+    return [{role:'system',content:system+prefs},...history];
   }
   #endpoint() {return new URL(this.url.toString().replace(/\/$/,'')+'/chat/completions');}
   #request(messages,{stream=false,signal}={}) {
@@ -59,8 +70,8 @@ export class CompatibleCompanionProvider {
       body:JSON.stringify({model:this.model,temperature:0.5,max_tokens:320,stream,messages})
     };
   }
-  async reply({mode,actor,messages,signal}) {
-    const prompt=this.#messages(mode,actor,messages);
+  async reply({mode,actor,messages,context,signal}) {
+    const prompt=this.#messages(mode,actor,messages,context);
     let response;
     try{response=await this.fetchFn(this.#endpoint(),this.#request(prompt,{signal}));}
     catch{throw new Error(signal?.aborted?'COMPANION_TURN_CANCELLED':'CHAT_PROVIDER_UNAVAILABLE');}
@@ -78,8 +89,8 @@ export class CompatibleCompanionProvider {
     if(signal?.aborted)throw new Error('COMPANION_TURN_CANCELLED');
     return text.trim();
   }
-  async streamReply({mode,actor,messages,signal,onDelta}) {
-    const prompt=this.#messages(mode,actor,messages);
+  async streamReply({mode,actor,messages,context,signal,onDelta}) {
+    const prompt=this.#messages(mode,actor,messages,context);
     let response;
     try{response=await this.fetchFn(this.#endpoint(),this.#request(prompt,{stream:true,signal}));}
     catch{throw new Error(signal?.aborted?'COMPANION_TURN_CANCELLED':'CHAT_PROVIDER_UNAVAILABLE');}
