@@ -26,3 +26,11 @@
 - Domain `77` with `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` is intended to reduce accidental discovery of other ROS networks; **it is not certified isolation**. Do not run any physical robot on the same host/domain.
 - Live navigation acceptance requires a *fresh* independently observed TF pose, Nav2 action success and feedback. A passing offline/CI test suite is never a substitute.
 - A ROS Nav2 cancellation or process-group termination is not a physical emergency stop, and none of these scripts are approved for real motors.
+
+## R3 独立学习者与虚拟终端
+
+学习者 PIN 只允许经验证的本地家长设置。凭据以带随机盐的 scrypt 摘要保存在私有文件；录入后的明文 PIN 不会在 API/审计中返回。孩子登录的 learnerId 是服务器绑定的，不信任浏览器提交的 profileId。
+
+本地会话原文若开启持久化仍是明文 JSON，因此不应开放公网、共享磁盘或进行云端公开部署。原共享儿童 PIN 是兼容身份，不保证按每个真实孩子隔离；需要由家长逐个设置独立登录身份。家长删除档案时同时撤销登录并清理本地相关对话数据，但远端模型日志与备份不在清理范围。
+
+Virtual Device 协议 v3 的 display.face / audio.output 渲染反馈只说明 **模拟进程自报已输出表情或字幕**，不是实体显示/发声证明。不能把软件会话取消、语音按钮或模拟紧急停止直接当成硬件安全能力。
