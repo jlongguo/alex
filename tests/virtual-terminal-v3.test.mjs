@@ -45,6 +45,9 @@ test('CLI virtual terminal renders only faces and captions, never physical audio
  assert.equal(runtime.snapshot().physicalAudio,false);
  assert.match(logged[0],/virtual-display/);
  assert.match(logged[1],/virtual-caption/);
+ await runtime.render({capability:'audio.output',params:{text:'Hello\u001b[31mworld'}});
+ assert.equal(logged.at(-1).includes('\u001b'),false,'CLI must never execute untrusted ANSI controls');
+
  assert.equal(await runtime.render({capability:'audio.output',params:{text:'cancel'}},{isCancelled:()=>true}),null);
  await assert.rejects(()=>runtime.render({capability:'audio.output',params:{text:''}}),/INVALID_VIRTUAL_PRESENTATION_TEXT/);
  await assert.rejects(()=>runtime.render({capability:'display.face',params:{expression:'evil'}}),/INVALID_VIRTUAL_PRESENTATION_FACE/);
