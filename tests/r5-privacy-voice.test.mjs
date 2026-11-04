@@ -186,3 +186,31 @@ test('R5 browser speech synthesis chunks text, supports barge-in and respects co
  assert.throws(()=>bridge.startListening(),/VOICE_INPUT_NOT_ALLOWED/);
  assert.throws(()=>bridge.speak('Not permitted'),/VOICE_OUTPUT_NOT_ALLOWED/);
 });
+
+
+test('R5 in-flight cloud reply cancelled on parent revocation never commits partial messages',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'alex-r5-abort-'));
+ try{
+  const privacy=new LearnerPrivacy(join(dir,'consent.json'));
+  await privacy.set('parent',A,{cloudTextAllowed:true},()=>true);
+  let markStarted;
+  const started=new Promise(resolve=>{markStarted=resolve;});
+  const provider={reply:({signal})=>new Promise((resolve,reject)=>{
+    markStarted();
+    signal.addEventListener('abort',()=>reject(new Error('COMPANION_TURN_CANCELLED')),{once:true});
+  })};
+  const hub=new CompanionConversations({
+    provider,authorizeModel:principal=>privacy.modelContext(principal)
+  });
+  const session=await hub.open(first,'chat');
+  const abort=new AbortController();
+  const pending=hub.turn(first,session.id,'Can you say hi?',{signal:abort.signal});
+  await started;
+  await privacy.set('parent',A,{cloudTextAllowed:false},()=>true);
+  abort.abort();
+  await assert.rejects(pending,/COMPANION_TURN_CANCELLED/);
+  assert.equal(hub.get(first,session.id).messages.length,1,
+    'provider abort cannot persist a ghost user turn or assistant preview');
+  await assert.rejects(()=>hub.turn(first,session.id,'try again'),/CHILD_CLOUD_TEXT_DISABLED/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
