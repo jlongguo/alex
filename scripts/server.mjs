@@ -316,6 +316,25 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       learningPlans.list(owner,requested??undefined);
     send(res,200,{plans:plansForOwner});return;
   }
+  if(req.method==='GET' && pathname==='/api/learning/overview'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const profileId=new URL(req.url,`http://${incomingHost}`).searchParams.get('profileId');
+    if(principal==='child'&&profileId!==null)
+      throw new Error('LEARNING_PLANS_FORBIDDEN');
+    const plans=principal==='child'?[]:learningPlans.list(principal,profileId??undefined);
+    const overview=plans.map(plan=>{
+      const owner='learner:'+plan.profileId;
+      const progress=conversations.progress(principal==='parent'?'parent':principal,
+        owner);
+      const completed=progress.byCourse[plan.courseId]??0;
+      return {...plan,completed,
+        remaining:Math.max(0,plan.targetCompletions-completed),
+        goalReached:completed>=plan.targetCompletions,
+        textExerciseOnly:true};
+    });
+    send(res,200,{overview});return;
+  }
   if(req.method==='GET' && pathname==='/api/companion/progress'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const actor=principalFor(req);
