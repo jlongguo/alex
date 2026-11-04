@@ -429,14 +429,14 @@ async function refreshFamily(){
     fetch('/api/memory',{cache:'no-store'}),
     fetch('/api/learners/access',{cache:'no-store'}),
     fetch('/api/learning/catalog',{cache:'no-store'}),
-    fetch('/api/learning/plans',{cache:'no-store'})
+    fetch('/api/learning/overview',{cache:'no-store'})
   ]);
   if(!pr.ok||!mr.ok||!lr.ok||!cr.ok||!plansResponse.ok)
     throw new Error('需要家长身份读取家庭资料');
   const profiles=(await pr.json()).profiles,memories=(await mr.json()).entries;
   const learners=(await lr.json()).learners;
   curriculum=(await cr.json()).courses;
-  const plans=(await plansResponse.json()).plans;
+  const plans=(await plansResponse.json()).overview;
   currentLearningPlans=plans;
   const profileSelect=$('learner-profile'),selectedProfile=profileSelect.value;
   profileSelect.replaceChildren();
@@ -463,7 +463,7 @@ async function refreshFamily(){
   $('learning-plan-list').innerHTML=plans.map(plan=>{
     const profile=profiles.find(p=>p.id===plan.profileId);
     const course=curriculum.find(c=>c.id===plan.courseId);
-    return `<div class="skill-item"><div class="skill-info"><strong>${esc(profile?.nickname||'学习者')}：${esc(course?.title||plan.courseId)}</strong><small>目标 ${plan.targetCompletions} 次 · ${plan.status==='active'?'进行中':'已暂停'} · 内容版本 ${esc(course?.version||'未知')}</small></div><button type="button" data-learning-pause="${esc(plan.id)}" data-next-status="${plan.status==='active'?'paused':'active'}">${plan.status==='active'?'暂停':'恢复'}</button><button type="button" data-learning-delete="${esc(plan.id)}">删除计划</button></div>`;
+    return `<div class="skill-item"><div class="skill-info"><strong>${esc(profile?.nickname||'学习者')}：${esc(course?.title||plan.courseId)}</strong><small>已完成 ${plan.completed}/${plan.targetCompletions} 次 · ${plan.status==='active'?'进行中':'已暂停'} · 内容版本 ${esc(course?.version||'未知')}</small></div><button type="button" data-learning-pause="${esc(plan.id)}" data-next-status="${plan.status==='active'?'paused':'active'}">${plan.status==='active'?'暂停':'恢复'}</button><button type="button" data-learning-delete="${esc(plan.id)}">删除计划</button></div>`;
   }).join('')||'<p class="helper">暂无已分配课程。</p>';
   $('learner-access-list').innerHTML=learners.map(row=>{
    const profile=profiles.find(p=>p.id===row.profileId);
@@ -686,14 +686,14 @@ async function refreshCompanionInfo(){
   const courseResponse=await fetch('/api/learning/catalog',{cache:'no-store'});
   if(courseResponse.ok)curriculum=(await courseResponse.json()).courses;
   fillLessonOptions($('companion-mode').value);
-  const assigned=await fetch('/api/learning/plans',{cache:'no-store'});
-  const assignedPlans=assigned.ok?(await assigned.json()).plans:[];
+  const assigned=await fetch('/api/learning/overview',{cache:'no-store'});
+  const assignedPlans=assigned.ok?(await assigned.json()).overview:[];
   $('companion-assignments').replaceChildren();
   for(const plan of assignedPlans.filter(p=>p.status==='active')){
     const course=curriculum.find(c=>c.id===plan.courseId);
     if(!course)continue;
     const el=document.createElement('p');
-    el.textContent='家长建议：'+course.title+'（目标 '+plan.targetCompletions+' 次）';
+    el.textContent='家长建议：'+course.title+'（已完成 '+plan.completed+' / '+plan.targetCompletions+' 次文字练习）';
     $('companion-assignments').append(el);
   }
   const history=$('companion-history');
