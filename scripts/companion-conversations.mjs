@@ -86,6 +86,13 @@ export class CompanionConversations {
     const seen=new Set();
     for(const row of evidence){
       validateEvidence(row);
+      const session=next.get(row.sessionId);
+      // If the source transcript still exists, a ledger entry must keep the
+      // same owner/mode/course. Otherwise the snapshot could reattribute
+      // another child's completion metadata.
+      if(session&&(ownedKey(session)!==row.principal
+         ||resolveCourse(session.mode,session.lessonId)?.id!==row.lessonId))
+        throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
       if(seen.has(row.id))throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
       seen.add(row.id);
     }
