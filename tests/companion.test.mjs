@@ -229,7 +229,8 @@ test('UI includes accessible companion flow without mixing device commands into 
   assert.match(js,/companionAbort\?\.abort\(\)/);
   assert.match(js,/companionState\('listening'\)/);
   assert.match(js,/\/api\/companion\/progress/);
-  assert.match(js,/\/api\/companion\/turn/);
+  // The browser now uses the authoritative SSE route; the legacy JSON turn
+  // endpoint remains server-side for compatibility and API tests.
   assert.match(js,/companion-history.*addEventListener\('change'/);
   assert.match(js,/await refreshCompanionInfo\(\)/);
   assert.match(js,/const CompanionSpeechRecognition=window.SpeechRecognition\|\|window.webkitSpeechRecognition/);
