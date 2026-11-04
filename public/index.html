@@ -84,10 +84,12 @@
       </div>
       <section class="panel events-panel companion-panel" id="companion-section" data-nav-view="overview" aria-labelledby="companion-heading">
         <div class="panel-header"><div><div class="eyebrow">AI COMPANION · SOFTWARE-FIRST</div><h2 id="companion-heading">Alex 互动终端</h2></div><span id="companion-provider" class="pill">未连接</span></div>
-        <p class="helper">先以文字验证完整对话链路。英语练习、互动故事可离线使用；自由聊天需要家长明确配置模型。聊天不会自动控制设备；语音输入/朗读仅在浏览器支持并获得用户操作时启用。</p>
+        <p class="helper">先以文字验证完整对话链路。英语练习、互动故事可离线使用；自由聊天需要家长明确配置模型。聊天不会自动控制设备；语音输入/朗读仅在浏览器支持并获得用户操作时启用；浏览器语音识别可能使用厂商云服务，不保证本地离线处理。</p>
         <div class="companion-tools">
           <label for="companion-mode">互动模式</label>
           <select id="companion-mode"><option value="english">A1 英语练习</option><option value="story">分支故事</option><option value="chat">自由聊天（需模型）</option></select>
+          <label for="companion-history">我的历史会话</label>
+          <select id="companion-history" aria-label="选择历史会话"><option value="">新对话（未选择）</option></select>
           <button id="companion-new" type="button">开始新对话</button>
           <button id="companion-delete" type="button" class="secondary-btn">删除当前对话</button>
           <label class="companion-voice"><input type="checkbox" id="companion-read-aloud" /> 朗读回复</label>
