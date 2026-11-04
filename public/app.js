@@ -144,6 +144,8 @@ function applySession(session){
  const companionIdentity=session.learnerId?'learner:'+session.learnerId:authorizedActor;
  if(companionActor!==companionIdentity) {
   voiceBridge.interrupt('identity-changed');
+  cloudAudioBridge.interrupt('identity-changed');
+  audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
   privacyPollAt=0;
   companionActor=companionIdentity;companionSessionId=null;
@@ -660,6 +662,55 @@ $('companion-mode').addEventListener('change',()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null;
+const cloudAudioBridge=new globalThis.AlexCloudAudioBridge({
+ onTranscript:({text})=>{
+  $('companion-text').value=text.slice(0,500);
+  companionNotice('云端转写已完成。请检查文字，再手动点击发送。');
+ },
+ onStatus:({state,message})=>{
+  const mapped={recording:'listening',transcribing:'thinking',
+    synthesizing:'thinking',speaking:'speaking',error:'error',idle:'idle'}[state];
+  if(mapped&&$('companion-runtime').dataset.state!==mapped)
+    companionState(mapped);
+  $('companion-audio-policy').textContent=message??'云端语音短音频操作';
+  $('companion-cloud-record').textContent=state==='recording'?'结束并转写短录音':'开始云端短录音';
+  $('companion-audio-cancel').disabled=state==='idle'||state==='error';
+ }
+});
+let audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
+async function refreshAudioCapabilities(){
+ const identity=companionActor;
+ if(!authorizedActor){
+  audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
+  cloudAudioBridge.interrupt('not-authenticated');
+  $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;return;
+ }
+ try{
+  const response=await fetch('/api/audio/capabilities',{cache:'no-store'});
+  if(!response.ok)throw new Error('AUDIO_POLICY_UNAVAILABLE');
+  const next=await response.json();
+  if(identity!==companionActor)return;
+  const state=cloudAudioBridge.snapshot().state;
+  if((!next.inputAllowed&&['recording','transcribing'].includes(state))
+     ||(!next.outputAllowed&&['synthesizing','speaking'].includes(state)))
+    cloudAudioBridge.interrupt('parent-revoked');
+  audioCapabilities=next;
+  $('companion-cloud-record').disabled=!next.inputAllowed||
+    !(navigator.mediaDevices?.getUserMedia&&globalThis.MediaRecorder);
+  $('companion-cloud-speak').disabled=!next.outputAllowed;
+  if(state==='idle')$('companion-audio-cancel').disabled=true;
+  $('companion-audio-policy').textContent=
+    '第三方 ASR：'+(next.inputAllowed?'已授权':'禁止或未配置')+
+    '；第三方 TTS：'+(next.outputAllowed?'已授权':'禁止或未配置')+
+    '。录音不超过 '+Math.round(next.maxDurationMs/1000)+' 秒；识别结果须手动发送。';
+ }catch{
+  if(identity!==companionActor)return;
+  audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
+  cloudAudioBridge.interrupt('policy-unavailable');
+  $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;
+  $('companion-audio-policy').textContent='无法验证云端音频权限，已停止录音与播放。';
+ }
+}
 const voiceBridge=new globalThis.AlexVoiceBridge({
  recognitionFactory:(window.SpeechRecognition||window.webkitSpeechRecognition)
    ?()=>new (window.SpeechRecognition||window.webkitSpeechRecognition)():null,
@@ -687,6 +738,7 @@ async function refreshCompanionPrivacy(force=false){
   const next=(await response.json()).preferences;
   if(identity!==companionActor)return;
   companionPrivacy=next;voiceBridge.setConsent(next);
+  await refreshAudioCapabilities();
   const support=voiceBridge.snapshot();
   $('companion-microphone').disabled=!next.voiceInputAllowed||!support.recognitionSupported;
   $('companion-read-aloud').disabled=!next.voiceOutputAllowed||!support.speechSupported;
@@ -698,6 +750,8 @@ async function refreshCompanionPrivacy(force=false){
  }catch{
   if(identity!==companionActor)return;
   companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
+  cloudAudioBridge.interrupt('policy-error');
+  $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;
   $('companion-microphone').disabled=true;$('companion-read-aloud').disabled=true;
   $('companion-read-aloud').checked=false;
   $('companion-voice-policy').textContent='隐私授权暂无法验证：语音和云端文字使用默认关闭。';
@@ -739,7 +793,10 @@ function showCompanion(session) {
   container.append(makeCompanionBubble(message.role,message.text,message.source).line);
  container.scrollTop=container.scrollHeight;
 }
-function stopCompanionSpeech(){voiceBridge.stopSpeaking();}
+function stopCompanionSpeech(){
+ voiceBridge.stopSpeaking();
+ cloudAudioBridge.interrupt('stop-speech');
+}
 function speakCompanion(text,mode){
  if(!$('companion-read-aloud').checked)return;
  if(!companionPrivacy.voiceOutputAllowed){
@@ -921,7 +978,8 @@ $('companion-form').addEventListener('submit',async e=>{
  if(!text)return;
  companionBusy=true;$('companion-send').disabled=true;
  $('companion-cancel').disabled=false;
- voiceBridge.interrupt('chat-submit');companionState('thinking');
+ voiceBridge.interrupt('chat-submit');cloudAudioBridge.interrupt('chat-submit');
+ companionState('thinking');
  const controller=new AbortController();companionAbort=controller;
  try{
   if(!companionSessionId){
@@ -1001,9 +1059,12 @@ window.addEventListener('pagehide',()=>{
  terminalRuntime.interrupt('pagehide');
  companionAbort?.abort();
  voiceBridge.interrupt('pagehide');
+ cloudAudioBridge.interrupt('pagehide');
 });
 document.addEventListener('visibilitychange',()=>{
- if(document.hidden)voiceBridge.interrupt('page-hidden');
+ if(document.hidden){
+  voiceBridge.interrupt('page-hidden');cloudAudioBridge.interrupt('page-hidden');
+ }
  else void refreshCompanionPrivacy(true);
 });
 setInterval(()=>{if(authorizedActor)void refreshCompanionPrivacy();},3000);
