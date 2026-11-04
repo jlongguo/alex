@@ -146,6 +146,10 @@ test('HTTP full child-identity lifecycle: login, privacy, progress, PIN rotation
   assert.equal(loginA.data.learnerId,A.id);
   assert.equal(loginB.data.learnerId,B.id);
   const learnerA=loginA.cookie,learnerB=loginB.cookie;
+  const parentAudit=await get(server.base,'/api/audit',parent);
+  assert.ok(parentAudit.data.events.some(event=>
+    event.action==='auth.login'&&event.learnerId===A.id));
+  assert.ok(parentAudit.data.events.every(event=>!('pin' in event)));
   const sessionA=await get(server.base,'/api/auth/session',learnerA);
   assert.deepEqual({actor:sessionA.data.actor,learnerId:sessionA.data.learnerId},
     {actor:'child',learnerId:A.id});
