@@ -198,6 +198,14 @@
             <button type="submit">添加档案</button>
           </form>
           <div id="profile-list" class="skills-list" aria-live="polite"></div>
+          <h3>独立学习者身份（仅家长设置）</h3>
+          <p class="helper">为每个学习者创建独立的登录代码和 PIN，才能隔离各自的 AI 对话和文字学习记录。登录代码是账号标识，不是密码；请私下把它交给对应孩子。</p>
+          <form id="learner-pin-form" class="command-form">
+            <select id="learner-profile" aria-label="要设置 PIN 的学习者档案" required></select>
+            <input id="learner-pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" placeholder="设置 6–12 位专属 PIN" aria-label="学习者专属 PIN" required />
+            <button type="submit">设置／重置专属 PIN</button>
+          </form>
+          <div id="learner-access-list" class="skills-list" aria-live="polite"></div>
           <h3>长期记忆（显式保存）</h3>
           <form id="memory-form" class="command-form"><select id="memory-scope" aria-label="记忆范围"><option value="family">家庭</option><option value="child">儿童</option><option value="parent">家长私有</option></select><input id="memory-text" type="text" maxlength="1000" placeholder="需要保存的简短内容" aria-label="记忆内容" required /><button type="submit">保存记忆</button></form>
           <div id="memory-list" class="event-list" aria-live="polite"></div>
@@ -212,9 +220,11 @@
   <div id="auth-overlay" class="auth-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-title">
     <form id="auth-form" class="auth-card">
       <h2 id="auth-title">家庭中枢登录</h2>
-      <p>使用家长密码或儿童 PIN 进入。身份由服务端验证，不依赖页面角色选择。</p>
+      <p>家长使用密码登录；独立学习者使用家长分配的 12 位登录代码与 PIN。原共享儿童 PIN 仅为旧版兼容，不具备独立孩子隔离。</p>
       <label for="auth-role">身份</label>
-      <select id="auth-role"><option value="parent">家长</option><option value="child">儿童</option></select>
+      <select id="auth-role"><option value="parent">家长</option><option value="child">共享儿童（兼容旧版）</option><option value="learner">独立学习者</option></select>
+      <label for="auth-code" id="auth-code-label" class="hidden">学习者登录代码（家长提供）</label>
+      <input id="auth-code" type="text" inputmode="text" autocomplete="off" maxlength="12" pattern="[0-9a-f]{12}" class="hidden" placeholder="12 位学习者代码" aria-label="学习者登录代码" />
       <label for="auth-secret">密码 / PIN</label>
       <input id="auth-secret" type="password" required autocomplete="current-password" minlength="6" />
       <button type="submit">登录家庭中枢</button>
