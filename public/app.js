@@ -745,6 +745,7 @@ async function restoreCompanion(id) {
  const session=(await res.json()).session;
  companionSessionId=session.id;
  $('companion-mode').value=session.mode;
+ fillLessonOptions(session.mode,session.lessonId);
  showCompanion(session);
  return session;
 }
@@ -760,7 +761,8 @@ $('companion-new').addEventListener('click',async()=>{
  if(!authorizedActor||companionBusy)return;
  companionBusy=true;stopCompanionSpeech();
  try{
-  const res=await api('/api/companion/open',{mode:$('companion-mode').value});
+  const res=await api('/api/companion/open',{mode:$('companion-mode').value,
+   ...($('companion-mode').value!=='chat'?{lessonId:$('companion-lesson').value}:{})});
   companionSessionId=res.session.id;
   showCompanion(res.session);
   await refreshCompanionInfo();
@@ -823,7 +825,8 @@ $('companion-form').addEventListener('submit',async e=>{
  const controller=new AbortController();companionAbort=controller;
  try{
   if(!companionSessionId){
-   const created=await api('/api/companion/open',{mode:$('companion-mode').value});
+   const created=await api('/api/companion/open',{mode:$('companion-mode').value,
+    ...($('companion-mode').value!=='chat'?{lessonId:$('companion-lesson').value}:{})});
    companionSessionId=created.session.id;
    showCompanion(created.session);
   }
@@ -842,7 +845,10 @@ $('companion-form').addEventListener('submit',async e=>{
   showCompanion(result.session);
   await refreshCompanionInfo();
   companionNotice(result.source==='model'
-    ?'模型回复已完整保存；未执行任何设备动作。':'离线互动已完成；未调用云端模型。');
+    ?'模型回复已完整保存；不能生成教学达标证明，也未执行设备动作。'
+    :result.milestone
+      ?'已完成这组离线文字练习，记录为一项学习成果（非发音或语言能力评分）。'
+      :'离线互动已完成；未调用云端模型。');
   companionState('idle');speakCompanion(result.assistant.text,result.session.mode);
  }catch(err){
   if(companionSessionId){
