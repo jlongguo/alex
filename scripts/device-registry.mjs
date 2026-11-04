@@ -67,7 +67,7 @@ export class DeviceRegistry {
   async announce(id,token,capabilities,protocolVersion=1){
     if(!this.authenticate(id,token))throw new Error('DEVICE_UNAUTHORIZED');
     if(!validCaps(capabilities))throw new Error('INVALID_DEVICE_CAPABILITIES');
-    if(![1,2].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
+    if(![1,2,3].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
     const row=this.devices.find(d=>d.id===id);const previous=row.declaredCapabilities,oldProtocol=row.protocolVersion,oldSeen=row.lastSeenAt;
     row.declaredCapabilities=[...capabilities].sort();row.protocolVersion=protocolVersion;row.lastSeenAt=new Date(this.clock()).toISOString();
     // Never auto-approve new capabilities; stale grants are removed if a device withdraws them.
