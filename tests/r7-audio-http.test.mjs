@@ -144,6 +144,11 @@ test('R7 real HTTP incremental turn: per-child consent, seq/size, batch ASR, met
   const exported=(await get(base,'/api/privacy/export',parent)).data;
   assert.equal(JSON.stringify(exported).includes('Hello, Alex.'),false,
     'incremental audio transcripts must not enter parent privacy export');
+  const erased=await post(base,'/api/privacy/erase',{scope:'child'},parent);
+  assert.equal(erased.status,200);
+  assert.equal(erased.data.erasedAudioMetricsPrincipals,1);
+  assert.equal((await get(base,'/api/audio/turn/metrics',learnerA)).data.metrics.opened,0);
+  assert.equal((await get(base,'/api/audio/turn/metrics',learnerB)).data.metrics.opened,0);
  }finally{
   if(server){server.child.kill('SIGTERM');await once(server.child,'exit').catch(()=>{});}
   await rm(dir,{recursive:true,force:true});
