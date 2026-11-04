@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 let state=null,lastTask=null,busy=false,refreshInFlight=false;
+let companionActor=null,companionSessionId=null,companionBusy=false,companionProvider='offline';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const color = {dock:'#8ac7a8',study_desk:'#79a4db',sofa:'#c4a4dc',story_corner:'#e7b76b'};
 const labels={dock:'充电基站',study_desk:'学习书桌',sofa:'客厅沙发',story_corner:'故事角'};
@@ -68,6 +69,7 @@ function refreshCurrentView(force=false){
 }
 function launchConsole(){
  void refresh();
+ void refreshCompanionInfo();
  refreshCurrentView(true);
  if(refreshTimer===null)refreshTimer=setInterval(()=>{void refresh();refreshCurrentView();},1800);
  if(!eventStream){
@@ -110,6 +112,16 @@ function openAuthDialog(session){
 }
 function applySession(session){
  authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
+ if(companionActor!==authorizedActor) {
+  companionActor=authorizedActor;companionSessionId=null;
+  $('companion-messages').replaceChildren();
+ }
+ for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode']){
+  $(id).disabled=!authorizedActor;
+ }
+ $('companion-privacy').textContent=authorizedActor
+  ?'当前为经过验证的 '+(authorizedActor==='parent'?'家长':'儿童')+' 会话；聊天不会控制设备。'
+  :'需启用本地家庭认证并登录，才能进行 AI 对话。';
  const parent=authorizedActor==='parent',local=!!authorizedActor;
  $('gateway-section').classList.toggle('hidden',!parent);
  $('device-access-note').classList.toggle('hidden',parent);
@@ -428,9 +440,116 @@ $('privacy-export').addEventListener('click',async()=>{
 $('privacy-erase').addEventListener('click',async()=>{
  if(authorizedActor!=='parent')return;
  const scope=$('privacy-erase-scope').value;
- if(!window.confirm(`确定永久清除 ${scope} 范围的记忆？此操作不可撤销，审计及档案不会被删除。`))return;
- try{const r=await api('/api/privacy/erase',{scope});lastFamilyPoll=0;await refreshFamily();notify(`清理完成：${r.deletedMemoryEntries} 条记忆`);}catch(err){notify(err.message,true);}
+ if(!window.confirm(`确定清除 ${scope} 范围的记忆及相关聊天记录？此操作不可撤销，审计、档案及第三方模型已接收的数据不会被删除。`))return;
+ try{const r=await api('/api/privacy/erase',{scope});lastFamilyPoll=0;await refreshFamily();companionSessionId=null;$('companion-messages').replaceChildren();await refreshCompanionInfo();notify(`清理完成：${r.deletedMemoryEntries} 条记忆，${r.deletedConversations??0} 组对话`);}catch(err){notify(err.message,true);}
 });
+
+
+// Companion console: no client-side tool dispatch, device-control shortcuts,
+// automatic microphone start, audio recording uploads or misleading LLM status.
+function companionNotice(text,error=false){
+ $('companion-notice').textContent=text;
+ $('companion-notice').style.color=error?'#bc6854':'';
+}
+function showCompanion(session) {
+ const container=$('companion-messages');
+ container.replaceChildren();
+ for(const message of session.messages){
+  const line=document.createElement('div');
+  line.className='companion-message';
+  line.dataset.role=message.role;
+  const who=document.createElement('small');
+  who.textContent=message.role==='user'?'你':message.source==='model'?'Alex · AI 模型':message.source==='offline'?'Alex · 离线互动':'Alex · 开场';
+  const body=document.createElement('p');
+  body.textContent=message.text; // NOT innerHTML: all model/user text is untrusted.
+  line.append(who,body);container.append(line);
+ }
+ container.scrollTop=container.scrollHeight;
+}
+async function refreshCompanionInfo(){
+ if(!authorizedActor){
+  $('companion-provider').textContent='需登录';
+  $('companion-privacy').textContent='需要本地家长/儿童身份认证；演示模式不会开启私密会话。';
+  return;
+ }
+ try{
+  const r=await fetch('/api/companion/sessions',{cache:'no-store'});
+  if(!r.ok)throw new Error('无法获取对话服务');
+  const data=await r.json();
+  companionProvider=data.provider;
+  $('companion-provider').textContent=data.provider==='compatible'?'真实模型已配置':'离线互动';
+  $('companion-privacy').textContent=(data.transcriptsPersisted?'已由家长开启本地对话持久化':'对话仅在服务进程内存中保留，重启即消失')+' · 不会自动控制设备';
+  if(companionSessionId){
+   const owned=data.sessions.some(x=>x.id===companionSessionId);
+   if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();return;}
+   const response=await fetch('/api/companion/session?id='+encodeURIComponent(companionSessionId),{cache:'no-store'});
+   if(response.ok)showCompanion((await response.json()).session);
+  }
+ }catch(err){companionNotice(err.message,true);}
+}
+$('companion-new').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ companionBusy=true;
+ try {
+  const res=await api('/api/companion/open',{mode:$('companion-mode').value});
+  companionSessionId=res.session.id;
+  showCompanion(res.session);
+  companionNotice('新的文字对话已开始。');
+  $('companion-text').focus();
+ }catch(err){companionNotice(err.message,true);}
+ finally{companionBusy=false;}
+});
+$('companion-form').addEventListener('submit',async e=>{
+ e.preventDefault();
+ if(!authorizedActor||companionBusy)return;
+ const text=$('companion-text').value.trim();
+ if(!text)return;
+ companionBusy=true;$('companion-send').disabled=true;
+ try {
+  if(!companionSessionId){
+   const created=await api('/api/companion/open',{mode:$('companion-mode').value});
+   companionSessionId=created.session.id;
+   showCompanion(created.session);
+  }
+  const res=await api('/api/companion/turn',{id:companionSessionId,text});
+  $('companion-text').value='';
+  showCompanion(res.session);
+  companionNotice(res.source==='model'?'AI 模型已回复；没有触发任何设备动作。':'离线互动已回复；未调用云端模型。');
+  if($('companion-read-aloud').checked && 'speechSynthesis' in window){
+   window.speechSynthesis.cancel();
+   const utterance=new SpeechSynthesisUtterance(res.assistant.text);
+   utterance.lang=res.mode==='english'?'en-US':'zh-CN';
+   utterance.rate=res.mode==='english'?0.85:1;
+   window.speechSynthesis.speak(utterance);
+  }
+ }catch(err){companionNotice(err.message,true);}
+ finally{companionBusy=false;$('companion-send').disabled=!authorizedActor;}
+});
+$('companion-delete').addEventListener('click',async()=>{
+ if(!authorizedActor||!companionSessionId||companionBusy)return;
+ if(!window.confirm('删除当前对话记录？'))return;
+ companionBusy=true;
+ try{
+  await api('/api/companion/delete',{id:companionSessionId});
+  companionSessionId=null;$('companion-messages').replaceChildren();
+  window.speechSynthesis?.cancel();
+  companionNotice('已删除当前对话。');
+ }catch(err){companionNotice(err.message,true);}
+ finally{companionBusy=false;}
+});
+const CompanionSpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+$('companion-microphone').disabled=!CompanionSpeechRecognition;
+$('companion-microphone').addEventListener('click',()=>{
+ if(!authorizedActor||!CompanionSpeechRecognition||companionBusy)return;
+ const recognition=new CompanionSpeechRecognition();
+ recognition.lang=$('companion-mode').value==='english'?'en-US':'zh-CN';
+ recognition.interimResults=false;recognition.maxAlternatives=1;
+ recognition.onresult=event=>{$('companion-text').value=event.results?.[0]?.[0]?.transcript?.slice(0,500)??'';companionNotice('语音已转为文本，请检查后点击发送。');};
+ recognition.onerror=()=>companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);
+ try{recognition.start();companionNotice('正在等待浏览器语音权限，仅用于语音转文字。');}
+ catch{companionNotice('浏览器无法启动语音识别，请使用文字输入。',true);}
+});
+window.addEventListener('pagehide',()=>window.speechSynthesis?.cancel());
 
 // All listeners and state are installed before authentication can launch any polling.
 void initAuth();
