@@ -39,9 +39,11 @@ export class CompanionConversations {
   #sessions=new Map();
   #evidence=[];
   #queue=Promise.resolve();
-  constructor({provider=null,persist=false,file='.local/conversations.json',authorizeMode=()=>{}}={}) {
+  constructor({provider=null,persist=false,file='.local/conversations.json',
+    authorizeMode=()=>{},authorizeModel=()=>null}={}) {
     this.provider=provider;
     this.authorizeMode=authorizeMode;
+    this.authorizeModel=authorizeModel;
     this.persist=Boolean(persist);
     this.store=this.persist?new JsonStateStore(file):null;
   }
@@ -167,6 +169,7 @@ export class CompanionConversations {
     const course=resolveCourse(mode,lessonId);
     return this.#enqueue(async()=>{
       this.authorizeMode(actor,mode);
+      if(this.provider)this.authorizeModel(principal);
       const next=new Map(this.#sessions);
       const mine=[...next.values()].filter(s=>ownedKey(s)===principal)
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
@@ -199,6 +202,9 @@ export class CompanionConversations {
       if(signal?.aborted)throw new Error('COMPANION_TURN_CANCELLED');
       const current=this.#owned(principal,id);
       this.authorizeMode(actor,current.mode);
+      // Parent may revoke cloud access while a session is open. Recheck on
+      // every turn, including SSE before any model tokens can leave the host.
+      const modelContext=this.provider?this.authorizeModel(principal):null;
       const input=text.trim();
       const user={role:'user',text:input,source:'user'};
       let reply,step=current.step,context=current.context,source='offline';
@@ -206,8 +212,10 @@ export class CompanionConversations {
         const history=[...current.messages,{role:'user',text:input}];
         if(stream){
           if(typeof this.provider.streamReply!=='function')throw new Error('CHAT_STREAM_UNAVAILABLE');
-          reply=await this.provider.streamReply({actor,mode:current.mode,messages:history,signal,onDelta});
-        }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,signal});
+          reply=await this.provider.streamReply({actor,mode:current.mode,messages:history,
+            context:modelContext,signal,onDelta});
+        }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,
+          context:modelContext,signal});
         source='model';
       }else{
         const course=resolveCourse(current.mode,current.lessonId);
