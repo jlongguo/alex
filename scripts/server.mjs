@@ -716,7 +716,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           auth.revokeLearner(data.id);
           abortCompanion('learner:'+data.id);
           audioGate.cancel('learner:'+data.id);
-          audioIngress.cancel('learner:'+data.id);
+          audioIngress.erasePrincipal('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -736,8 +736,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           abortAllChildCompanion();audioGate.cancelChild();
           audioIngress.cancelAllChildren();
         }
+        const erasedAudioMetricsPrincipals=audioIngress.eraseScope(data.scope);
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
-          clearedLearnerPrivacy,
+          clearedLearnerPrivacy,erasedAudioMetricsPrincipals,
           note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
       }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
