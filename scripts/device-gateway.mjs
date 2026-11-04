@@ -51,7 +51,7 @@ export class DeviceGateway {
     return !!d&&!d.revoked&&Number.isFinite(seen)&&this.clock()-seen<=this.freshMs;
   }
   async announce(deviceId,token,capabilities,protocolVersion){
-    if(![1,2].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
+    if(![1,2,3].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
     const caps=validateCapabilities(capabilities);
     await this.registry.announce(deviceId,token,caps,protocolVersion);
     // Declared capabilities are not permissions: parent must explicitly approve them.
@@ -97,10 +97,47 @@ export class DeviceGateway {
       if(terminal.has(job.status))return {ok:false,message:'TASK_ALREADY_TERMINAL'};
       if(status==='running'&&job.status!=='queued')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.status!=='running')return {ok:false,message:'INVALID_TASK_TRANSITION'};
-      if(status==='succeeded'&&job.capability==='sim.navigation.goto'&&this.registry.get(deviceId)?.protocolVersion===2 && (job.telemetry?.phase!=='arrived'||job.telemetry.progress!==100))return {ok:false,message:'NAVIGATION_ARRIVAL_EVIDENCE_REQUIRED'};
+      if(status==='succeeded'&&job.capability==='sim.navigation.goto'&&this.registry.get(deviceId)?.protocolVersion>=2 && (job.telemetry?.phase!=='arrived'||job.telemetry.progress!==100))return {ok:false,message:'NAVIGATION_ARRIVAL_EVIDENCE_REQUIRED'};
+      if(status==='succeeded'&&this.registry.get(deviceId)?.protocolVersion>=3
+        &&['display.face','audio.output'].includes(job.capability)
+        &&job.presentationEvidence?.phase!=='rendered')
+        return {ok:false,message:'VIRTUAL_PRESENTATION_EVIDENCE_REQUIRED'};
       job.status=status;job.updatedAt=new Date(this.clock()).toISOString();if(status==='failed')job.reason=reason||'Device reported failure';
       await this.save();this.#notify(deviceId,{type:'job.updated',job});
       return {ok:true,job:{...job}};
+    });
+  }
+  async presentation(deviceId,token,{jobId,sequence,phase,kind,observed}={}) {
+    if(!this.registry.authenticate(deviceId,token))throw new Error('DEVICE_UNAUTHORIZED');
+    if(typeof jobId!=='string'||!/^job-[0-9a-f-]{36}$/.test(jobId)
+      ||!Number.isSafeInteger(sequence)||sequence!==1||phase!=='rendered'
+      ||!['display.face','audio.output'].includes(kind)
+      ||!observed||typeof observed!=='object'||Array.isArray(observed))
+      throw new Error('INVALID_PRESENTATION_FEEDBACK');
+    return this.#exclusive(async()=>{
+      const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
+      if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
+      const device=this.registry.get(deviceId);
+      if(device?.protocolVersion<3)throw new Error('PRESENTATION_PROTOCOL_V3_REQUIRED');
+      if(!device?.capabilities.includes(kind)||job.capability!==kind)
+        throw new Error('INVALID_PRESENTATION_CAPABILITY');
+      if(job.status!=='running')return {ok:false,message:'INVALID_PRESENTATION_JOB_STATE'};
+      const expected=kind==='display.face'?{expression:job.params.expression}
+        :{characters:job.params.text.length};
+      if(!sameJson(observed,expected))throw new Error('INVALID_PRESENTATION_FEEDBACK');
+      if(job.presentationEvidence){
+        if(job.presentationEvidence.phase==='rendered'
+          &&job.presentationEvidence.kind===kind)
+          return {ok:true,duplicate:true,jobId};
+        return {ok:false,message:'PRESENTATION_ALREADY_RECORDED'};
+      }
+      job.presentationEvidence={
+        sequence,kind,phase:'rendered',at:new Date(this.clock()).toISOString()
+      };
+      job.updatedAt=new Date(this.clock()).toISOString();
+      await this.save();
+      this.#notify(deviceId,{type:'presentation.rendered',jobId,kind});
+      return {ok:true,jobId,kind,phase:'rendered'};
     });
   }
   async telemetry(deviceId,token,{jobId,sequence,phase,progress,pose,mapVersion}){
