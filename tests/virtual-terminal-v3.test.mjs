@@ -115,7 +115,7 @@ test('terminal runtime loads before app and cannot touch microphone/network dire
  const runtime=await readFile(join(cwd,'public/terminal-runtime.js'),'utf8');
  assert.ok(html.indexOf('/terminal-runtime.js')<html.indexOf('/app.js'));
  assert.match(app,/const terminalRuntime=new globalThis.AlexTerminalRuntime\(\)/);
- assert.match(app,/terminalRuntime\.current\(revision\)/);
+ assert.match(app,/const voiceBridge=new globalThis\.AlexVoiceBridge\(\{/);
  assert.match(app,/voiceBridge\.interrupt\('pagehide'\)/);
  assert.match(app,/refreshCompanionPrivacy\(true\)/);
  const bridge=await readFile(join(cwd,'public/voice-session.js'),'utf8');
