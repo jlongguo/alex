@@ -186,8 +186,8 @@ export class CompanionConversations {
       return copy(session);
     });
   }
-  async turn(principal,id,text) {
-    return this.#processTurn(principal,id,text,{});
+  async turn(principal,id,text,{signal}={}) {
+    return this.#processTurn(principal,id,text,{signal});
   }
   async streamTurn(principal,id,text,{signal,onDelta=()=>{}}={}) {
     if(typeof onDelta!=='function')throw new Error('INVALID_COMPANION_CALLBACK');
