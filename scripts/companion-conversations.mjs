@@ -22,11 +22,12 @@ const validateEvidence = event => {
      ||!validId(event.sessionId)
      ||!['parent','child'].includes(event.actor)
      ||roleOf(event.principal)!==event.actor
-     ||!['english_a1_text','story_choice'].includes(event.kind)
+     ||!['english_a1_text','story_choice','science_quiz_text'].includes(event.kind)
      ||!Number.isInteger(event.round)||event.round<0||event.round>100000
      ||typeof event.at!=='string'||Number.isNaN(Date.parse(event.at))
      ||!Number.isInteger(event.lessonVersion)||event.lessonVersion<1||event.lessonVersion>10000
-     ||!resolveCourse(event.kind==='english_a1_text'?'english':'story',event.lessonId))
+     ||!resolveCourse(event.kind==='english_a1_text'?'english':
+       event.kind==='story_choice'?'story':'quiz',event.lessonId))
     throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
 };
 const MAX_USER_CHARS = 500;
@@ -63,7 +64,7 @@ export class CompanionConversations {
         ||session.step<0||session.step>5||typeof session.context!=='string'||session.context.length>50
         ||!(session.round===undefined || (Number.isInteger(session.round)&&session.round>=0&&session.round<=100000))
         ||!(session.milestones===undefined || (Array.isArray(session.milestones)&&session.milestones.length<=40
-          &&session.milestones.every(m=>m&&['english_a1_text','story_choice'].includes(m.kind)
+          &&session.milestones.every(m=>m&&['english_a1_text','story_choice','science_quiz_text'].includes(m.kind)
              &&Number.isInteger(m.round)&&m.round>=0&&typeof m.at==='string')))
         ||!Array.isArray(session.messages)||session.messages.length>MAX_MESSAGES
         ||session.messages.some(m=>!['user','assistant'].includes(m?.role)
@@ -210,7 +211,7 @@ export class CompanionConversations {
         source='model';
       }else{
         const course=resolveCourse(current.mode,current.lessonId);
-        const response=course&&['english.a1.greetings','english.a1.daily'].includes(course.id)
+        const response=course&&['english.a1.greetings','english.a1.daily','science.everyday.discovery'].includes(course.id)
           ?exerciseReply(course.id,input,current.step)
           :offlineReply(current.mode,input,current.step,current.context);
         reply=response.text;step=response.step;context=response.context;
@@ -232,7 +233,7 @@ export class CompanionConversations {
       const round=(current.round??0)+(restarted?1:0);
       const milestones=[...(current.milestones??[])];
       if(finished){
-        const kind=current.mode==='english'?'english_a1_text':'story_choice';
+        const kind=course.kind;
         if(!milestones.some(m=>m.kind===kind&&m.round===round))
           milestones.push({kind,round,at:now});
       }
@@ -291,6 +292,7 @@ export class CompanionConversations {
     return {
       scope,englishTextExercisesCompleted:records.filter(r=>r.kind==='english_a1_text').length,
       storyBranchesCompleted:records.filter(r=>r.kind==='story_choice').length,
+      scienceTextQuizzesCompleted:records.filter(r=>r.kind==='science_quiz_text').length,
       byCourse,retentionLimit:MAX_EVIDENCE_PER_PRINCIPAL,
       recent:copy(records.slice(0,50))
     };
