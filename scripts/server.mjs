@@ -101,7 +101,7 @@ const send = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'?409:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'?409:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
