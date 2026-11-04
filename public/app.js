@@ -143,6 +143,9 @@ function applySession(session){
  authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
  const companionIdentity=session.learnerId?'learner:'+session.learnerId:authorizedActor;
  if(companionActor!==companionIdentity) {
+  voiceBridge.interrupt('identity-changed');
+  companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
+  privacyPollAt=0;
   companionActor=companionIdentity;companionSessionId=null;
   $('companion-messages').replaceChildren();
  }
@@ -183,6 +186,7 @@ async function initAuth(){
   $('auth-overlay').classList.add('hidden');
   if(session.mode==='local')$('actor').value=session.actor;
   launchConsole();
+  void refreshCompanionPrivacy(true);
  }catch(err){$('connection').textContent='认证服务连接失败';notify(err.message,true);}
 }
 $('auth-entry').addEventListener('click',async()=>{
@@ -771,6 +775,7 @@ async function refreshCompanionInfo(){
   const r=await fetch('/api/companion/sessions',{cache:'no-store'});
   if(!r.ok)throw new Error('无法获取对话服务');
   const data=await r.json();
+  await refreshCompanionPrivacy(true);
   const courseResponse=await fetch('/api/learning/catalog',{cache:'no-store'});
   if(courseResponse.ok)curriculum=(await courseResponse.json()).courses;
   fillLessonOptions($('companion-mode').value);
@@ -910,7 +915,7 @@ $('companion-form').addEventListener('submit',async e=>{
  if(!text)return;
  companionBusy=true;$('companion-send').disabled=true;
  $('companion-cancel').disabled=false;
- stopCompanionSpeech();companionState('thinking');
+ voiceBridge.interrupt('chat-submit');companionState('thinking');
  const controller=new AbortController();companionAbort=controller;
  try{
   if(!companionSessionId){
