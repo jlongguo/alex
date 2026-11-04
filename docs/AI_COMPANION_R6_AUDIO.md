@@ -70,7 +70,7 @@ R5 原来的浏览器 Web Speech 保持可选回退。R6 状态机沿用 idle/li
 
 自动测试覆盖 HTTPS adapter、权限默认值与旧版 JSON 迁移、体积和 MIME 限制、并发/限流、取消、模拟浏览器录音/播放、真实 localhost HTTP 上传和 MP3 返回（外部 HTTPS 供应商在 CI 中由专用测试 fixture 截获，**没有真实发送音频**）。
 
-仍需实地测试：真实 Chrome/Edge/Safari 各平台麦克风授权、原始音频录制/停止与 HTMLAudioElement 播放、真实模型音质与中英文准确率、供应商对儿童音频的政策、可用成本预算。R6 PR #41 保持 Draft，直到以上验收完成。
+仍需实地测试：真实 Chrome/Edge/Safari 各平台麦克风授权、原始音频录制/停止与 HTMLAudioElement 播放、真实模型音质与中英文准确率、供应商对儿童音频的政策、可用成本预算。R6 核心 PR #41 已合并；追加的审计、回归修复和文档修改另开 PR 验收。核心合并不等于实际麦克风或真实供应商验收。
 
 ## 后续路线
 
