@@ -113,7 +113,7 @@ function renderAuthEntry(session){
  entry.classList.toggle('hidden',verified&&session.actor==='parent');
  if(!local){status.textContent='演示模式 · 无家长授权';entry.textContent='启用家长授权';}
  else if(!verified){status.textContent='未登录';entry.textContent='家长登录';}
- else if(session.actor==='child'){status.textContent='儿童已登录';entry.textContent='切换为家长';}
+ else if(session.actor==='child'){status.textContent=session.learnerId?'独立学习者已登录':'共享儿童（兼容旧版）';entry.textContent='切换为家长';}
  else {status.textContent='家长已验证';entry.textContent='家长登录';}
 }
 function openAuthDialog(session){
@@ -123,6 +123,10 @@ function openAuthDialog(session){
  $('auth-overlay').classList.remove('hidden');
  if(!demo){
   $('auth-role').value='parent';
+  $('auth-code').value='';
+  $('auth-code').classList.add('hidden');
+  $('auth-code-label').classList.add('hidden');
+  $('auth-code').required=false;
   $('auth-secret').minLength=12;
   $('auth-error').textContent='';
   $('auth-secret').value='';
@@ -131,8 +135,9 @@ function openAuthDialog(session){
 }
 function applySession(session){
  authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
- if(companionActor!==authorizedActor) {
-  companionActor=authorizedActor;companionSessionId=null;
+ const companionIdentity=session.learnerId?'learner:'+session.learnerId:authorizedActor;
+ if(companionActor!==companionIdentity) {
+  companionActor=companionIdentity;companionSessionId=null;
   $('companion-messages').replaceChildren();
  }
  for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode','companion-history','companion-progress-scope']){
@@ -190,16 +195,25 @@ $('auth-entry').addEventListener('click',async()=>{
 });
 $('auth-demo-close').addEventListener('click',()=>{$('auth-overlay').classList.add('hidden');$('auth-entry').focus();});
 document.querySelectorAll('[data-parent-auth-entry]').forEach(button=>button.addEventListener('click',()=>$('auth-entry').click()));
-$('auth-role').addEventListener('change',()=>{$('auth-secret').minLength=$('auth-role').value==='parent'?12:6;});
+$('auth-role').addEventListener('change',()=>{
+ const role=$('auth-role').value;
+ $('auth-secret').minLength=role==='parent'?12:6;
+ const learner=role==='learner';
+ $('auth-code').classList.toggle('hidden',!learner);
+ $('auth-code-label').classList.toggle('hidden',!learner);
+ $('auth-code').required=learner;
+});
 $('auth-form').addEventListener('submit',async e=>{
   e.preventDefault();
   $('auth-error').textContent='';
   const role=$('auth-role').value,secret=$('auth-secret').value;
+  const code=role==='learner'?$('auth-code').value.trim().toLowerCase():undefined;
   try{
-    const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,secret})});
+    const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,secret,...(code?{code}:{})})});
     const result=await response.json();
     if(!response.ok)throw new Error(result.error||'登录失败');
     $('auth-secret').value='';
+    $('auth-code').value='';
     await initAuth();
   }catch(err){$('auth-error').textContent=err.message;}
 });
@@ -406,9 +420,21 @@ async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
  try{
-  const [pr,mr]=await Promise.all([fetch('/api/profiles',{cache:'no-store'}),fetch('/api/memory',{cache:'no-store'})]);
-  if(!pr.ok||!mr.ok)throw new Error('需要家长身份读取家庭资料');
+  const [pr,mr,lr]=await Promise.all([fetch('/api/profiles',{cache:'no-store'}),fetch('/api/memory',{cache:'no-store'}),fetch('/api/learners/access',{cache:'no-store'})]);
+  if(!pr.ok||!mr.ok||!lr.ok)throw new Error('需要家长身份读取家庭资料');
   const profiles=(await pr.json()).profiles,memories=(await mr.json()).entries;
+  const learners=(await lr.json()).learners;
+  const profileSelect=$('learner-profile'),selectedProfile=profileSelect.value;
+  profileSelect.replaceChildren();
+  for(const profile of profiles){
+   const option=document.createElement('option');
+   option.value=profile.id;option.textContent=profile.nickname;profileSelect.append(option);
+  }
+  if(profiles.some(p=>p.id===selectedProfile))profileSelect.value=selectedProfile;
+  $('learner-access-list').innerHTML=learners.map(row=>{
+   const profile=profiles.find(p=>p.id===row.profileId);
+   return `<div class="skill-item"><div class="skill-info"><strong>${esc(profile?.nickname||'已删除的学习者')}</strong><small>登录代码：<code>${esc(row.code)}</code>（与 PIN 分开保管）</small></div><button type="button" data-revoke-learner="${esc(row.profileId)}">撤销登录</button></div>`;
+  }).join('')||'<p class="helper">尚未给任何学习者设置独立 PIN。</p>';
   $('profile-list').innerHTML=profiles.map(p=>`<div class="skill-item"><div class="skill-icon">♧</div><div class="skill-info"><strong>${esc(p.nickname)}</strong><small>${esc(p.ageBand)} · ${esc(p.interests.join('、')||'无兴趣标签')}</small></div><button type="button" data-remove-profile="${esc(p.id)}">删除档案</button></div>`).join('')||'<p class="helper">尚无学习者档案。</p>';
   $('memory-list').innerHTML=memories.slice(-40).reverse().map(m=>`<div class="event-row"><span class="event-time">${esc(m.scope)}</span><span class="event-kind">记忆</span><span class="event-message" title="${esc(m.text)}">${esc(m.text)}</span><button type="button" data-remove-memory="${esc(m.id)}">删除</button></div>`).join('')||'<p class="helper">没有已保存的长期记忆。</p>';
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
@@ -423,6 +449,32 @@ async function refreshAudit(){
   $('audit-list').innerHTML=events.slice(-50).reverse().map(e=>`<div class="event-row"><span class="event-time">${esc(e.timestamp||e.at||'—')}</span><span class="event-kind">${esc(e.action||e.type||'操作')}</span><span class="event-message">${esc(e.actor||'—')} · ${esc(e.outcome||'—')}</span></div>`).join('')||'<p class="helper">暂无审计记录。</p>';
  }catch(err){$('audit-access-note').textContent=err.message;}
 }
+$('learner-pin-form').addEventListener('submit',async e=>{
+ e.preventDefault();
+ if(authorizedActor!=='parent'||familyBusy)return;
+ familyBusy=true;
+ try{
+  const profileId=$('learner-profile').value;
+  const pin=$('learner-pin').value;
+  const result=await api('/api/learners/set-pin',{profileId,pin});
+  $('learner-pin').value='';
+  lastFamilyPoll=0;await refreshFamily();
+  notify('学习者专属登录代码：'+result.learner.code+'。请私下保存，PIN 不会再次显示。');
+ }catch(error){notify(error.message,true);}
+ finally{familyBusy=false;}
+});
+$('learner-access-list').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-revoke-learner]');
+ if(!button||authorizedActor!=='parent'||familyBusy)return;
+ if(!window.confirm('撤销此学习者的登录凭据并使已登录会话失效？历史对话暂保留，删除档案时将一起删除。'))return;
+ familyBusy=true;
+ try{
+  await api('/api/learners/revoke',{profileId:button.dataset.revokeLearner});
+  lastFamilyPoll=0;await refreshFamily();
+  notify('已撤销此学习者专属登录凭据。');
+ }catch(error){notify(error.message,true);}
+ finally{familyBusy=false;}
+});
 $('profile-form').addEventListener('submit',async e=>{
  e.preventDefault();if(familyBusy||authorizedActor!=='parent')return;familyBusy=true;
  try{
@@ -438,7 +490,7 @@ $('memory-form').addEventListener('submit',async e=>{
 });
 $('profile-list').addEventListener('click',async e=>{
  const button=e.target.closest('[data-remove-profile]');if(!button||authorizedActor!=='parent')return;
- if(!window.confirm('确定删除这个学习者档案？'))return;
+ if(!window.confirm('删除此学习者档案会同时撤销专属登录凭据、注销会话并清除其聊天及文字学习记录。确定继续？'))return;
  try{await api('/api/profiles/delete',{id:button.dataset.removeProfile});lastFamilyPoll=0;await refreshFamily();notify('档案已删除');}catch(err){notify(err.message,true);}
 });
 $('memory-list').addEventListener('click',async e=>{
@@ -520,7 +572,7 @@ async function refreshCompanionProgress(){
  if(!authorizedActor){$('companion-progress-summary').textContent='请登录后查看学习记录。';return;}
  try{
   const selector=$('companion-progress-scope');
-  const scope=selector.value==='child'?'child':authorizedActor;
+  const scope=selector.value==='self'?'self':selector.value;
   const res=await fetch('/api/companion/progress?scope='+encodeURIComponent(scope),{cache:'no-store'});
   if(!res.ok)throw new Error('学习记录暂时不可用');
   const progress=(await res.json()).progress;
@@ -554,8 +606,23 @@ async function refreshCompanionInfo(){
   $('companion-privacy').textContent=(data.transcriptsPersisted?'已开启本地对话持久化':'对话仅在服务进程内存中保留，重启即消失')
    +' · 不会自动控制设备 · 浏览器语音识别可能使用厂商在线服务';
   const scopeSelector=$('companion-progress-scope');
-  scopeSelector.querySelector('option[value="child"]').hidden=authorizedActor==='child';
-  if(authorizedActor==='child')scopeSelector.value='self';
+  const oldScope=scopeSelector.value;
+  scopeSelector.replaceChildren();
+  const scopes=[{value:'self',text:'当前身份'}];
+  if(authorizedActor==='parent'){
+   scopes.push({value:'child',text:'所有儿童（含共享账号）'});
+   const profilesResponse=await fetch('/api/profiles',{cache:'no-store'});
+   if(profilesResponse.ok){
+    const learnerProfiles=(await profilesResponse.json()).profiles;
+    for(const profile of learnerProfiles)
+      scopes.push({value:'learner:'+profile.id,text:'学习者：'+profile.nickname});
+   }
+  }
+  for(const item of scopes){
+   const option=document.createElement('option');
+   option.value=item.value;option.textContent=item.text;scopeSelector.append(option);
+  }
+  if(scopes.some(x=>x.value===oldScope))scopeSelector.value=oldScope;
   if(companionSessionId){
    const owned=data.sessions.some(x=>x.id===companionSessionId);
    if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();}
