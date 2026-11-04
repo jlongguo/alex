@@ -2,6 +2,15 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R3：独立学习者与虚拟呈现回执
+
+- POST /api/auth/login 支持 role=learner、code（家长提供的 12 位十六进制登录代码）和 secret（该学习者专属 PIN）；成功的服务器会话返回 child 角色及 learnerId。
+- GET /api/profiles 按身份裁剪：家长查看所有档案，独立学习者只能查看自身，旧共享儿童身份不再能列出所有孩子。
+- 家长接口 POST /api/learners/set-pin、POST /api/learners/revoke、GET /api/learners/access。后两者分别管理撤销和查看公开登录代码（不返回 PIN/哈希）。
+- GET /api/companion/progress?scope=self 读取当前独立学习者文字学习完成情况；家长可以 scope=child 汇总所有孩子或 scope=learner:profile-UUID 查看指定孩子。
+- POST /api/gateway/presentation 使用已配对设备 Bearer Token 接收 v3 虚拟终端表情/字幕的严格回执；不是物理扬声器或真实 ASR/TTS。
+- 更多规范：[R3](AI_COMPANION_R3_IDENTITY_TERMINAL.md)。
+
 ## AI 互动终端 R2：流式、学习记录（2026-11-04）
 
 - `POST /api/companion/stream`，JSON 请求 `{"id":"<UUID>","text":"I like apples."}`，返回 `text/event-stream`。流依次出现 `ready`、多个 `delta`、成功时唯一权威 `committed`；失败时出现 `error`。**仅接收到 delta 不代表提交成功**。
