@@ -171,7 +171,9 @@ export class CompanionConversations {
       throw new Error('INVALID_LEARNING_SCOPE');
     if(actor!=='parent'&&scope!==principal)throw new Error('PARENT_REQUIRED');
     const sessions=[...this.#sessions.values()].filter(s=>
-      scope==='all'||(scope==='child'?s.actor==='child':ownedKey(s)===scope));
+      scope==='all'||(scope==='child'
+        ?(actor==='parent'?s.actor==='child':ownedKey(s)==='child')
+        :ownedKey(s)===scope));
     const records=sessions.flatMap(s=>(s.milestones??[]).map(m=>({
       actor:s.actor,principal:ownedKey(s),sessionId:s.id,mode:s.mode,
       kind:m.kind,round:m.round,at:m.at
