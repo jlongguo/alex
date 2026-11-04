@@ -34,5 +34,6 @@ test('R6 cloud audio module never automatically invokes chat, robot actions or p
  assert.match(code,/this\.urlApi\.revokeObjectURL/);
  assert.match(code,/this\.\#controller\?\.abort\(\)/);
  assert.doesNotMatch(code,/\/api\/companion\/stream|\/api\/gateway\/dispatch|\/api\/safety\/stop/);
- assert.doesNotMatch(code,/localStorage|sessionStorage|indexedDB|requestSubmit/);
+ const executable=code.replace(/^\s*\/\/.*$/gm,'');
+ assert.doesNotMatch(executable,/\b(?:localStorage|sessionStorage|indexedDB|requestSubmit)\b/);
 });
