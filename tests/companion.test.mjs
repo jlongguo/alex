@@ -220,9 +220,15 @@ test('UI includes accessible companion flow without mixing device commands into 
     readFile(join(cwd,'public/index.html'),'utf8'),
     readFile(join(cwd,'public/app.js'),'utf8')
   ]);
-  for(const id of ['companion-form','companion-mode','companion-messages','companion-microphone','companion-privacy','companion-history'])
+  for(const id of ['companion-form','companion-mode','companion-messages','companion-microphone','companion-privacy','companion-history','companion-cancel','companion-runtime','companion-progress-summary'])
     assert.ok(html.includes('id="'+id+'"'),id);
-  assert.match(js,/body.textContent=message.text/);
+  assert.match(js,/body.textContent=text/);
+  assert.match(js,/body.textContent\+=delta/);
+  assert.match(js,/\/api\/companion\/stream/);
+  assert.match(js,/STREAM_INCOMPLETE_NO_COMMIT/);
+  assert.match(js,/companionAbort\?\.abort\(\)/);
+  assert.match(js,/companionState\('listening'\)/);
+  assert.match(js,/\/api\/companion\/progress/);
   assert.match(js,/\/api\/companion\/turn/);
   assert.match(js,/companion-history.*addEventListener\('change'/);
   assert.match(js,/await refreshCompanionInfo\(\)/);
