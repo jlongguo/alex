@@ -141,3 +141,32 @@ test('R7 raw chunk body parser bounds by actual received bytes and supports decl
   wrong.headers={'content-type':'text/html'};
   await assert.rejects(()=>readAudioChunk(wrong),/INVALID_AUDIO_MIME/);
 });
+
+
+test('R7 finalization uses separate ASR TTL instead of expiring 15s capture plus a normal provider response',async()=>{
+ let now=1000;
+ const manager=new AudioIngressSessions({now:()=>now});
+ const session=manager.open(A,{mime:'audio/webm'});
+ manager.append(A,session.id,{seq:0,mime:'audio/webm',data:Buffer.alloc(400)});
+ now+=14_000;
+ let signalReady;
+ const began=new Promise(resolve=>signalReady=resolve);
+ let complete;
+ const pending=manager.finish(A,session.id,{
+  authorized:()=>true,
+  transcribe:async()=>{
+   signalReady();
+   return new Promise(resolve=>complete=resolve);
+  }
+ });
+ await began;
+ now+=12_000; // 26s since recording began; the cloud provider is still busy
+ assert.equal(manager.sweep(),1,
+  'long ASR must not be cancelled by the 20-second recording deadline');
+ complete({text:'completed after provider latency'});
+ const response=await pending;
+ assert.equal(response.text,'completed after provider latency');
+ assert.equal(response.metrics.captureMs,14_000);
+ assert.equal(response.metrics.providerMs,12_000);
+ assert.equal(manager.activeCount(),0);
+});
