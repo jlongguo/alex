@@ -147,7 +147,7 @@ export class DeviceGateway {
     return this.#exclusive(async()=>{
       const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
       if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
-      if(job.capability!=='sim.navigation.goto'||job.status!=='running'||this.registry.get(deviceId)?.protocolVersion!==2||!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'NAVIGATION_FEEDBACK_NOT_ALLOWED'};
+      if(job.capability!=='sim.navigation.goto'||job.status!=='running'||this.registry.get(deviceId)?.protocolVersion<2||!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'NAVIGATION_FEEDBACK_NOT_ALLOWED'};
       if(job.telemetry && sequence<=job.telemetry.sequence)return {ok:false,message:'NAVIGATION_FEEDBACK_OUT_OF_ORDER'};
       if(job.telemetry && progress<job.telemetry.progress)return {ok:false,message:'NAVIGATION_PROGRESS_REGRESSION'};
       if((!job.telemetry&&phase!=='planning')||(job.telemetry?.phase==='planning'&&!['planning','moving','arrived','blocked'].includes(phase))||(job.telemetry?.phase==='blocked'))return {ok:false,message:'INVALID_NAVIGATION_PHASE'};
