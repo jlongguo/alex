@@ -1,6 +1,6 @@
 // Deterministic, transparent text-only conversation Skills. Not an LLM or ASR.
 // Kept independent from RobotRuntime and device commands by design.
-export const COMPANION_MODES = Object.freeze(['chat','english','story']);
+export const COMPANION_MODES = Object.freeze(['chat','english','story','quiz']);
 
 export function opening(mode, hasModel=false) {
   if(mode==='english') return hasModel
@@ -9,6 +9,9 @@ export function opening(mode, hasModel=false) {
   if(mode==='story') return hasModel
     ? '我们来一起创作一个安全有趣的故事。你想让主角是谁？'
     : '你来到一座会发光的图书馆。A：打开星星地图。B：跟着会说话的小猫。请选择 A 或 B。';
+  if(mode==='quiz')return hasModel
+    ? '来一起讨论一些日常科学小问题吧！'
+    : '科学小问答！第 1 题：植物生长最需要哪一种光？A：阳光  B：月光。请选择 A 或 B。';
   if(mode==='chat') return hasModel
     ? '你好，我是 Alex。你可以和我对话；我不会在聊天中自动控制设备。'
     : '自由对话尚未启用模型。请家长配置 ALEX_CHAT_PROVIDER=compatible；现在可以使用离线英语和互动故事。';
