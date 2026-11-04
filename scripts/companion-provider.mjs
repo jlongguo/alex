@@ -68,6 +68,8 @@ export class CompatibleCompanionProvider {
     catch{throw new Error('CHAT_PROVIDER_INVALID_RESPONSE');}
     if(payload?.choices?.[0]?.message?.tool_calls||payload?.choices?.[0]?.message?.function_call)
       throw new Error('CHAT_STREAM_TOOLS_FORBIDDEN');
+    const finish=payload?.choices?.[0]?.finish_reason;
+    if(finish&&finish!=='stop')throw new Error('CHAT_STREAM_INCOMPLETE_FINISH');
     const text=payload?.choices?.[0]?.message?.content;
     if(typeof text!=='string'||!text.trim()||text.length>1200)
       throw new Error('CHAT_PROVIDER_INVALID_RESPONSE');
