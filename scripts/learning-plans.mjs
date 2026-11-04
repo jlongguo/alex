@@ -99,8 +99,9 @@ export class LearningPlans {
     if(!PROFILE.test(profileId??''))throw new Error('INVALID_LEARNER_PROFILE');
     return this.#exclusive(async()=>{
       const next=this.#rows.filter(p=>p.profileId!==profileId);
-      if(next.length!==this.#rows.length)await this.#commit(next);
-      return this.#rows.length-next.length;
+      const removed=this.#rows.length-next.length;
+      if(removed)await this.#commit(next);
+      return removed;
     });
   }
   exportForParent(actor){
