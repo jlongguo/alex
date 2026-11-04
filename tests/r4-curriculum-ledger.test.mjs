@@ -136,11 +136,9 @@ test('R4 old session milestones migrate exactly once into new separate evidence 
   invalid.evidence[0].principal=b;
   await writeFile(file,JSON.stringify(invalid),'utf8');
   const poisoned=new CompanionConversations({persist:true,file});
-  // Principal mismatches actor? both child, so syntactically valid; the
-  // ledger must still fail unless ownership is explicitly migrated.
-  // Authoritative snapshot metadata remains bounded and type-checked.
-  await poisoned.load();
-  assert.equal(poisoned.progress(a).englishTextExercisesCompleted,0);
+  // A forged child owner must not receive another learner's evidence even
+  // though both principals have the same generic "child" role.
+  await assert.rejects(()=>poisoned.load(),/INVALID_LEARNING_EVIDENCE_FILE/);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
