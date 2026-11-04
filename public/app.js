@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let state=null,lastTask=null,busy=false,refreshInFlight=false;
 let companionActor=null,companionSessionId=null,companionBusy=false,companionProvider='offline';
+let curriculum=[],currentLearningPlans=[];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const color = {dock:'#8ac7a8',study_desk:'#79a4db',sofa:'#c4a4dc',story_corner:'#e7b76b'};
 const labels={dock:'充电基站',study_desk:'学习书桌',sofa:'客厅沙发',story_corner:'故事角'};
@@ -420,10 +421,20 @@ async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
  try{
-  const [pr,mr,lr]=await Promise.all([fetch('/api/profiles',{cache:'no-store'}),fetch('/api/memory',{cache:'no-store'}),fetch('/api/learners/access',{cache:'no-store'})]);
-  if(!pr.ok||!mr.ok||!lr.ok)throw new Error('需要家长身份读取家庭资料');
+  const [pr,mr,lr,cr,plansResponse]=await Promise.all([
+    fetch('/api/profiles',{cache:'no-store'}),
+    fetch('/api/memory',{cache:'no-store'}),
+    fetch('/api/learners/access',{cache:'no-store'}),
+    fetch('/api/learning/catalog',{cache:'no-store'}),
+    fetch('/api/learning/plans',{cache:'no-store'})
+  ]);
+  if(!pr.ok||!mr.ok||!lr.ok||!cr.ok||!plansResponse.ok)
+    throw new Error('需要家长身份读取家庭资料');
   const profiles=(await pr.json()).profiles,memories=(await mr.json()).entries;
   const learners=(await lr.json()).learners;
+  curriculum=(await cr.json()).courses;
+  const plans=(await plansResponse.json()).plans;
+  currentLearningPlans=plans;
   const profileSelect=$('learner-profile'),selectedProfile=profileSelect.value;
   profileSelect.replaceChildren();
   for(const profile of profiles){
@@ -431,6 +442,26 @@ async function refreshFamily(){
    option.value=profile.id;option.textContent=profile.nickname;profileSelect.append(option);
   }
   if(profiles.some(p=>p.id===selectedProfile))profileSelect.value=selectedProfile;
+  const pSelect=$('learning-plan-profile'),priorProfile=pSelect.value;
+  pSelect.replaceChildren();
+  for(const profile of profiles){
+    const item=document.createElement('option');
+    item.value=profile.id;item.textContent=profile.nickname;pSelect.append(item);
+  }
+  if(profiles.some(p=>p.id===priorProfile))pSelect.value=priorProfile;
+  const cSelect=$('learning-plan-course'),priorCourse=cSelect.value;
+  cSelect.replaceChildren();
+  for(const course of curriculum){
+    const item=document.createElement('option');
+    item.value=course.id;item.textContent=course.title+' · '+course.version;
+    cSelect.append(item);
+  }
+  if(curriculum.some(c=>c.id===priorCourse))cSelect.value=priorCourse;
+  $('learning-plan-list').innerHTML=plans.map(plan=>{
+    const profile=profiles.find(p=>p.id===plan.profileId);
+    const course=curriculum.find(c=>c.id===plan.courseId);
+    return `<div class="skill-item"><div class="skill-info"><strong>${esc(profile?.nickname||'学习者')}：${esc(course?.title||plan.courseId)}</strong><small>目标 ${plan.targetCompletions} 次 · ${plan.status==='active'?'进行中':'已暂停'} · 内容版本 ${esc(course?.version||'未知')}</small></div><button type="button" data-learning-pause="${esc(plan.id)}" data-next-status="${plan.status==='active'?'paused':'active'}">${plan.status==='active'?'暂停':'恢复'}</button><button type="button" data-learning-delete="${esc(plan.id)}">删除计划</button></div>`;
+  }).join('')||'<p class="helper">暂无已分配课程。</p>';
   $('learner-access-list').innerHTML=learners.map(row=>{
    const profile=profiles.find(p=>p.id===row.profileId);
    return `<div class="skill-item"><div class="skill-info"><strong>${esc(profile?.nickname||'已删除的学习者')}</strong><small>登录代码：<code>${esc(row.code)}</code>（与 PIN 分开保管）</small></div><button type="button" data-revoke-learner="${esc(row.profileId)}">撤销登录</button></div>`;
@@ -449,6 +480,34 @@ async function refreshAudit(){
   $('audit-list').innerHTML=events.slice(-50).reverse().map(e=>`<div class="event-row"><span class="event-time">${esc(e.timestamp||e.at||'—')}</span><span class="event-kind">${esc(e.action||e.type||'操作')}</span><span class="event-message">${esc(e.actor||'—')} · ${esc(e.outcome||'—')}</span></div>`).join('')||'<p class="helper">暂无审计记录。</p>';
  }catch(err){$('audit-access-note').textContent=err.message;}
 }
+$('learning-plan-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||familyBusy)return;
+ familyBusy=true;
+ try{
+  const result=await api('/api/learning/assign',{
+   profileId:$('learning-plan-profile').value,courseId:$('learning-plan-course').value,
+   targetCompletions:Number($('learning-plan-target').value)
+  });
+  lastFamilyPoll=0;await refreshFamily();
+  notify('已为学习者安排文字课程：'+result.plan.courseId);
+ }catch(error){notify(error.message,true);}
+ finally{familyBusy=false;}
+});
+$('learning-plan-list').addEventListener('click',async event=>{
+ if(authorizedActor!=='parent'||familyBusy)return;
+ const changed=event.target.closest('[data-learning-pause]');
+ const removed=event.target.closest('[data-learning-delete]');
+ if(!changed&&!removed)return;
+ if(removed&&!window.confirm('仅删除课程计划，不删除已完成的文字练习成果。确定？'))return;
+ familyBusy=true;
+ try{
+  if(changed)await api('/api/learning/change',{id:changed.dataset.learningPause,status:changed.dataset.nextStatus});
+  else await api('/api/learning/delete',{id:removed.dataset.learningDelete});
+  lastFamilyPoll=0;await refreshFamily();notify('学习计划已更新');
+ }catch(error){notify(error.message,true);}
+ finally{familyBusy=false;}
+});
 $('learner-pin-form').addEventListener('submit',async e=>{
  e.preventDefault();
  if(authorizedActor!=='parent'||familyBusy)return;
