@@ -170,3 +170,23 @@ test('R7 finalization uses separate ASR TTL instead of expiring 15s capture plus
  assert.equal(response.metrics.providerMs,12_000);
  assert.equal(manager.activeCount(),0);
 });
+
+
+test('R7 privacy erase drops child-only audio metrics and rate history, not another role',()=>{
+ let now=1000;
+ const manager=new AudioIngressSessions({now:()=>now});
+ const a=manager.open(A,{mime:'audio/webm'});manager.cancel(A,a.id);
+ const b=manager.open(B,{mime:'audio/webm'});manager.cancel(B,b.id);
+ const parent=manager.open('parent',{mime:'audio/webm'});
+ assert.equal(manager.metrics(A).opened,1);
+ const removed=manager.eraseScope('child');
+ assert.equal(removed,2);
+ assert.equal(manager.metrics(A).opened,0);
+ assert.equal(manager.metrics(B).opened,0);
+ assert.equal(manager.metrics('parent').opened,1);
+ assert.equal(manager.activeCount(),1);
+ assert.equal(manager.eraseScope('parent'),1);
+ assert.equal(manager.activeCount(),0);
+ assert.equal(manager.metrics('parent').opened,0);
+ assert.throws(()=>manager.eraseScope('family'),/INVALID_AUDIO_ERASE_SCOPE/);
+});
