@@ -1,3 +1,11 @@
+# Alex R7 主线迭代（2026-11-05）
+
+PR #43 基于已合并的 R6 主线，新增 [R7 增量音频与能量 VAD 技术契约](AI_COMPANION_R7_INCREMENTAL_AUDIO.md)：浏览器录制中连续上传到 Alex，后端按已验证的孩子身份接受临时顺序分片，带超时、限流、总量与重放/顺序防护；可选静音自动停录与个人匿名统计。本轮已经把真实 localhost HTTP、服务端安全状态机、浏览器模拟分片和能量 VAD 分别纳入测试。用户确认发送文字的规则保持不变。
+
+R7 **还未实现**持续实时 ASR/TTS 供应商流式连接、WebRTC、全双工、音频帧声学验证、真实供应商质量或生产合规。R8 需重点实现真正流式 Provider、低延迟语音打断、加密数据和儿童预算/合规，软件优先，不强依赖 ROS2/Nav2 机器人。
+
+---
+
 # Alex R6 主线更新（2026-11-05）
 
 R6 核心已随 PR #41 合并到 main，后续针对审计、测试和文档的收口在单独 PR 中进行：[短音频 Provider、云端 ASR/TTS、媒体传输与家长权限](AI_COMPANION_R6_AUDIO.md)。完成 typed HTTPS adapter、独立 cloudAudioInputAllowed/cloudAudioOutputAllowed 授权、默认禁止的旧配置迁移、音频二进制接口、请求限流与终止、浏览器主动录音/播放及配套回归测试。外部供应商由 CI fixture 截获，不表示已现场调用真实儿童语音供应商。
