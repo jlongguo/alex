@@ -48,6 +48,17 @@ export class CompanionConversations {
     this.store=this.persist?new JsonStateStore(file):null;
   }
   get providerKind(){return this.provider?'compatible':'offline';}
+  #modelFor(principal,mode){
+    if(!this.provider)return {available:false,context:null};
+    try{return {available:true,context:this.authorizeModel(principal)};}
+    catch(error){
+      // Refusing third-party transfer must not break trusted offline Skills.
+      // Generic chat has no deterministic fallback and stays prohibited.
+      if(error?.message==='CHILD_CLOUD_TEXT_DISABLED'&&mode!=='chat')
+        return {available:false,context:null};
+      throw error;
+    }
+  }
   async load() {
     if(!this.store)return;
     const data=await this.store.load();
@@ -169,7 +180,7 @@ export class CompanionConversations {
     const course=resolveCourse(mode,lessonId);
     return this.#enqueue(async()=>{
       this.authorizeMode(actor,mode);
-      if(this.provider)this.authorizeModel(principal);
+      const model=this.#modelFor(principal,mode);
       const next=new Map(this.#sessions);
       const mine=[...next.values()].filter(s=>ownedKey(s)===principal)
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
@@ -179,8 +190,8 @@ export class CompanionConversations {
         ...(course?{lessonId:course.id,lessonVersion:course.version}:{}),
         step:0,context:'',round:0,milestones:[],
         createdAt:now,updatedAt:now,
-        messages:[{role:'assistant',text:!this.provider&&course?course.opening:
-          opening(mode,Boolean(this.provider)),source:'intro'}]};
+        messages:[{role:'assistant',text:!model.available&&course?course.opening:
+          opening(mode,model.available),source:'intro'}]};
       next.set(id,session);
       await this.#commit(next);
       return copy(session);
@@ -204,18 +215,18 @@ export class CompanionConversations {
       this.authorizeMode(actor,current.mode);
       // Parent may revoke cloud access while a session is open. Recheck on
       // every turn, including SSE before any model tokens can leave the host.
-      const modelContext=this.provider?this.authorizeModel(principal):null;
+      const model=this.#modelFor(principal,current.mode);
       const input=text.trim();
       const user={role:'user',text:input,source:'user'};
       let reply,step=current.step,context=current.context,source='offline';
-      if(this.provider) {
+      if(model.available) {
         const history=[...current.messages,{role:'user',text:input}];
         if(stream){
           if(typeof this.provider.streamReply!=='function')throw new Error('CHAT_STREAM_UNAVAILABLE');
           reply=await this.provider.streamReply({actor,mode:current.mode,messages:history,
-            context:modelContext,signal,onDelta});
+            context:model.context,signal,onDelta});
         }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,
-          context:modelContext,signal});
+          context:model.context,signal});
         source='model';
       }else{
         const course=resolveCourse(current.mode,current.lessonId);
