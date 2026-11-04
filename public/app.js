@@ -63,6 +63,7 @@ $('skills-list').addEventListener('click',async e=>{
    companionSessionId=res.session.id;
    $('companion-mode').value=res.session.mode;
    showCompanion(res.session);
+   await refreshCompanionInfo();
    window.location.hash='#overview';
    companionNotice('已从技能中心开启 '+(id==='learning.english'?'A1 英语':'互动故事')+' 对话。');
    notify('互动技能已启动；请在 Alex 互动终端回复。');
@@ -134,7 +135,7 @@ function applySession(session){
   companionActor=authorizedActor;companionSessionId=null;
   $('companion-messages').replaceChildren();
  }
- for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode']){
+ for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode','companion-history']){
   $(id).disabled=!authorizedActor;
  }
  $('companion-privacy').textContent=authorizedActor
@@ -494,6 +495,17 @@ async function refreshCompanionInfo(){
   const r=await fetch('/api/companion/sessions',{cache:'no-store'});
   if(!r.ok)throw new Error('无法获取对话服务');
   const data=await r.json();
+  const history=$('companion-history');
+  const selected=companionSessionId;
+  history.replaceChildren();
+  const empty=document.createElement('option');empty.value='';empty.textContent='选择历史会话';history.append(empty);
+  for(const entry of data.sessions){
+   const option=document.createElement('option');option.value=entry.id;
+   option.textContent=(entry.mode==='english'?'A1 英语':entry.mode==='story'?'互动故事':'自由聊天')
+     +' · '+entry.turns+' 轮 · '+new Date(entry.updatedAt).toLocaleString('zh-CN');
+   history.append(option);
+  }
+  if(selected&&data.sessions.some(x=>x.id===selected))history.value=selected;
   companionProvider=data.provider;
   $('companion-provider').textContent=data.provider==='compatible'?'真实模型已配置':'离线互动';
   $('companion-privacy').textContent=(data.transcriptsPersisted?'已由家长开启本地对话持久化':'对话仅在服务进程内存中保留，重启即消失')+' · 不会自动控制设备';
@@ -505,6 +517,20 @@ async function refreshCompanionInfo(){
   }
  }catch(err){companionNotice(err.message,true);}
 }
+$('companion-history').addEventListener('change',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ const id=$('companion-history').value;
+ if(!id){companionSessionId=null;$('companion-messages').replaceChildren();return;}
+ try{
+  const res=await fetch('/api/companion/session?id='+encodeURIComponent(id),{cache:'no-store'});
+  if(!res.ok)throw new Error('无法读取当前身份的历史会话');
+  const session=(await res.json()).session;
+  companionSessionId=session.id;
+  $('companion-mode').value=session.mode;
+  showCompanion(session);
+  companionNotice('已恢复历史会话，继续输入即可对话。');
+ }catch(err){companionSessionId=null;companionNotice(err.message,true);}
+});
 $('companion-new').addEventListener('click',async()=>{
  if(!authorizedActor||companionBusy)return;
  companionBusy=true;
@@ -512,6 +538,7 @@ $('companion-new').addEventListener('click',async()=>{
   const res=await api('/api/companion/open',{mode:$('companion-mode').value});
   companionSessionId=res.session.id;
   showCompanion(res.session);
+  await refreshCompanionInfo();
   companionNotice('新的文字对话已开始。');
   $('companion-text').focus();
  }catch(err){companionNotice(err.message,true);}
@@ -532,6 +559,7 @@ $('companion-form').addEventListener('submit',async e=>{
   const res=await api('/api/companion/turn',{id:companionSessionId,text});
   $('companion-text').value='';
   showCompanion(res.session);
+  await refreshCompanionInfo();
   companionNotice(res.source==='model'?'AI 模型已回复；没有触发任何设备动作。':'离线互动已回复；未调用云端模型。');
   if($('companion-read-aloud').checked && 'speechSynthesis' in window){
    window.speechSynthesis.cancel();
@@ -551,6 +579,7 @@ $('companion-delete').addEventListener('click',async()=>{
   await api('/api/companion/delete',{id:companionSessionId});
   companionSessionId=null;$('companion-messages').replaceChildren();
   window.speechSynthesis?.cancel();
+  await refreshCompanionInfo();
   companionNotice('已删除当前对话。');
  }catch(err){companionNotice(err.message,true);}
  finally{companionBusy=false;}
