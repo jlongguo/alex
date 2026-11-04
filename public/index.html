@@ -82,6 +82,25 @@
         <section class="panel command-panel"><div class="panel-header"><div><div class="eyebrow">COMMAND INTERFACE</div><h2>向智能中枢下达指令</h2></div><span class="pill">RULE-BASED DEMO</span></div><form id="command-form" class="command-form"><input id="command-text" type="text" maxlength="500" autocomplete="off" placeholder="例如：去书桌、讲故事、学英语、紧急停止..." required /><button type="submit">发送 ↗</button></form><div id="command-result" class="command-result">等待下一条指令。当前使用确定性意图路由，尚未接入 LLM。</div><div class="chips"><button type="button" data-command="去书桌">去书桌</button><button type="button" data-command="去客厅">去客厅</button><button type="button" data-command="讲故事">讲故事</button><button type="button" data-command="学英语">学英语</button></div></section>
         <section class="panel skills-panel"><div class="panel-header"><div><div class="eyebrow">NEXT ACTION</div><h2>更多操作</h2></div></div><p>所有跨设备任务、家长审批和技能运行现在都有独立工作区；原有功能并未删除。</p><div class="quick-links"><a href="#tasks">打开 Agent 与任务</a><a href="#skills">打开技能中心</a><a href="#devices">管理虚拟设备</a></div></section>
       </div>
+      <section class="panel events-panel companion-panel" id="companion-section" data-nav-view="overview" aria-labelledby="companion-heading">
+        <div class="panel-header"><div><div class="eyebrow">AI COMPANION · SOFTWARE-FIRST</div><h2 id="companion-heading">Alex 互动终端</h2></div><span id="companion-provider" class="pill">未连接</span></div>
+        <p class="helper">先以文字验证完整对话链路。英语练习、互动故事可离线使用；自由聊天需要家长明确配置模型。聊天不会自动控制设备；语音输入/朗读仅在浏览器支持并获得用户操作时启用。</p>
+        <div class="companion-tools">
+          <label for="companion-mode">互动模式</label>
+          <select id="companion-mode"><option value="english">A1 英语练习</option><option value="story">分支故事</option><option value="chat">自由聊天（需模型）</option></select>
+          <button id="companion-new" type="button">开始新对话</button>
+          <button id="companion-delete" type="button" class="secondary-btn">删除当前对话</button>
+          <label class="companion-voice"><input type="checkbox" id="companion-read-aloud" /> 朗读回复</label>
+        </div>
+        <p id="companion-privacy" class="helper" role="status">需要经过验证的本地家长/儿童身份；默认对话不落盘。</p>
+        <div id="companion-messages" class="companion-messages" role="log" aria-live="polite" aria-label="Alex 对话记录"></div>
+        <form id="companion-form" class="command-form">
+          <input id="companion-text" type="text" maxlength="500" autocomplete="off" placeholder="输入回复，或点击麦克风开始语音转文字" required aria-label="对 Alex 说的话" />
+          <button id="companion-microphone" class="secondary-btn" type="button" title="仅在支持语音识别的浏览器可用">🎙 语音输入</button>
+          <button id="companion-send" type="submit">发送</button>
+        </form>
+        <p id="companion-notice" class="helper" role="status"></p>
+      </section>
       <section class="panel events-panel" id="device-access-note" data-nav-view="devices" role="status">
         <div class="panel-header"><div><div class="eyebrow">DEVICE ACCESS</div><h2>需要家长授权</h2></div></div>
         <p class="helper">设备配对、能力审批及虚拟任务派发仅向已验证的家长账户开放。演示模式没有家长会话，必须先启用本地认证。</p><button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>家长登录 / 配置授权</button>
