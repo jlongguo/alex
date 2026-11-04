@@ -40,7 +40,10 @@ def query_gz_model_pose(timeout=4):
     """Ask the isolated Gazebo service for the true alex_bot model pose."""
     try:
         result = subprocess.run(
-            ['gz', 'model', '--world-name', 'alex_home', '--model-name', 'alex_bot', '--pose'],
+            # Gazebo Sim Harmonic's `gz model -m` prints model XYZ/RPY.
+            # The legacy `--pose` switch is not a read-only info option
+            # in the Sim model command and returned exit code 255 on macOS Docker.
+            ['gz', 'model', '-m', 'alex_bot'],
             capture_output=True, text=True, errors='replace', check=False,
             timeout=timeout)
         if result.returncode != 0:
