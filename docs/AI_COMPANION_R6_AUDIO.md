@@ -31,12 +31,12 @@ AUTH_MODE=local
 ALEX_AUDIO_PROVIDER=compatible
 ALEX_AUDIO_BASE_URL=https://api.openai.com/v1
 ALEX_AUDIO_API_KEY=YOUR_PRIVATE_SERVER_SIDE_KEY
-ALEX_AUDIO_ASR_MODEL=gpt-4o-mini-transcribe
-ALEX_AUDIO_TTS_MODEL=gpt-4o-mini-tts
+ALEX_AUDIO_ASR_MODEL=your-supported-transcription-model
+ALEX_AUDIO_TTS_MODEL=your-supported-speech-model
 ALEX_AUDIO_VOICE=alloy
 ```
 
-这些仅是可选的兼容 API 配置示例，**没有在 CI 中调用真实云模型**；家长还需核实第三方服务是否允许处理儿童音频以及适用的隐私和数据使用条件。绝不能把密钥写入 `public/` 或浏览器运行时。
+具体模型名称必须按供应商**当前支持的音频模型**填写。OpenAI 官方已公告部分旧 Speech 和 Transcription 模型有 2027 年退役时间；R6 采用 Provider 接口隔离，以便后续替换为新的 Realtime 或批处理音频供应商。示例**没有在 CI 中调用真实云模型**；家长还需核实第三方服务是否允许处理儿童音频以及适用的隐私和数据使用条件。绝不能把密钥写入 `public/` 或浏览器运行时。
 
 - `POST {BASE_URL}/audio/transcriptions`：multipart `file`、`model`、`response_format=json` 和受控语言 `en/zh`。
 - `POST {BASE_URL}/audio/speech`：JSON `model`、`input`、`voice`、`response_format=mp3`；返回上限 2 MB 的 MP3。
