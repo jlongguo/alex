@@ -314,7 +314,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       await audit.record({actor:auth.current(req).actor??'anonymous',
         learnerId:auth.current(req).learnerId,
         action:'companion.stream',outcome:'denied'}).catch(()=>{});
-    }finally{forget();}
+    }finally{
+      forget();
+      // Revocation aborts a provider but is not a client TCP disconnect.
+      // End the SSE response so browser parsing fails on missing committed,
+      // discarding provisional text instead of hanging indefinitely.
+      if(cancel.signal.aborted&&!res.destroyed&&!res.writableEnded)res.end();
+    }
     return;
   }
   // Text conversation is separate from commands, plans and device control.
