@@ -105,7 +105,7 @@ def main():
     command_samples = {
         topic: {'messages': 0, 'nonzero_messages': 0,
                 'peak_linear_mps': 0.0, 'peak_angular_rps': 0.0,
-                'linear_abs_sum_mps': 0.0}
+                'linear_abs_sum_mps': 0.0, 'angular_abs_sum_rps': 0.0}
         for topic in command_topics
     }
 
@@ -120,6 +120,7 @@ def main():
                 sample['linear_abs_sum_mps'] += linear
             if math.isfinite(angular):
                 sample['peak_angular_rps'] = max(sample['peak_angular_rps'], angular)
+                sample['angular_abs_sum_rps'] += angular
             if (math.isfinite(linear) and linear > 1e-4) or (math.isfinite(angular) and angular > 1e-4):
                 sample['nonzero_messages'] += 1
         return callback
@@ -232,6 +233,16 @@ def main():
         except Exception:
             return None, False
 
+    def current_tf_heading():
+        # A 2D x/y trace cannot distinguish a stopped wheelbase from a robot
+        # that is spinning in place for two minutes at a narrow portal.
+        try:
+            q = tf_buffer.lookup_transform('map', 'base_link', Time()).transform.rotation
+            return round(math.atan2(2 * (q.w * q.z + q.x * q.y),
+                                    1 - 2 * (q.y * q.y + q.z * q.z)), 3)
+        except Exception:
+            return None
+
     def graph_is_ready():
         poses = current_tf_pose()
         ready = bool(action.server_is_ready() and poses[1] and len(clock_times) >= 2
@@ -331,6 +342,10 @@ def main():
         start_sim_ns = node.get_clock().now().nanoseconds
         position_trace = []
         next_pose_sample = start
+        command_window_start = {topic: {'messages': 0, 'nonzero_messages': 0,
+                                        'linear_abs_sum_mps': 0.0,
+                                        'angular_abs_sum_rps': 0.0}
+                                for topic in command_topics}
         initial_tf, _ = current_tf_pose()
         if initial_tf is None:
             raise RuntimeError('INITIAL_TF_MISSING')
@@ -340,7 +355,7 @@ def main():
         for sample in command_samples.values():
             sample.update(messages=0, nonzero_messages=0,
                           peak_linear_mps=0.0, peak_angular_rps=0.0,
-                          linear_abs_sum_mps=0.0)
+                          linear_abs_sum_mps=0.0, angular_abs_sum_rps=0.0)
         collision_state['messages'] = 0
         collision_state['transitions'].clear()
         planned_path.update(messages=0, poses=0, start=None, end=None, frame_id=None)
@@ -369,7 +384,9 @@ def main():
                 'velocity_pipeline': {
                     topic: {**sample,
                             'mean_abs_linear_mps': round(
-                                sample['linear_abs_sum_mps'] / max(1, sample['messages']), 4)}
+                                sample['linear_abs_sum_mps'] / max(1, sample['messages']), 4),
+                            'mean_abs_angular_rps': round(
+                                sample['angular_abs_sum_rps'] / max(1, sample['messages']), 4)}
                     for topic, sample in command_samples.items()
                 },
                 'collision_monitor': {
@@ -425,9 +442,32 @@ def main():
             if time.monotonic() >= next_pose_sample:
                 pose, fresh = current_tf_pose()
                 if pose is not None and fresh:
+                    # A small bounded 5-second interval summary shows whether
+                    # the stall is zero commanded linear speed, persistent
+                    # rotation, or physical non-response to nonzero commands.
+                    interval = {}
+                    for topic, sample in command_samples.items():
+                        previous = command_window_start[topic]
+                        count = sample['messages'] - previous['messages']
+                        interval[topic] = {
+                            'messages': count,
+                            'nonzero_messages': (sample['nonzero_messages']
+                                                 - previous['nonzero_messages']),
+                            'mean_abs_linear_mps': round(
+                                (sample['linear_abs_sum_mps']
+                                 - previous['linear_abs_sum_mps']) / max(1, count), 4),
+                            'mean_abs_angular_rps': round(
+                                (sample['angular_abs_sum_rps']
+                                 - previous['angular_abs_sum_rps']) / max(1, count), 4),
+                        }
+                        command_window_start[topic] = {
+                            key: sample[key] for key in previous
+                        }
                     position_trace.append({
                         'wall_seconds': round(time.monotonic() - start, 1),
                         'x': round(pose[0], 3), 'y': round(pose[1], 3),
+                        'heading_rad': current_tf_heading(),
+                        'velocity_interval': interval,
                         'distance_remaining_m': feedback['last_remaining_m'],
                         'collision_action': (
                             collision_state['last']['action_type']
