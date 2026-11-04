@@ -148,7 +148,9 @@ test('R7 finalization uses separate ASR TTL instead of expiring 15s capture plus
  const manager=new AudioIngressSessions({now:()=>now});
  const session=manager.open(A,{mime:'audio/webm'});
  manager.append(A,session.id,{seq:0,mime:'audio/webm',data:Buffer.alloc(400)});
- now+=14_000;
+ now+=8_000;
+ manager.append(A,session.id,{seq:1,mime:'audio/webm',data:Buffer.alloc(150)});
+ now+=6_000;
  let signalReady;
  const began=new Promise(resolve=>signalReady=resolve);
  let complete;
