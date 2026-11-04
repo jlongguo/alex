@@ -21,7 +21,7 @@ export class CompatibleCompanionProvider {
     this.timeout=Math.min(25000,Math.max(1000,timeoutMs));
   }
   #messages(mode,actor,messages) {
-    if(!['chat','english','story'].includes(mode)||!['parent','child'].includes(actor))
+    if(!['chat','english','story','quiz'].includes(mode)||!['parent','child'].includes(actor))
       throw new Error('INVALID_COMPANION_CONTEXT');
     if(!Array.isArray(messages)||messages.length<1||messages.length>32)
       throw new Error('INVALID_COMPANION_HISTORY');
@@ -43,7 +43,9 @@ export class CompatibleCompanionProvider {
         ?'Use simple CEFR A1 English; one short question per turn; help with one or two mistakes without pretending to hear voice.'
         :mode==='story'
           ?'Co-create a family-friendly interactive story, offer concise A/B choices, respect the reader choices.'
-          :'Use concise, conversational, age-appropriate answers.',
+          :mode==='quiz'
+            ?'Give a short age-appropriate everyday science question with A/B choices. Explain only after the learner answers, but do not self-grade or certify real learning.'
+            :'Use concise, conversational, age-appropriate answers.',
     ].join(' ');
     return [{role:'system',content:system},...history];
   }
