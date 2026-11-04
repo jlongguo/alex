@@ -5,6 +5,8 @@ export type SkillResult = {ok:boolean;message:string};
 export interface SkillManifest extends SkillDescriptor {
   version: string;
   enabled: boolean;
+  /** Optional interactive companion UI mode, never a device capability. */
+  conversationMode?: 'english' | 'story';
 }
 export interface SkillContext {
   readonly actor: Actor;
@@ -19,13 +21,13 @@ export interface SkillPlugin {
 export class SkillRegistry {
   private readonly plugins = new Map<string, SkillPlugin>();
   constructor(private readonly policy:PolicyEngine, private readonly availableCapabilities: readonly Capability[] = ['audio.input','audio.output','display.face']) {
-    this.register({manifest:{id:'learning.english',version:'0.2.0',enabled:true,name:'英语陪读',description:'基础跟读（演示）',capabilities:['audio.input','audio.output'],allowedActors:['parent','child']},execute:()=>({ok:true,message:'英语陪读技能已启动（演示）：Hello! Let’s practice “I like apples.”'})});
-    this.register({manifest:{id:'story.interactive',version:'0.2.0',enabled:true,name:'互动故事',description:'分支故事（演示）',capabilities:['audio.output','display.face'],allowedActors:['parent','child']},execute:()=>({ok:true,message:'互动故事技能已启动（演示）：小机器人在星空下找到一张神秘地图……'})});
+    this.register({manifest:{id:'learning.english',version:'0.2.0',enabled:true,name:'英语陪读',description:'互动式 A1 文字英语练习（本地会话）；语音为可选浏览器能力',conversationMode:'english',capabilities:['audio.input','audio.output'],allowedActors:['parent','child']},execute:()=>({ok:true,message:'英语技能已授权。请在 Alex 互动终端开启 A1 练习会话；此调用不会自动播放声音。'})});
+    this.register({manifest:{id:'story.interactive',version:'0.2.0',enabled:true,name:'互动故事',description:'可选择剧情的多轮互动故事（本地会话）',conversationMode:'story',capabilities:['audio.output','display.face'],allowedActors:['parent','child']},execute:()=>({ok:true,message:'互动故事技能已授权。请在 Alex 互动终端开启分支剧情会话。'})});
     this.register({manifest:{id:'home.status',version:'0.2.0',enabled:true,name:'家庭状态',description:'本地设备状态（演示）',capabilities:[],allowedActors:['parent']},execute:()=>({ok:true,message:'家庭状态技能已启动（演示）：家庭中枢在线，机器人模拟器已连接。'})});
   }
   register(plugin: SkillPlugin): void {
     const m=plugin.manifest;
-    if(!/^[a-z][a-z0-9.-]{2,79}$/.test(m.id) || !/^\d+\.\d+\.\d+$/.test(m.version) || typeof plugin.execute!=='function' || this.plugins.has(m.id) || typeof m.name!=='string' || !m.name.trim() || typeof m.description!=='string' || typeof m.enabled!=='boolean' || !Array.isArray(m.allowedActors) || !Array.isArray(m.capabilities) || !m.allowedActors.length || m.allowedActors.some(x=>x!=='parent'&&x!=='child') || m.capabilities.some(x=>!['audio.input','audio.output','display.face','navigation.goto','navigation.dock'].includes(x)))throw new Error('INVALID_SKILL_MANIFEST');
+    if(!/^[a-z][a-z0-9.-]{2,79}$/.test(m.id) || !/^\d+\.\d+\.\d+$/.test(m.version) || typeof plugin.execute!=='function' || this.plugins.has(m.id) || typeof m.name!=='string' || !m.name.trim() || typeof m.description!=='string' || typeof m.enabled!=='boolean' || (m.conversationMode!==undefined&&!['english','story'].includes(m.conversationMode)) || !Array.isArray(m.allowedActors) || !Array.isArray(m.capabilities) || !m.allowedActors.length || m.allowedActors.some(x=>x!=='parent'&&x!=='child') || m.capabilities.some(x=>!['audio.input','audio.output','display.face','navigation.goto','navigation.dock'].includes(x)))throw new Error('INVALID_SKILL_MANIFEST');
     this.plugins.set(m.id,{manifest:{...m,capabilities:[...m.capabilities],allowedActors:[...m.allowedActors]},execute:plugin.execute});
   }
   unregister(id:string):boolean {return this.plugins.delete(id);}
