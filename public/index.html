@@ -9,6 +9,7 @@
   <script src="/navigation.js" defer></script>
   <script src="/terminal-runtime.js" defer></script>
   <script src="/voice-session.js" defer></script>
+  <script src="/audio-session.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body data-current-page="overview">
@@ -116,10 +117,16 @@
         <div id="companion-messages" class="companion-messages" role="log" aria-live="polite" aria-label="Alex 对话记录"></div>
         <form id="companion-form" class="command-form">
           <input id="companion-text" type="text" maxlength="500" autocomplete="off" placeholder="输入回复，或点击麦克风开始语音转文字" required aria-label="对 Alex 说的话" />
-          <button id="companion-microphone" class="secondary-btn" type="button" title="仅在支持语音识别的浏览器可用">🎙 语音输入</button>
+          <button id="companion-microphone" class="secondary-btn" type="button" title="浏览器语音识别，可能使用浏览器厂商服务">🎙 浏览器语音输入</button>
+          <button id="companion-cloud-record" class="secondary-btn" type="button" disabled title="上传短录音至家长配置的第三方 ASR 服务商">开始云端短录音</button>
           <button id="companion-send" type="submit">发送</button>
           <button id="companion-cancel" class="secondary-btn" type="button" disabled>中止本轮</button>
         </form>
+        <div class="command-form">
+          <button type="button" id="companion-cloud-speak" class="secondary-btn" disabled>云端朗读最后回复</button>
+          <button type="button" id="companion-audio-cancel" class="secondary-btn" disabled>停止录音／播放</button>
+        </div>
+        <p id="companion-audio-policy" class="helper" role="status">云端录音和合成使用单独的家长授权，默认禁止。短音频最长 15 秒；识别文字不会自动发送。</p>
         <p id="companion-notice" class="helper" role="status"></p>
       </section>
       <section class="panel events-panel" id="device-access-note" data-nav-view="devices" role="status">
@@ -220,6 +227,8 @@
             <select id="learner-privacy-profile" aria-label="选择隐私授权的学习者" required></select>
             <label><input id="learner-privacy-mic" type="checkbox" /> 允许手动开启浏览器语音识别</label>
             <label><input id="learner-privacy-speech" type="checkbox" /> 允许浏览器朗读回复</label>
+            <label><input id="learner-privacy-cloud-asr" type="checkbox" /> 允许将 15 秒内短录音上传家长配置的云端语音识别服务商（单独授权）</label>
+            <label><input id="learner-privacy-cloud-tts" type="checkbox" /> 允许将选定的回复文字发送给云端语音合成服务商（单独授权）</label>
             <label><input id="learner-privacy-cloud" type="checkbox" /> 允许将文字和近期对话发送至家长配置的云端 AI</label>
             <label for="learner-privacy-language">偏好语言</label>
             <select id="learner-privacy-language"><option value="bilingual">中英双语</option><option value="zh">中文</option><option value="en">英文</option></select>
