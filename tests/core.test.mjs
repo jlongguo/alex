@@ -8,7 +8,7 @@ test('P0: robot capabilities and installed skills are registered',()=>{
   const home=new HomeCore();
   assert.equal(home.listDevices().length,1);
   assert.ok(home.listDevices()[0].capabilities.includes('navigation.goto'));
-  assert.deepEqual(home.skills.list().map(s=>s.id),['learning.english','story.interactive','home.status']);
+  assert.deepEqual(home.skills.list().map(s=>s.id),['learning.english','story.interactive','quiz.science','home.status']);
 });
 
 test('P0: all named map destinations have routes from dock and no unsafe cells',()=>{
