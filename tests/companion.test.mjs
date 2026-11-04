@@ -220,10 +220,12 @@ test('UI includes accessible companion flow without mixing device commands into 
     readFile(join(cwd,'public/index.html'),'utf8'),
     readFile(join(cwd,'public/app.js'),'utf8')
   ]);
-  for(const id of ['companion-form','companion-mode','companion-messages','companion-microphone','companion-privacy'])
+  for(const id of ['companion-form','companion-mode','companion-messages','companion-microphone','companion-privacy','companion-history'])
     assert.ok(html.includes('id="'+id+'"'),id);
   assert.match(js,/body.textContent=message.text/);
   assert.match(js,/\/api\/companion\/turn/);
+  assert.match(js,/companion-history.*addEventListener\('change'/);
+  assert.match(js,/await refreshCompanionInfo\(\)/);
   assert.match(js,/const CompanionSpeechRecognition=window.SpeechRecognition\|\|window.webkitSpeechRecognition/);
   assert.match(js,/recognition.onresult/);
   assert.doesNotMatch(js,/recognition.onresult=.*requestSubmit/);
