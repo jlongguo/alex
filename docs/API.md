@@ -2,6 +2,15 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R7：浏览器增量音频会话
+
+- `POST /api/audio/turn/start`：JSON `{mime,language}`，创建临时的、按服务端已验证身份绑定的音频会话，返回 opaque id、64KiB 分片、1.5MB 总量及过期边界。
+- `POST /api/audio/turn/chunk`：原始 audio/* 分片，头部 `X-Alex-Turn-Id` / `X-Alex-Chunk-Seq`；连续序号、MIME、真实字节数、身份归属校验，返回 `nextSeq,totalBytes`。
+- `POST /api/audio/turn/finish`：JSON `{id}`，清理媒体缓存，将完成的短片段转给当前的**批量 ASR Provider**；返回 `requiresManualSubmit:true` 的文字预览及非内容时延指标。
+- `POST /api/audio/turn/cancel`、`GET /api/audio/turn/status?id=...` 和 `GET /api/audio/turn/metrics`：本身份控制和读取本人的临时会话元数据；没有全局音频内容检索 API。
+- 当前端点由家长对该独立学习者设置的 `voiceInputAllowed`、`cloudAudioInputAllowed` 双重授权保护；会话在未完成时只保存在内存中，10s idle / 20s TTL，全球最多 8 个会话，同一身份最多 1 个。
+- 这**不是上游实时语音**，服务端时长只代表调用壁钟时间，不能替代媒体解码验证。详见 [R7](AI_COMPANION_R7_INCREMENTAL_AUDIO.md)。
+
 ## AI 互动终端 R6：短音频与云端 Provider
 
 - `GET /api/audio/capabilities`：认证后返回实际可用的 ASR/TTS、MIME 和大小上限（不含服务端密钥）。
