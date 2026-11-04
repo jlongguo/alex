@@ -55,7 +55,7 @@ document.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',(
 $('skills-list').addEventListener('click',async e=>{
  const button=e.target.closest('[data-skill]');if(!button)return;
  const id=button.dataset.skill;
- if(authorizedActor&&['learning.english','story.interactive'].includes(id)){
+ if(authorizedActor&&['learning.english','story.interactive','quiz.science'].includes(id)){
   if(companionBusy)return;
   companionBusy=true;
   try{
@@ -69,7 +69,7 @@ $('skills-list').addEventListener('click',async e=>{
    showCompanion(res.session);
    await refreshCompanionInfo();
    window.location.hash='#overview';
-   companionNotice('已从技能中心开启 '+(id==='learning.english'?'A1 英语':'互动故事')+' 对话。');
+   companionNotice('已从技能中心开启 '+(id==='learning.english'?'A1 英语':id==='quiz.science'?'科学小问答':'互动故事')+' 对话。');
    notify('互动技能已启动；请在 Alex 互动终端回复。');
   }catch(err){notify(err.message,true);}
   finally{companionBusy=false;}
@@ -662,6 +662,7 @@ async function refreshCompanionProgress(){
   const progress=(await res.json()).progress;
   $('companion-progress-summary').textContent='A1 文字练习完成 '+progress.englishTextExercisesCompleted
     +' 次；分支故事完成 '+progress.storyBranchesCompleted
+    +' 次；科学文字问答完成 '+(progress.scienceTextQuizzesCompleted??0)
     +' 次。有界独立成果记录不因会话自动轮换而消失；删除或隐私擦除会清理。非发音／成绩测评。';
   $('companion-course-progress').replaceChildren();
   for(const course of curriculum){
@@ -701,7 +702,7 @@ async function refreshCompanionInfo(){
   const empty=document.createElement('option');empty.value='';empty.textContent='选择历史会话';history.append(empty);
   for(const entry of data.sessions){
    const option=document.createElement('option');option.value=entry.id;
-   option.textContent=(entry.mode==='english'?'A1 英语':entry.mode==='story'?'互动故事':'自由聊天')
+   option.textContent=(entry.mode==='english'?'A1 英语':entry.mode==='story'?'互动故事':entry.mode==='quiz'?'科学小问答':'自由聊天')
      +' · '+entry.turns+' 轮 · '+new Date(entry.updatedAt).toLocaleString('zh-CN');
    history.append(option);
   }
