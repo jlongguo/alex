@@ -176,6 +176,36 @@ def configure_nav2(source):
         follow_path['model_dt'] = 0.10
         follow_path['time_steps'] = max(1, round(horizon / 0.10))
         follow_path['batch_size'] = min(batch_size, 500)
+
+        # Third-leg live evidence: the robot was stuck near the first room
+        # portal at map (2.02, 1.65) for ~130 wall seconds, without a
+        # CollisionMonitor intervention. Jazzy MPPI's stock PathAlign
+        # critic only becomes active after 20 path samples and PathFollow
+        # looks 5 samples ahead; on this 0.1m grid these offsets encourage
+        # cutting the sharp turn beyond the ~0.9m opening.
+        #
+        # Shorten lookahead so the controller tracks the *local* portal path
+        # while still using every existing collision / trajectory critic,
+        # keeping obstacle inflation, safety filter, and goal accuracy.
+        prune = follow_path.get('prune_distance')
+        if (not isinstance(prune, (int, float)) or isinstance(prune, bool)
+                or not 0.5 <= float(prune) <= 10.0):
+            raise IncompatibleNav2Template('Invalid FollowPath.prune_distance')
+        follow_path['prune_distance'] = min(float(prune), 1.2)
+        critics = follow_path.get('critics')
+        if not isinstance(critics, list):
+            raise IncompatibleNav2Template('MPPI missing configured critics')
+        for name, offset in (('PathAlignCritic', 8),
+                             ('PathFollowCritic', 3),
+                             ('PathAngleCritic', 2)):
+            if name not in critics:
+                raise IncompatibleNav2Template('MPPI missing required path critic: ' + name)
+            critic = nested(follow_path, name)
+            previous = critic.get('offset_from_furthest')
+            if type(previous) is not int or not 1 <= previous <= 100:
+                raise IncompatibleNav2Template('Invalid MPPI ' + name + '.offset_from_furthest')
+            critic['offset_from_furthest'] = min(previous, offset)
+
         if 'visualize' in follow_path:
             follow_path['visualize'] = False
         if 'publish_optimal_trajectory' in follow_path:
