@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id);
 let state=null,lastTask=null,busy=false,refreshInFlight=false;
 let companionActor=null,companionSessionId=null,companionBusy=false,companionProvider='offline';
 let curriculum=[],currentLearningPlans=[];
+const deniedVoice={voiceInputAllowed:false,voiceOutputAllowed:false,cloudTextAllowed:false};
+let companionPrivacy={...deniedVoice};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const color = {dock:'#8ac7a8',study_desk:'#79a4db',sofa:'#c4a4dc',story_corner:'#e7b76b'};
 const labels={dock:'充电基站',study_desk:'学习书桌',sofa:'客厅沙发',story_corner:'故事角'};
@@ -445,6 +447,14 @@ async function refreshFamily(){
    option.value=profile.id;option.textContent=profile.nickname;profileSelect.append(option);
   }
   if(profiles.some(p=>p.id===selectedProfile))profileSelect.value=selectedProfile;
+  const privacySelect=$('learner-privacy-profile'),priorPrivacy=privacySelect.value;
+  privacySelect.replaceChildren();
+  for(const profile of profiles){
+    const option=document.createElement('option');
+    option.value=profile.id;option.textContent=profile.nickname;privacySelect.append(option);
+  }
+  if(profiles.some(p=>p.id===priorPrivacy))privacySelect.value=priorPrivacy;
+  await loadSelectedLearnerPrivacy();
   const pSelect=$('learning-plan-profile'),priorProfile=pSelect.value;
   pSelect.replaceChildren();
   for(const profile of profiles){
@@ -509,6 +519,50 @@ $('learning-plan-list').addEventListener('click',async event=>{
   else await api('/api/learning/delete',{id:removed.dataset.learningDelete});
   lastFamilyPoll=0;await refreshFamily();notify('学习计划已更新');
  }catch(error){notify(error.message,true);}
+ finally{familyBusy=false;}
+});
+async function loadSelectedLearnerPrivacy(){
+ if(authorizedActor!=='parent')return;
+ const id=$('learner-privacy-profile').value;
+ if(!id){$('learner-privacy-status').textContent='请先创建学习者档案。';return;}
+ try{
+  const response=await fetch('/api/learner/privacy?profileId='+encodeURIComponent(id),{cache:'no-store'});
+  if(!response.ok)throw new Error('无法加载学习者隐私授权');
+  const data=(await response.json()).preferences;
+  if($('learner-privacy-profile').value!==id)return;
+  $('learner-privacy-mic').checked=data.voiceInputAllowed;
+  $('learner-privacy-speech').checked=data.voiceOutputAllowed;
+  $('learner-privacy-cloud').checked=data.cloudTextAllowed;
+  $('learner-privacy-language').value=data.preferredLanguage;
+  $('learner-privacy-pace').value=data.learningPace;
+  $('learner-privacy-topic').value=data.topics?.[0]??'';
+  $('learner-privacy-status').textContent='当前孩子授权已加载。云端文字：'+
+    (data.cloudTextAllowed?'允许':'禁止')+'；语音输入：'+
+    (data.voiceInputAllowed?'允许':'禁止')+'；朗读：'+
+    (data.voiceOutputAllowed?'允许':'禁止')+'。';
+ }catch(err){$('learner-privacy-status').textContent=err.message;}
+}
+$('learner-privacy-profile').addEventListener('change',()=>void loadSelectedLearnerPrivacy());
+$('learner-privacy-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||familyBusy)return;
+ const profileId=$('learner-privacy-profile').value;
+ const cloudTextAllowed=$('learner-privacy-cloud').checked;
+ if(cloudTextAllowed&&!window.confirm('启用云端文字模型会将该孩子输入的文字和近期聊天发送给家长配置的第三方模型服务商。确认授权？'))return;
+ familyBusy=true;
+ try{
+  await api('/api/learner/privacy',{
+   profileId,preferences:{
+    voiceInputAllowed:$('learner-privacy-mic').checked,
+    voiceOutputAllowed:$('learner-privacy-speech').checked,
+    cloudTextAllowed,
+    preferredLanguage:$('learner-privacy-language').value,
+    learningPace:$('learner-privacy-pace').value,
+    topics:$('learner-privacy-topic').value?[$('learner-privacy-topic').value]:[]
+   }
+  });
+  lastFamilyPoll=0;await refreshFamily();notify('学习者隐私授权与偏好已保存');
+ }catch(err){notify(err.message,true);}
  finally{familyBusy=false;}
 });
 $('learner-pin-form').addEventListener('submit',async e=>{
