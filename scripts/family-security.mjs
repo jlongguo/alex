@@ -38,7 +38,8 @@ export class FamilyAuth {
       if (token) this.sessions.delete(token);
       return {authenticated:false,actor:null,mode:'local'};
     }
-    return {authenticated:true,actor:session.actor,mode:'local'};
+    return {...(session.learnerId?{learnerId:session.learnerId}:{}),
+      authenticated:true,actor:session.actor,mode:'local'};
   }
   actor(req, claimedActor) {
     const session = this.current(req);
@@ -47,17 +48,23 @@ export class FamilyAuth {
     if (claimedActor !== 'parent' && claimedActor !== 'child') throw new Error('INVALID_ACTOR');
     return claimedActor;
   }
-  login(req,{role,secret}) {
+  login(req,{role,secret,code}={},verifyLearner) {
     if (this.mode !== 'local') throw new Error('AUTH_NOT_ENABLED');
-    if (role !== 'parent' && role !== 'child') throw new Error('INVALID_ROLE');
+    if (!['parent','child','learner'].includes(role)) throw new Error('INVALID_ROLE');
+    if(role==='learner'&&typeof verifyLearner!=='function')
+      throw new Error('LEARNER_LOGIN_NOT_CONFIGURED');
     const ip = req.socket.remoteAddress ?? 'unknown';
     const now = Date.now();
     const record = this.failures.get(ip) ?? {count:0,until:0};
     if (record.until > now) throw new Error('TOO_MANY_ATTEMPTS');
-    const expected = role === 'parent' ? this.parentDigest : this.childDigest;
-    // Always perform a constant-time comparison for failed logins.
-    const correct = validSecret(secret, expected ?? this.parentDigest);
-    if (!expected || !correct) {
+    const expected=role==='parent'?this.parentDigest:
+      role==='child'?this.childDigest:null;
+    const learnerId=role==='learner'?verifyLearner(code,secret):null;
+    // Parent/legacy child comparisons remain constant-time. The optional
+    // learner verifier runs scrypt even for unknown codes.
+    const correct=role==='learner'?!!learnerId:
+      validSecret(secret,expected??this.parentDigest);
+    if ((role==='learner'&&!learnerId)||(role!=='learner'&&(!expected||!correct))) {
       record.count++;
       if (record.count >= 5) { record.until = now + 5 * 60_000; record.count=0; }
       this.failures.set(ip,record);
@@ -69,8 +76,16 @@ export class FamilyAuth {
       if(this.sessions.size >= SESSION_LIMIT) throw new Error('SESSION_LIMIT_REACHED');
     }
     const token = randomBytes(32).toString('hex');
-    this.sessions.set(token,{actor:role,expiresAt:now+MAX_AGE_SECONDS*1000});
-    return {actor:role,cookie:`${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${MAX_AGE_SECONDS}`};
+    const actor=role==='learner'?'child':role;
+    this.sessions.set(token,{actor, ...(learnerId?{learnerId}:{}),
+      expiresAt:now+MAX_AGE_SECONDS*1000});
+    return {actor, ...(learnerId?{learnerId}:{}),cookie:`${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${MAX_AGE_SECONDS}`};
+  }
+  revokeLearner(profileId) {
+    let count=0;
+    for(const [token,session] of this.sessions)
+      if(session.learnerId===profileId){this.sessions.delete(token);count++;}
+    return count;
   }
   logout(req) {
     const token = parseCookies(req);
