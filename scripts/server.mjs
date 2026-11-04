@@ -13,6 +13,8 @@ import {MAP} from '../dist/robot/map.js';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
 import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
+import {CompanionConversations} from './companion-conversations.mjs';
+import {CompatibleCompanionProvider} from './companion-provider.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -40,6 +42,23 @@ const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
   ?new CompatiblePlanProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL})
   :new RulePlanProvider();
 const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
+// New companion text product lane. Never reuse the intent classifier as a
+// free-form chat engine; each provider is opt-in and completely tool-free.
+// Conversation APIs require verified local family auth (not insecure demo).
+const chatMode=process.env.ALEX_CHAT_PROVIDER??'offline';
+if(!['offline','compatible'].includes(chatMode))throw new Error('INVALID_CHAT_PROVIDER');
+if(process.env.ALEX_CONVERSATION_PERSIST==='1' && auth.mode!=='local')
+  throw new Error('LOCAL_AUTH_REQUIRED_FOR_CONVERSATION_PERSISTENCE');
+const chatProvider=chatMode==='compatible'
+  ?new CompatibleCompanionProvider({
+      baseUrl:process.env.AGENT_BASE_URL,
+      apiKey:process.env.AGENT_API_KEY,
+      model:process.env.AGENT_MODEL})
+  :null;
+const conversations=new CompanionConversations({
+  provider:chatProvider,
+  persist:process.env.ALEX_CONVERSATION_PERSIST==='1',
+  file:process.env.ALEX_CONVERSATION_FILE??resolve(appDir,'.local','conversations.json')});
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
 const saved=await store.load();
 if(saved)core.restore(saved);
@@ -50,6 +69,7 @@ await gateway.load();
 await workflows.load();
 await plans.load();
 await proposals.load();
+await conversations.load();
 await store.save(core.snapshot());
 let persistTimer=null;
 const schedulePersist=()=>{
@@ -65,7 +85,7 @@ const send = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-const errorStatus = (message) => message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'?409:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -177,7 +197,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -192,6 +212,18 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const cursor=new URL(req.url,`http://${incomingHost}`).searchParams.get('after')??'0';
     if(!/^\d{1,15}$/.test(cursor)){send(res,400,{ok:false,error:'INVALID_EVENT_CURSOR'});return;}
     send(res,200,{events:plans.getEvents(Number(cursor))});return;
+  }
+  // Text conversation is separate from commands, plans and device control.
+  // Demo-mode actor switching is never a secure transcript boundary.
+  if(req.method==='GET' && (pathname==='/api/companion/sessions'||pathname==='/api/companion/session')){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const actor=auth.actor(req);
+    if(pathname==='/api/companion/sessions'){
+      send(res,200,{sessions:conversations.list(actor),provider:conversations.providerKind,
+                    transcriptsPersisted:conversations.persist});return;
+    }
+    const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
+    send(res,200,{session:conversations.get(actor,id)});return;
   }
   if(req.method==='GET' && pathname==='/api/workflows'){
     const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -212,7 +244,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   if(req.method==='GET' && pathname==='/api/state'){send(res,200,core.state());return;}
   if(req.method==='GET' && pathname==='/api/devices'){send(res,200,{devices:[...core.listDevices(),...devices.list()]});return;}
   if(req.method==='GET' && pathname==='/api/profiles'){send(res,200,{profiles:profiles.list()});return;}
-  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),memory:memory.exportForParent(actor),devices:devices.list()});return;}
+  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),memory:memory.exportForParent(actor),devices:devices.list(),companionConversations:conversations.exportForParent(actor),transcriptsPersisted:conversations.persist});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
@@ -233,7 +265,19 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const actor=auth.actor(req,data.actor);
     let result;
     try {
-      if(pathname==='/api/devices/pair/start'){
+      if(pathname==='/api/companion/open'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,session:await conversations.open(actor,data.mode)};
+      }else if(pathname==='/api/companion/turn'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,...await conversations.turn(actor,data.id,data.text)};
+      }else if(pathname==='/api/companion/delete'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result=await conversations.remove(actor,data.id);
+      }else if(pathname==='/api/companion/erase'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,deletedConversations:await conversations.erase(actor,data.scope)};
+      }else if(pathname==='/api/devices/pair/start'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,...devices.start(actor)};
       }else if(pathname==='/api/devices/revoke'){
@@ -284,7 +328,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:await profiles.remove(actor,data.id),message:'Profile deletion processed'};
       }else if(pathname==='/api/privacy/erase'){
         const removed=await memory.erase(actor,data.scope);
-        result={ok:true,deletedMemoryEntries:removed,note:'Audit metadata and learner profiles are not erased by this operation.'};
+        // Family erasure must cover the opt-in conversation transcript store,
+        // not merely the legacy manually entered memory entries.
+        let deletedConversations=0;
+        if(['child','parent','all'].includes(data.scope))
+          deletedConversations=await conversations.erase(actor,data.scope);
+        result={ok:true,deletedMemoryEntries:removed,deletedConversations,
+                note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
       }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
         result={ok:true,message:'Memory saved',entry};
