@@ -394,6 +394,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     });
     if(!res.destroyed)send(res,200,{ok:true,...result,
       requiresManualSubmit:true,clipDurationClaimMs:clip.durationClaimMs});
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,action:'audio.transcribe',outcome:'allowed'});
     return;
   }
   if(req.method==='POST' && pathname==='/api/audio/speak'){
@@ -422,6 +424,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         'Content-Security-Policy':"default-src 'none'"});
       res.end(result.audio);
     }
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,action:'audio.speak',outcome:'allowed'});
     return;
   }
   if(req.method==='GET' && pathname==='/api/learner/privacy'){
