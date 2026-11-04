@@ -834,6 +834,7 @@ function speakCompanion(text,mode){
  }
  try{
   cloudAudioBridge.interrupt('browser-speech-start');
+  streamingAudioBridge.interrupt('browser-speech-start');
   voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
     rate:mode==='english'?.85:1});
  }catch(err){companionNotice(err.message,true);companionState('error');}
@@ -1010,6 +1011,7 @@ $('companion-form').addEventListener('submit',async e=>{
  companionBusy=true;$('companion-send').disabled=true;
  $('companion-cancel').disabled=false;
  voiceBridge.interrupt('chat-submit');cloudAudioBridge.interrupt('chat-submit');
+ streamingAudioBridge.interrupt('chat-submit');
  companionState('thinking');
  const controller=new AbortController();companionAbort=controller;
  try{
@@ -1083,6 +1085,7 @@ $('companion-cloud-record').addEventListener('click',async()=>{
   companionNotice('没有单独的云端录音授权，或尚未配置语音供应商。',true);return;
  }
  voiceBridge.interrupt('cloud-capture-start');
+ streamingAudioBridge.interrupt('cloud-capture-start');
  try{await cloudAudioBridge.startCapture({
    language:$('companion-mode').value==='english'?'en':'zh'
  });}
@@ -1099,12 +1102,34 @@ $('companion-cloud-speak').addEventListener('click',async()=>{
  const reply=messages.length?messages[messages.length-1].textContent?.trim():'';
  if(!reply){companionNotice('没有可朗读的回复。',true);return;}
  voiceBridge.interrupt('cloud-speech-start');
+ streamingAudioBridge.interrupt('cloud-speech-start');
  await cloudAudioBridge.speak(reply.slice(0,500),{
    language:$('companion-mode').value==='english'?'en':'zh'
  });
 });
+$('companion-stream-record').disabled=true;
+$('companion-stream-record').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ if(streamingAudioBridge.snapshot().recording){
+  streamingAudioBridge.stopCapture();return;
+ }
+ await refreshCompanionPrivacy(true);
+ if(!audioCapabilities.inputAllowed){
+  companionNotice('该身份未获得独立云端录音授权，或语音供应商尚未配置。',true);
+  return;
+ }
+ voiceBridge.interrupt('incremental-capture-start');
+ cloudAudioBridge.interrupt('incremental-capture-start');
+ try{
+  await streamingAudioBridge.startCapture({
+    language:$('companion-mode').value==='english'?'en':'zh',
+    autoStopOnSilence:$('companion-stream-vad').checked
+  });
+ }catch(err){companionNotice(err.message,true);}
+});
 $('companion-audio-cancel').addEventListener('click',async()=>{
  cloudAudioBridge.interrupt('user-cancel');
+ streamingAudioBridge.interrupt('user-cancel');
  if(authorizedActor)fetch('/api/audio/cancel',{method:'POST'}).catch(()=>{});
 });
 $('companion-microphone').disabled=true;
@@ -1120,6 +1145,7 @@ $('companion-microphone').addEventListener('click',async()=>{
    voiceBridge.stopListening();companionNotice('已停止语音识别。');return;
   }
   cloudAudioBridge.interrupt('browser-webspeech-start');
+  streamingAudioBridge.interrupt('browser-webspeech-start');
   voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
   companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
  }catch(err){companionNotice(err.message,true);}
@@ -1129,10 +1155,12 @@ window.addEventListener('pagehide',()=>{
  companionAbort?.abort();
  voiceBridge.interrupt('pagehide');
  cloudAudioBridge.interrupt('pagehide');
+ streamingAudioBridge.interrupt('pagehide');
 });
 document.addEventListener('visibilitychange',()=>{
  if(document.hidden){
   voiceBridge.interrupt('page-hidden');cloudAudioBridge.interrupt('page-hidden');
+  streamingAudioBridge.interrupt('page-hidden');
  }
  else void refreshCompanionPrivacy(true);
 });
