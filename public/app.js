@@ -145,6 +145,7 @@ function applySession(session){
  if(companionActor!==companionIdentity) {
   voiceBridge.interrupt('identity-changed');
   cloudAudioBridge.interrupt('identity-changed');
+  streamingAudioBridge.interrupt('identity-changed');
   audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
   privacyPollAt=0;
@@ -662,6 +663,27 @@ $('companion-mode').addEventListener('change',()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null;
+const streamingAudioBridge=new globalThis.AlexStreamingAudioBridge({
+ monitorFactory:options=>new globalThis.AlexEnergyAudioMonitor(options),
+ onTranscript:({text,metrics})=>{
+  $('companion-text').value=text.slice(0,500);
+  $('companion-stream-notice').textContent='增量录音：'+(metrics?.chunks??0)+
+    ' 片，音频采集 '+(metrics?.captureMs??0)+' ms。请检查文字后手动发送。';
+ },
+ onStatus:({state,message,sentChunks,sentBytes})=>{
+  const mapped={requesting:'listening',recording:'listening',
+    finishing:'thinking',transcribing:'thinking',error:'error',idle:'idle'}[state];
+  if(mapped&&$('companion-runtime').dataset.state!==mapped)
+    companionState(mapped);
+  $('companion-stream-record').textContent=state==='recording'
+    ?'结束增量录音':'开始增量录音（实验）';
+  $('companion-stream-notice').textContent=(message??'增量语音')+
+    ' · 已上传 '+sentChunks+' 片 / '+sentBytes+' 字节。';
+  $('companion-audio-cancel').disabled=
+    (state==='idle'||state==='error')
+    &&['idle','error'].includes(cloudAudioBridge?.snapshot?.().state??'idle');
+ }
+});
 const cloudAudioBridge=new globalThis.AlexCloudAudioBridge({
  onTranscript:({text})=>{
   $('companion-text').value=text.slice(0,500);
@@ -683,6 +705,8 @@ async function refreshAudioCapabilities(){
  if(!authorizedActor){
   audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   cloudAudioBridge.interrupt('not-authenticated');
+  streamingAudioBridge.interrupt('not-authenticated');
+  $('companion-stream-record').disabled=true;
   $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;return;
  }
  try{
@@ -694,7 +718,11 @@ async function refreshAudioCapabilities(){
   if((!next.inputAllowed&&['recording','transcribing'].includes(state))
      ||(!next.outputAllowed&&['synthesizing','speaking'].includes(state)))
     cloudAudioBridge.interrupt('parent-revoked');
+  if(!next.inputAllowed&&streamingAudioBridge.snapshot().state!=='idle')
+    streamingAudioBridge.interrupt('parent-revoked');
   audioCapabilities=next;
+  $('companion-stream-record').disabled=!next.inputAllowed||
+    !(navigator.mediaDevices?.getUserMedia&&globalThis.MediaRecorder);
   $('companion-cloud-record').disabled=!next.inputAllowed||
     !(navigator.mediaDevices?.getUserMedia&&globalThis.MediaRecorder);
   $('companion-cloud-speak').disabled=!next.outputAllowed;
@@ -707,6 +735,8 @@ async function refreshAudioCapabilities(){
   if(identity!==companionActor)return;
   audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   cloudAudioBridge.interrupt('policy-unavailable');
+  streamingAudioBridge.interrupt('policy-unavailable');
+  $('companion-stream-record').disabled=true;
   $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;
   $('companion-audio-policy').textContent='无法验证云端音频权限，已停止录音与播放。';
  }
