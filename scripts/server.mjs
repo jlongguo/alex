@@ -68,7 +68,8 @@ const conversations=new CompanionConversations({
   file:process.env.ALEX_CONVERSATION_FILE??resolve(appDir,'.local','conversations.json'),
   authorizeMode:(actor,mode)=>{
     if(mode==='chat')return;
-    const id=mode==='english'?'learning.english':'story.interactive';
+    const id=mode==='english'?'learning.english':
+      mode==='quiz'?'quiz.science':'story.interactive';
     const skill=core.skills.list().find(entry=>entry.id===id && entry.conversationMode===mode);
     if(!skill||!skill.enabled||!skill.allowedActors.includes(actor))
       throw new Error('COMPANION_SKILL_UNAVAILABLE');
