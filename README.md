@@ -1,4 +1,6 @@
-# Home Agent OS — 可运行的家庭智能中枢 + 虚拟移动机器人
+# Alex — 软件优先的通用 AI 家庭智能终端与虚拟设备平台
+
+> AI Companion 主线开发（2026-11-04）：新会话 API、可选真实模型多轮文字聊天、A1 互动英语、分支故事、家庭隐私和浏览器可选语音入口。详情见 [AI Companion MVP](docs/AI_COMPANION_MVP.md)。机器人 ROS2/Gazebo 是可选后端，三段导航仍需真实验证；不能据此推断语音/AI 已验收。
 
 ## Console navigation fix
 
