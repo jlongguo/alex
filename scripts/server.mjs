@@ -19,6 +19,8 @@ import {CompatibleCompanionProvider} from './companion-provider.mjs';
 import {courseCatalog,resolveCourse} from './skill-curriculum.mjs';
 import {LearningPlans} from './learning-plans.mjs';
 import {LearnerPrivacy} from './learner-privacy.mjs';
+import {CompatibleAudioProvider,MAX_AUDIO_UPLOAD_BYTES,MAX_AUDIO_MS} from './audio-provider.mjs';
+import {AudioTurnGate,readAudioUpload} from './audio-transport.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -35,6 +37,15 @@ const learnerCredentials=new LearnerCredentials(
   process.env.LEARNER_CREDENTIALS_FILE??resolve(appDir,'.local','learner-credentials.json'));
 const learnerPrivacy=new LearnerPrivacy(
   process.env.ALEX_LEARNER_PRIVACY_FILE??resolve(appDir,'.local','learner-privacy.json'));
+const audioGate=new AudioTurnGate();
+const audioMode=process.env.ALEX_AUDIO_PROVIDER??'disabled';
+if(!['disabled','compatible'].includes(audioMode))throw new Error('INVALID_AUDIO_PROVIDER_MODE');
+const audioProvider=audioMode==='compatible'?new CompatibleAudioProvider({
+  baseUrl:process.env.ALEX_AUDIO_BASE_URL,apiKey:process.env.ALEX_AUDIO_API_KEY,
+  transcriptionModel:process.env.ALEX_AUDIO_ASR_MODEL,
+  speechModel:process.env.ALEX_AUDIO_TTS_MODEL,
+  voice:process.env.ALEX_AUDIO_VOICE??'alloy'
+}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
@@ -108,12 +119,14 @@ const send = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-const errorStatus = (message) => message==='CHAT_MODEL_REQUIRED'||message==='COMPANION_TURN_CANCELLED'?409:message==='CHILD_CLOUD_TEXT_DISABLED'?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:message==='TOO_MANY_ATTEMPTS'?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLED','AUDIO_PROVIDER_NOT_CONFIGURED',
+  'AUDIO_ALREADY_ACTIVE','AUDIO_REQUEST_CANCELLED'].includes(message)?409:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
       const message = err instanceof Error ? err.message : 'INTERNAL_ERROR';
-      send(res,errorStatus(message),{ok:false,error:message});
+      if(!res.destroyed&&!res.writableEnded)
+        send(res,errorStatus(message),{ok:false,error:message});
     }
   };
 }
@@ -159,6 +172,14 @@ function abortAllChildCompanion(){
  for(const principal of activeCompanionControllers.keys())
    if(principal==='child'||principal.startsWith('learner:'))abortCompanion(principal);
 }
+const audioAllowed=(principal,mode)=>{
+  const prefs=learnerPrivacy.forPrincipal(principal);
+  const allowed=mode==='asr'
+    ?prefs.voiceInputAllowed&&prefs.cloudAudioInputAllowed
+    :prefs.voiceOutputAllowed&&prefs.cloudAudioOutputAllowed;
+  if(!allowed)throw new Error('CHILD_CLOUD_AUDIO_DISABLED');
+  return prefs;
+};
 const server=http.createServer(asyncWrap(async(req,res)=>{
   const pathname=new URL(req.url??'/',`http://${req.headers.host ?? 'localhost'}`).pathname;
   const origin=req.headers.origin;
@@ -258,7 +279,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
   if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,virtualPresentationProtocol:3,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,childCloudTextDefault:'denied',
-    learnerPrivacyPolicyVersion:1,learningCurriculumVersion:1,learningEvidenceLedger:'session-snapshot-v1',companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+    learnerPrivacyPolicyVersion:2,audioProvider:audioProvider?.kind??'disabled',
+    audioRecordingMode:'short-clip',learningCurriculumVersion:1,learningEvidenceLedger:'session-snapshot-v1',companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -334,6 +356,69 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/capabilities'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req),prefs=learnerPrivacy.forPrincipal(principal);
+    send(res,200,{provider:audioProvider?'compatible':'disabled',
+      inputAllowed:Boolean(audioProvider&&prefs.voiceInputAllowed&&prefs.cloudAudioInputAllowed),
+      outputAllowed:Boolean(audioProvider&&prefs.voiceOutputAllowed&&prefs.cloudAudioOutputAllowed),
+      maxAudioBytes:MAX_AUDIO_UPLOAD_BYTES,maxDurationMs:MAX_AUDIO_MS,
+      supportedMimeTypes:['audio/webm','audio/ogg','audio/mp4','audio/wav','audio/mpeg'],
+      recordingMode:'short-clip',uploadsPersisted:false,cloudVendorProcessing:!!audioProvider});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/cancel'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    // Cancellation only applies to this authenticated identity.
+    send(res,200,{ok:true,cancelled:audioGate.cancel(principal)});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/transcribe'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr'); // before receiving a child's binary audio
+    if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const clip=await readAudioUpload(req);
+    const result=await audioGate.run(principal,'asr',async signal=>{
+      audioAllowed(principal,'asr');
+      const transcript=await audioProvider.transcribe({
+        audio:clip.audio,mime:clip.mime,
+        language:req.headers['x-alex-language']==='en'?'en':
+          req.headers['x-alex-language']==='zh'?'zh':undefined,
+        signal
+      });
+      audioAllowed(principal,'asr');
+      return transcript;
+    });
+    if(!res.destroyed)send(res,200,{ok:true,...result,
+      requiresManualSubmit:true,clipDurationClaimMs:clip.durationClaimMs});
+    return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/speak'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'tts');
+    if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    if(typeof params.text!=='string'||params.text.length>500||!params.text.trim())
+      throw new Error('INVALID_AUDIO_TEXT');
+    if(!['zh','en'].includes(params.language??'zh'))
+      throw new Error('INVALID_AUDIO_LANGUAGE');
+    const result=await audioGate.run(principal,'tts',async signal=>{
+      audioAllowed(principal,'tts');
+      const output=await audioProvider.synthesize({
+        text:params.text,language:params.language??'zh',signal});
+      audioAllowed(principal,'tts');
+      return output;
+    });
+    if(!res.destroyed){
+      res.writeHead(200,{'Content-Type':result.mime,
+        'Content-Length':result.audio.byteLength,
+        'Cache-Control':'no-store, no-transform','X-Content-Type-Options':'nosniff',
+        'Content-Security-Policy':"default-src 'none'"});
+      res.end(result.audio);
+    }
+    return;
   }
   if(req.method==='GET' && pathname==='/api/learner/privacy'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -449,6 +534,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         // The server remains authoritative on every subsequent model turn.
         if(!result.privacy.preferences.cloudTextAllowed)
           abortCompanion('learner:'+data.profileId);
+        if(!result.privacy.preferences.cloudAudioInputAllowed||
+          !result.privacy.preferences.cloudAudioOutputAllowed)
+          audioGate.cancel('learner:'+data.profileId);
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,plan:await learningPlans.assign(actor,{
@@ -541,6 +629,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           // subsequently fails. Delete related transcript evidence as well.
           auth.revokeLearner(data.id);
           abortCompanion('learner:'+data.id);
+          audioGate.cancel('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -556,7 +645,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           deletedConversations=await conversations.erase(actor,data.scope);
         const deletedLearningPlans=await learningPlans.eraseForPrivacy(actor,data.scope);
         const clearedLearnerPrivacy=await learnerPrivacy.clearForPrivacy(actor,data.scope);
-        if(['child','all'].includes(data.scope))abortAllChildCompanion();
+        if(['child','all'].includes(data.scope)){
+          abortAllChildCompanion();audioGate.cancelChild();
+        }
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,
           note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
