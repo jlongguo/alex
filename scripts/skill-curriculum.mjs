@@ -27,6 +27,14 @@ const COURSES=Object.freeze([
     opening:'Let us talk about your day. Type: I wake up early.'
   },
   {
+    id:'science.everyday.discovery',version:'1.0.0',mode:'quiz',
+    skillId:'quiz.science',level:'beginner',title:'科学小问答：生活中的发现',
+    description:'三题可解释的基础科学与生活安全文本选择题。',
+    objectives:['Recognize everyday science facts','Practice safe choices with an adult'],
+    targetStep:3,kind:'science_quiz_text',
+    opening:'科学小问答！第 1 题：植物生长最需要哪一种光？A：阳光  B：月光。请选择 A 或 B。'
+  },
+  {
     id:'story.library.choice',version:'1.0.0',mode:'story',
     skillId:'story.interactive',level:'all',title:'互动故事：发光的图书馆',
     description:'三次可控剧情选择的文本互动故事。',
@@ -37,10 +45,22 @@ const COURSES=Object.freeze([
 ]);
 
 export const DEFAULT_LESSON=Object.freeze({
-  english:'english.a1.intro',story:'story.library.choice'
+  english:'english.a1.intro',story:'story.library.choice',
+  quiz:'science.everyday.discovery'
 });
 const norm=s=>s.replace(/\s+/g,' ').trim();
 const QUESTIONS=Object.freeze({
+  'science.everyday.discovery':[
+    {pattern:/^(a|选a|左|左边)$/i,
+      retry:'不太对。植物生长需要阳光。请选择 A：阳光。',
+      next:'答对了！植物可以利用阳光制造养分。第 2 题：冰遇到温暖会怎样？A：融化成水  B：长出叶子。请选择 A 或 B。'},
+    {pattern:/^(a|选a|左|左边)$/i,
+      retry:'冰受热通常会融化。请选择 A：融化成水。',
+      next:'答对了！冰融化后会变成液态水。第 3 题：过马路前应该怎么做？A：和成年人一起观察交通  B：闭眼跑过去。请选择 A 或 B。'},
+    {pattern:/^(a|选a|左|左边)$/i,
+      retry:'过马路要先确保安全。请选择 A：和成年人一起观察交通。',
+      next:'很好！你完成了三道基础科学与安全文字选择题。输入“重新开始”再练习一次。'}
+  ],
   'english.a1.greetings':[
     {pattern:/^hello[,! ]*(alex)?[.!]?$/i,
       retry:'Please say a greeting: Hello, Alex!',
