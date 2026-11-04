@@ -378,6 +378,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     audioAllowed(principal,'asr'); // before receiving a child's binary audio
     if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    res.on('close',()=>{if(!res.writableEnded)audioGate.cancel(principal);});
+    req.on('aborted',()=>audioGate.cancel(principal));
     const clip=await readAudioUpload(req);
     const result=await audioGate.run(principal,'asr',async signal=>{
       audioAllowed(principal,'asr');
@@ -399,6 +401,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     audioAllowed(principal,'tts');
     if(!audioProvider)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    res.on('close',()=>{if(!res.writableEnded)audioGate.cancel(principal);});
+    req.on('aborted',()=>audioGate.cancel(principal));
     const params=await body(req);
     if(typeof params.text!=='string'||params.text.length>500||!params.text.trim())
       throw new Error('INVALID_AUDIO_TEXT');
