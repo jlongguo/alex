@@ -16,6 +16,8 @@ import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
+import {courseCatalog,resolveCourse} from './skill-curriculum.mjs';
+import {LearningPlans} from './learning-plans.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -30,6 +32,8 @@ const devices=new DeviceRegistry(process.env.DEVICES_FILE??resolve(appDir,'.loca
 const profiles=new FamilyProfiles(process.env.PROFILES_FILE??resolve(appDir,'.local','profiles.json'));
 const learnerCredentials=new LearnerCredentials(
   process.env.LEARNER_CREDENTIALS_FILE??resolve(appDir,'.local','learner-credentials.json'));
+const learningPlans=new LearningPlans(
+  process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
 const deviceStreamClients=new Set();
 const agentMemoryEnabled=process.env.AGENT_MEMORY_CONTEXT==='1';
@@ -76,6 +80,7 @@ await memory.load();
 await devices.load();
 await profiles.load();
 await learnerCredentials.load();
+await learningPlans.load();
 await gateway.load();
 await workflows.load();
 await plans.load();
@@ -227,7 +232,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,virtualPresentationProtocol:3,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,virtualPresentationProtocol:3,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,learningCurriculumVersion:1,learningEvidenceLedger:'session-snapshot-v1',companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -297,6 +302,19 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
   }
+  if(req.method==='GET' && pathname==='/api/learning/catalog'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    auth.actor(req);
+    send(res,200,{version:1,courses:courseCatalog()});return;
+  }
+  if(req.method==='GET' && pathname==='/api/learning/plans'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const owner=principalFor(req);
+    const requested=new URL(req.url,`http://${incomingHost}`).searchParams.get('profileId');
+    const plansForOwner=owner==='child'?[]:
+      learningPlans.list(owner,requested??undefined);
+    send(res,200,{plans:plansForOwner});return;
+  }
   if(req.method==='GET' && pathname==='/api/companion/progress'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const actor=principalFor(req);
@@ -333,7 +351,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{learners:learnerCredentials.listForParent('parent')});return;
   }
-  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),learnerLoginCodes:learnerCredentials.listForParent(actor),memory:memory.exportForParent(actor),devices:devices.list(),companionConversations:conversations.exportForParent(actor),transcriptsPersisted:conversations.persist});return;}
+  if(req.method==='GET' && pathname==='/api/privacy/export'){const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}send(res,200,{version:1,profiles:profiles.list(),learnerLoginCodes:learnerCredentials.listForParent(actor),
+      learningPlans:learningPlans.exportForParent(actor),
+      learningEvidence:conversations.exportEvidenceForParent(actor),
+      memory:memory.exportForParent(actor),devices:devices.list(),
+      companionConversations:conversations.exportForParent(actor),
+      transcriptsPersisted:conversations.persist});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
@@ -354,9 +377,21 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const actor=auth.actor(req,data.actor);
     let result;
     try {
-      if(pathname==='/api/companion/open'){
+      if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
-        result={ok:true,session:await conversations.open(principalFor(req),data.mode)};
+        result={ok:true,plan:await learningPlans.assign(actor,{
+          profileId:data.profileId,courseId:data.courseId,
+          targetCompletions:data.targetCompletions},
+          profileId=>profiles.list().some(profile=>profile.id===profileId))};
+      }else if(pathname==='/api/learning/change'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,plan:await learningPlans.changeStatus(actor,data.id,data.status)};
+      }else if(pathname==='/api/learning/delete'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:await learningPlans.remove(actor,data.id)};
+      }else if(pathname==='/api/companion/open'){
+        if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,session:await conversations.open(principalFor(req),data.mode,{lessonId:data.lessonId})};
       }else if(pathname==='/api/companion/turn'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,...await conversations.turn(principalFor(req),data.id,data.text)};
@@ -430,6 +465,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           auth.revokeLearner(data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
+          await learningPlans.removeProfile(actor,data.id);
         }
         result={ok:deleted,message:'Profile deletion processed'};
       }else if(pathname==='/api/privacy/erase'){
@@ -439,8 +475,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         let deletedConversations=0;
         if(['child','parent','all'].includes(data.scope))
           deletedConversations=await conversations.erase(actor,data.scope);
-        result={ok:true,deletedMemoryEntries:removed,deletedConversations,
-                note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
+        const deletedLearningPlans=await learningPlans.eraseForPrivacy(actor,data.scope);
+        result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
+          note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
       }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
         result={ok:true,message:'Memory saved',entry};
@@ -486,7 +523,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
             if(result.ok&&auth.mode==='local'){
               const manifest=core.skills.list().find(skill=>skill.id===data.id);
               if(manifest?.conversationMode){
-                const session=await conversations.open(principalFor(req),manifest.conversationMode);
+                const course=resolveCourse(manifest.conversationMode,data.lessonId);
+                const session=await conversations.open(principalFor(req),manifest.conversationMode,
+                  {lessonId:course.id});
                 result={...result,session};
               }
             }
