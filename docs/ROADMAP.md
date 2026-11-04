@@ -1,3 +1,11 @@
+# 主线更新：2026-11-04
+
+Alex 产品目标是 **通用、可扩展的儿童/家庭 AI 智能终端**，不等于英语陪读机或专用导航机器人。软件虚拟设备优先，实体硬件后置。主线改为 AI Brain → 语音/显示终端 → 可用 Skill → 家庭资料与隐私 → 平台稳定化。
+
+新增可执行工作：[docs/AI_COMPANION_MVP.md](AI_COMPANION_MVP.md)。其中对话/英语/故事代码正在 PR #36 开发及验证；ROS2 三段导航属独立可选分支。
+
+---
+
 # Current v0.13 status (2026-11-03)
 
 - **Launch-time crash fixed** (`nav2_bringup` path), Launch function executed under ROS API stubs, headless GPU LiDAR mode added.
