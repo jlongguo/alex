@@ -43,7 +43,7 @@ export class VirtualPresentationRuntime {
     this.lastEvent={kind:job.capability,at:new Date().toISOString()};
     this.write(job.capability==='display.face'
       ?'[virtual-display] face='+face
-      :'[virtual-caption] '+caption);
+      :'[virtual-caption] '+caption.replace(/[\u0000-\u001f\u007f-\u009f]/g,' '));
     return observed;
   }
 }
