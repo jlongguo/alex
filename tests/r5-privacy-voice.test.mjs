@@ -91,12 +91,18 @@ test('R5 every model call checks parent cloud consent and forwards only typed in
    }
   });
   const hub=new CompanionConversations({provider,authorizeModel:principal=>privacy.modelContext(principal)});
-  await assert.rejects(()=>hub.open(first,'english'),/CHILD_CLOUD_TEXT_DISABLED/);
+  const offline=await hub.open(first,'english',{lessonId:'english.a1.greetings'});
+  assert.equal(offline.messages[0].text.includes('Hello, Alex'),true);
+  const practice=await hub.turn(first,offline.id,'Hello Alex');
+  assert.equal(practice.source,'offline');
+  assert.equal(modelRequests.length,0,'disabled cloud must still allow local Skills');
+  await assert.rejects(()=>hub.open(first,'chat'),/CHILD_CLOUD_TEXT_DISABLED/);
   await assert.rejects(()=>hub.open('child','chat'),/CHILD_CLOUD_TEXT_DISABLED/);
   await privacy.set('parent',A,{cloudTextAllowed:true,
     preferredLanguage:'en',learningPace:'slow',topics:['robots']},()=>true);
   const session=await hub.open(first,'english');
   await hub.turn(first,session.id,'I like dogs');
+  const chat=await hub.open(first,'chat');
   assert.equal(modelRequests.length,1);
   assert.match(modelRequests[0].messages[0].content,/language=en; pace=slow; interests=robots/);
   assert.ok(!JSON.stringify(modelRequests).includes('private-credential'));
@@ -104,9 +110,11 @@ test('R5 every model call checks parent cloud consent and forwards only typed in
     'A model saying well done must never create a certified lesson event');
   assert.equal(hub.list(second).length,0);
   await privacy.set('parent',A,{cloudTextAllowed:false},()=>true);
-  await assert.rejects(()=>hub.turn(first,session.id,'more'),/CHILD_CLOUD_TEXT_DISABLED/);
+  await assert.rejects(()=>hub.turn(first,chat.id,'more'),/CHILD_CLOUD_TEXT_DISABLED/);
+  const downgraded=await hub.turn(first,session.id,'more');
+  assert.equal(downgraded.source,'offline');
   assert.equal(modelRequests.length,1);
-  assert.equal(hub.get(first,session.id).messages.length,3);
+  assert.equal(hub.get(first,session.id).messages.length,5);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
