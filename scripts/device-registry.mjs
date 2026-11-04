@@ -22,7 +22,7 @@ export class DeviceRegistry {
     this.devices=snapshot.devices.map(d=>{
       const capabilities=d.capabilities??[],declaredCapabilities=d.declaredCapabilities??[];
       if(!validCaps(capabilities)||!validCaps(declaredCapabilities)||capabilities.some(c=>!declaredCapabilities.includes(c)))throw new Error('INVALID_DEVICE_FILE');
-      if(![1,2].includes(d.protocolVersion??1))throw new Error('INVALID_DEVICE_FILE');
+      if(![1,2,3].includes(d.protocolVersion??1))throw new Error('INVALID_DEVICE_FILE');
       return {...d,protocolVersion:d.protocolVersion??1,capabilities:[...capabilities],declaredCapabilities:[...declaredCapabilities]};
     });
   }
