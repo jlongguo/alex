@@ -10,6 +10,7 @@ export const AUDIO_MAX_CHUNKS=64;
 export const AUDIO_MAX_ACTIVE=8;
 export const AUDIO_TURN_TTL_MS=20_000;
 export const AUDIO_IDLE_TTL_MS=10_000;
+export const AUDIO_FINALIZE_TTL_MS=35_000;
 const MAX_STARTS_PER_MINUTE=6;
 const LANGUAGES=new Set(['en','zh']);
 const idValid=x=>typeof x==='string'&&/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(x);
@@ -47,8 +48,11 @@ export class AudioIngressSessions {
   sweep(){
     const now=this.now();
     for(const session of this.#sessions.values()){
-      if(now-session.createdAt>AUDIO_TURN_TTL_MS
-        ||(session.phase==='recording'&&now-session.updatedAt>AUDIO_IDLE_TTL_MS)){
+      if((session.phase==='recording'
+        &&(now-session.createdAt>AUDIO_TURN_TTL_MS
+          ||now-session.updatedAt>AUDIO_IDLE_TTL_MS))
+        ||(session.phase==='finalizing'
+          &&now-session.updatedAt>AUDIO_FINALIZE_TTL_MS)){
         session.controller.abort();
         this.#forget(session,'expired');
       }
