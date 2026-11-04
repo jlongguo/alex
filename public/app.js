@@ -536,6 +536,8 @@ async function loadSelectedLearnerPrivacy(){
   if($('learner-privacy-profile').value!==id)return;
   $('learner-privacy-mic').checked=data.voiceInputAllowed;
   $('learner-privacy-speech').checked=data.voiceOutputAllowed;
+  $('learner-privacy-cloud-asr').checked=!!data.cloudAudioInputAllowed;
+  $('learner-privacy-cloud-tts').checked=!!data.cloudAudioOutputAllowed;
   $('learner-privacy-cloud').checked=data.cloudTextAllowed;
   $('learner-privacy-language').value=data.preferredLanguage;
   $('learner-privacy-pace').value=data.learningPace;
@@ -553,13 +555,17 @@ $('learner-privacy-form').addEventListener('submit',async event=>{
  const profileId=$('learner-privacy-profile').value;
  const cloudTextAllowed=$('learner-privacy-cloud').checked;
  if(cloudTextAllowed&&!window.confirm('启用云端文字模型会将该孩子输入的文字和近期聊天发送给家长配置的第三方模型服务商。确认授权？'))return;
+ const cloudAudioInputAllowed=$('learner-privacy-cloud-asr').checked;
+ const cloudAudioOutputAllowed=$('learner-privacy-cloud-tts').checked;
+ if((cloudAudioInputAllowed||cloudAudioOutputAllowed)&&
+   !window.confirm('云端语音会向家长配置的第三方供应商上传短音频（识别）或选中的文字（合成）；与浏览器权限不同。确认单独授权？'))return;
  familyBusy=true;
  try{
   await api('/api/learner/privacy',{
    profileId,preferences:{
     voiceInputAllowed:$('learner-privacy-mic').checked,
     voiceOutputAllowed:$('learner-privacy-speech').checked,
-    cloudTextAllowed,
+    cloudTextAllowed,cloudAudioInputAllowed,cloudAudioOutputAllowed,
     preferredLanguage:$('learner-privacy-language').value,
     learningPace:$('learner-privacy-pace').value,
     topics:$('learner-privacy-topic').value?[$('learner-privacy-topic').value]:[]
