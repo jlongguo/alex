@@ -135,7 +135,7 @@ function applySession(session){
   companionActor=authorizedActor;companionSessionId=null;
   $('companion-messages').replaceChildren();
  }
- for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode','companion-history']){
+ for(const id of ['companion-new','companion-delete','companion-text','companion-send','companion-mode','companion-history','companion-progress-scope']){
   $(id).disabled=!authorizedActor;
  }
  $('companion-privacy').textContent=authorizedActor
@@ -464,26 +464,69 @@ $('privacy-erase').addEventListener('click',async()=>{
 });
 
 
-// Companion console: no client-side tool dispatch, device-control shortcuts,
-// automatic microphone start, audio recording uploads or misleading LLM status.
+// Alex text-first virtual terminal. No model or browser audio event may invoke
+// device controls. Provisional tokens only become history on committed SSE.
+let companionAbort=null,companionRecognition=null;
+function companionState(next) {
+ const labels={
+  idle:'Alex · 等待交流',listening:'Alex · 正在听写（浏览器识别）',
+  thinking:'Alex · 正在生成文字',speaking:'Alex · 本地朗读中',
+  error:'Alex · 本轮未完成'
+ };
+ if(!(next in labels))return;
+ $('companion-runtime').dataset.state=next;
+ $('companion-runtime-label').textContent=labels[next];
+}
 function companionNotice(text,error=false){
  $('companion-notice').textContent=text;
  $('companion-notice').style.color=error?'#bc6854':'';
 }
+function makeCompanionBubble(role,text,source='offline',preview=false) {
+ const line=document.createElement('div');
+ line.className='companion-message';
+ line.dataset.role=role;
+ if(preview)line.dataset.preview='true';
+ const who=document.createElement('small');
+ who.textContent=role==='user'?'你':preview?'Alex · 尚未保存的预览':
+  source==='model'?'Alex · AI 模型':source==='offline'?'Alex · 离线互动':'Alex · 开场';
+ const body=document.createElement('p');
+ body.textContent=text; // All untrusted user/model content is plain text, never HTML.
+ line.append(who,body);
+ return {line,body};
+}
 function showCompanion(session) {
  const container=$('companion-messages');
  container.replaceChildren();
- for(const message of session.messages){
-  const line=document.createElement('div');
-  line.className='companion-message';
-  line.dataset.role=message.role;
-  const who=document.createElement('small');
-  who.textContent=message.role==='user'?'你':message.source==='model'?'Alex · AI 模型':message.source==='offline'?'Alex · 离线互动':'Alex · 开场';
-  const body=document.createElement('p');
-  body.textContent=message.text; // NOT innerHTML: all model/user text is untrusted.
-  line.append(who,body);container.append(line);
- }
+ for(const message of session.messages)
+  container.append(makeCompanionBubble(message.role,message.text,message.source).line);
  container.scrollTop=container.scrollHeight;
+}
+function stopCompanionSpeech(){
+ if('speechSynthesis' in window)window.speechSynthesis.cancel();
+ if($('companion-runtime').dataset.state==='speaking')companionState('idle');
+}
+function speakCompanion(text,mode){
+ if(!$('companion-read-aloud').checked||!('speechSynthesis' in window))return;
+ stopCompanionSpeech();
+ const utterance=new SpeechSynthesisUtterance(text);
+ utterance.lang=mode==='english'?'en-US':'zh-CN';
+ utterance.rate=mode==='english'?.85:1;
+ utterance.onend=()=>companionState('idle');
+ utterance.onerror=()=>{companionState('error');companionNotice('浏览器朗读失败，可以继续使用文字。',true);};
+ companionState('speaking');
+ window.speechSynthesis.speak(utterance);
+}
+async function refreshCompanionProgress(){
+ if(!authorizedActor){$('companion-progress-summary').textContent='请登录后查看学习记录。';return;}
+ try{
+  const selector=$('companion-progress-scope');
+  const scope=selector.value==='child'?'child':authorizedActor;
+  const res=await fetch('/api/companion/progress?scope='+encodeURIComponent(scope),{cache:'no-store'});
+  if(!res.ok)throw new Error('学习记录暂时不可用');
+  const progress=(await res.json()).progress;
+  $('companion-progress-summary').textContent='A1 文字练习完成 '+progress.englishTextExercisesCompleted
+    +' 次；分支故事完成 '+progress.storyBranchesCompleted+' 次。仅统计当前保存的会话，不代表发音、考试成绩或年龄评估。';
+ }catch(error){companionNotice(error.message,true);}
 }
 async function refreshCompanionInfo(){
  if(!authorizedActor){
@@ -507,80 +550,156 @@ async function refreshCompanionInfo(){
   }
   if(selected&&data.sessions.some(x=>x.id===selected))history.value=selected;
   companionProvider=data.provider;
-  $('companion-provider').textContent=data.provider==='compatible'?'真实模型已配置':'离线互动';
-  $('companion-privacy').textContent=(data.transcriptsPersisted?'已由家长开启本地对话持久化':'对话仅在服务进程内存中保留，重启即消失')+' · 不会自动控制设备';
+  $('companion-provider').textContent=data.provider==='compatible'?'模型已配置':'离线互动';
+  $('companion-privacy').textContent=(data.transcriptsPersisted?'已开启本地对话持久化':'对话仅在服务进程内存中保留，重启即消失')
+   +' · 不会自动控制设备 · 浏览器语音识别可能使用厂商在线服务';
+  const scopeSelector=$('companion-progress-scope');
+  scopeSelector.querySelector('option[value="child"]').hidden=authorizedActor==='child';
+  if(authorizedActor==='child')scopeSelector.value='self';
   if(companionSessionId){
    const owned=data.sessions.some(x=>x.id===companionSessionId);
-   if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();return;}
-   const response=await fetch('/api/companion/session?id='+encodeURIComponent(companionSessionId),{cache:'no-store'});
-   if(response.ok)showCompanion((await response.json()).session);
+   if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();}
+   else{
+    const response=await fetch('/api/companion/session?id='+encodeURIComponent(companionSessionId),{cache:'no-store'});
+    if(response.ok)showCompanion((await response.json()).session);
+   }
   }
+  await refreshCompanionProgress();
  }catch(err){companionNotice(err.message,true);}
 }
+async function restoreCompanion(id) {
+ const res=await fetch('/api/companion/session?id='+encodeURIComponent(id),{cache:'no-store'});
+ if(!res.ok)throw new Error('无法读取当前身份的历史会话');
+ const session=(await res.json()).session;
+ companionSessionId=session.id;
+ $('companion-mode').value=session.mode;
+ showCompanion(session);
+ return session;
+}
+$('companion-progress-scope').addEventListener('change',()=>void refreshCompanionProgress());
 $('companion-history').addEventListener('change',async()=>{
  if(!authorizedActor||companionBusy)return;
  const id=$('companion-history').value;
  if(!id){companionSessionId=null;$('companion-messages').replaceChildren();return;}
- try{
-  const res=await fetch('/api/companion/session?id='+encodeURIComponent(id),{cache:'no-store'});
-  if(!res.ok)throw new Error('无法读取当前身份的历史会话');
-  const session=(await res.json()).session;
-  companionSessionId=session.id;
-  $('companion-mode').value=session.mode;
-  showCompanion(session);
-  companionNotice('已恢复历史会话，继续输入即可对话。');
- }catch(err){companionSessionId=null;companionNotice(err.message,true);}
+ try{await restoreCompanion(id);companionNotice('已恢复历史会话，继续输入即可对话。');}
+ catch(err){companionSessionId=null;companionNotice(err.message,true);}
 });
 $('companion-new').addEventListener('click',async()=>{
  if(!authorizedActor||companionBusy)return;
- companionBusy=true;
- try {
+ companionBusy=true;stopCompanionSpeech();
+ try{
   const res=await api('/api/companion/open',{mode:$('companion-mode').value});
   companionSessionId=res.session.id;
   showCompanion(res.session);
   await refreshCompanionInfo();
+  companionState('idle');
   companionNotice('新的文字对话已开始。');
   $('companion-text').focus();
- }catch(err){companionNotice(err.message,true);}
+ }catch(err){companionNotice(err.message,true);companionState('error');}
  finally{companionBusy=false;}
 });
+
+// Browser fetch reads standard SSE frames. A client-side preview is discarded
+// after an incomplete stream, cancel, server error or connection loss.
+async function receiveCompanionStream(response,onDelta) {
+ if(!response.ok){
+  const failure=await response.json().catch(()=>({}));
+  throw new Error(failure.error||'无法开始流式对话');
+ }
+ if(!response.body)throw new Error('STREAM_BODY_UNAVAILABLE');
+ const reader=response.body.getReader(),decoder=new TextDecoder();
+ let buffer='',committed=null;
+ try{
+  for(;;){
+   const part=await reader.read();
+   if(part.done)break;
+   buffer+=decoder.decode(part.value,{stream:true});
+   buffer=buffer.replace(/\r\n/g,'\n');
+   if(buffer.length>150000)throw new Error('STREAM_DATA_TOO_LARGE');
+   let boundary;
+   while((boundary=buffer.indexOf('\n\n'))>=0){
+    const frame=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);
+    const event=frame.split('\n').find(x=>x.startsWith('event:'))?.slice(6).trim();
+    const raw=frame.split('\n').filter(x=>x.startsWith('data:'))
+      .map(x=>x.slice(5).trimStart()).join('\n');
+    if(!event||!raw)continue;
+    const data=JSON.parse(raw);
+    if(event==='delta'){
+     if(committed)throw new Error('INVALID_STREAM_ORDER');
+     if(typeof data.text!=='string')throw new Error('INVALID_STREAM_DELTA');
+     onDelta(data.text);
+    }else if(event==='committed'){
+     if(committed||!data.session||!data.assistant)throw new Error('INVALID_STREAM_COMMIT');
+     committed=data;
+    }else if(event==='error'){
+     throw new Error(data.error||'STREAM_FAILED');
+    }
+   }
+  }
+  if(!committed)throw new Error('STREAM_INCOMPLETE_NO_COMMIT');
+  return committed;
+ }finally{reader.releaseLock();}
+}
 $('companion-form').addEventListener('submit',async e=>{
  e.preventDefault();
  if(!authorizedActor||companionBusy)return;
  const text=$('companion-text').value.trim();
  if(!text)return;
  companionBusy=true;$('companion-send').disabled=true;
- try {
+ $('companion-cancel').disabled=false;
+ stopCompanionSpeech();companionState('thinking');
+ const controller=new AbortController();companionAbort=controller;
+ try{
   if(!companionSessionId){
    const created=await api('/api/companion/open',{mode:$('companion-mode').value});
    companionSessionId=created.session.id;
    showCompanion(created.session);
   }
-  const res=await api('/api/companion/turn',{id:companionSessionId,text});
+  const baseId=companionSessionId,container=$('companion-messages');
+  container.append(makeCompanionBubble('user',text,'user',true).line);
+  const preview=makeCompanionBubble('assistant','', 'model',true);
+  container.append(preview.line);container.scrollTop=container.scrollHeight;
+  const response=await fetch('/api/companion/stream',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({id:baseId,text}),signal:controller.signal
+  });
+  const result=await receiveCompanionStream(response,delta=>{
+   preview.body.textContent+=delta;container.scrollTop=container.scrollHeight;
+  });
   $('companion-text').value='';
-  showCompanion(res.session);
+  showCompanion(result.session);
   await refreshCompanionInfo();
-  companionNotice(res.source==='model'?'AI 模型已回复；没有触发任何设备动作。':'离线互动已回复；未调用云端模型。');
-  if($('companion-read-aloud').checked && 'speechSynthesis' in window){
-   window.speechSynthesis.cancel();
-   const utterance=new SpeechSynthesisUtterance(res.assistant.text);
-   utterance.lang=res.mode==='english'?'en-US':'zh-CN';
-   utterance.rate=res.mode==='english'?0.85:1;
-   window.speechSynthesis.speak(utterance);
+  companionNotice(result.source==='model'
+    ?'模型回复已完整保存；未执行任何设备动作。':'离线互动已完成；未调用云端模型。');
+  companionState('idle');speakCompanion(result.assistant.text,result.session.mode);
+ }catch(err){
+  if(companionSessionId){
+   try{await restoreCompanion(companionSessionId);}
+   catch{$('companion-messages').replaceChildren();}
   }
- }catch(err){companionNotice(err.message,true);}
- finally{companionBusy=false;$('companion-send').disabled=!authorizedActor;}
+  companionState(controller.signal.aborted?'idle':'error');
+  companionNotice(controller.signal.aborted?'已取消本轮，未完成的预览不作为会话记录。':
+    '回复未完成，已丢弃页面预览：'+err.message,!controller.signal.aborted);
+ }finally{
+  if(companionAbort===controller)companionAbort=null;
+  companionBusy=false;$('companion-send').disabled=!authorizedActor;
+  $('companion-cancel').disabled=true;
+ }
 });
+$('companion-cancel').addEventListener('click',()=>{
+ companionAbort?.abort();companionNotice('已请求取消本轮生成。');
+});
+$('companion-stop-speaking').addEventListener('click',()=>stopCompanionSpeech());
 $('companion-delete').addEventListener('click',async()=>{
  if(!authorizedActor||!companionSessionId||companionBusy)return;
- if(!window.confirm('删除当前对话记录？'))return;
+ if(!window.confirm('删除当前对话记录及其关联的文字练习记录？'))return;
  companionBusy=true;
  try{
   await api('/api/companion/delete',{id:companionSessionId});
   companionSessionId=null;$('companion-messages').replaceChildren();
-  window.speechSynthesis?.cancel();
-  await refreshCompanionInfo();
-  companionNotice('已删除当前对话。');
+  stopCompanionSpeech();
+  await refreshCompanionInfo();companionState('idle');
+  companionNotice('当前对话已删除。');
  }catch(err){companionNotice(err.message,true);}
  finally{companionBusy=false;}
 });
@@ -588,15 +707,26 @@ const CompanionSpeechRecognition=window.SpeechRecognition||window.webkitSpeechRe
 $('companion-microphone').disabled=!CompanionSpeechRecognition;
 $('companion-microphone').addEventListener('click',()=>{
  if(!authorizedActor||!CompanionSpeechRecognition||companionBusy)return;
+ if(companionRecognition){companionRecognition.stop();companionRecognition=null;companionState('idle');return;}
+ stopCompanionSpeech();
  const recognition=new CompanionSpeechRecognition();
+ companionRecognition=recognition;
  recognition.lang=$('companion-mode').value==='english'?'en-US':'zh-CN';
  recognition.interimResults=false;recognition.maxAlternatives=1;
- recognition.onresult=event=>{$('companion-text').value=event.results?.[0]?.[0]?.transcript?.slice(0,500)??'';companionNotice('语音已转为文本，请检查后点击发送。');};
- recognition.onerror=()=>companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);
- try{recognition.start();companionNotice('正在等待浏览器语音权限，仅用于语音转文字。');}
- catch{companionNotice('浏览器无法启动语音识别，请使用文字输入。',true);}
+ recognition.onresult=event=>{
+  $('companion-text').value=event.results?.[0]?.[0]?.transcript?.slice(0,500)??'';
+  companionNotice('语音已转为文本，请检查后点击发送。');
+ };
+ recognition.onerror=()=>{companionState('error');companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);};
+ recognition.onend=()=>{if(companionRecognition===recognition)companionRecognition=null;if($('companion-runtime').dataset.state==='listening')companionState('idle');};
+ try{recognition.start();companionState('listening');companionNotice('仅在浏览器授权后识别；可能调用浏览器厂商服务。');}
+ catch{companionRecognition=null;companionState('error');companionNotice('浏览器无法启动语音识别。',true);}
 });
-window.addEventListener('pagehide',()=>window.speechSynthesis?.cancel());
+window.addEventListener('pagehide',()=>{
+ companionAbort?.abort();
+ if(companionRecognition){companionRecognition.abort();companionRecognition=null;}
+ stopCompanionSpeech();
+});
 
 // All listeners and state are installed before authentication can launch any polling.
 void initAuth();
