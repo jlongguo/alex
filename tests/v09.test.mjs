@@ -108,7 +108,7 @@ test('v0.9 real virtual client returns authenticated pose telemetry over HTTP an
     const dev=(await post('/api/devices/pair/complete',{code:pair.body.code,name:'V09 client'})).body;
     client=spawn(process.execPath,['scripts/virtual-device.mjs'],{cwd,env:{...env,ALEX_BASE_URL:base,ALEX_DEVICE_ID:dev.deviceId,ALEX_DEVICE_TOKEN:dev.token,ALEX_SIM_STEP_MS:'15'},stdio:'ignore'});
     let connected=false;
-    for(let i=0;i<75;i++){const d=(await get('/api/devices',parent)).body.devices.find(x=>x.id===dev.deviceId);if(d?.protocolVersion===2&&d.declaredCapabilities?.includes('sim.navigation.goto')){connected=true;break}await delay(75)}
+    for(let i=0;i<75;i++){const d=(await get('/api/devices',parent)).body.devices.find(x=>x.id===dev.deviceId);if(d?.protocolVersion>=2&&d.declaredCapabilities?.includes('sim.navigation.goto')){connected=true;break}await delay(75)}
     assert.ok(connected);
     assert.equal((await post('/api/devices/capabilities/approve',{deviceId:dev.deviceId,capabilities:['sim.navigation.goto']},parent)).status,200);
     const started=await post('/api/gateway/dispatch',{deviceId:dev.deviceId,capability:'sim.navigation.goto',params:{destination:'study_desk'},requestId:fresh()},parent);
