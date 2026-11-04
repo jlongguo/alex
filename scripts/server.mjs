@@ -58,7 +58,14 @@ const chatProvider=chatMode==='compatible'
 const conversations=new CompanionConversations({
   provider:chatProvider,
   persist:process.env.ALEX_CONVERSATION_PERSIST==='1',
-  file:process.env.ALEX_CONVERSATION_FILE??resolve(appDir,'.local','conversations.json')});
+  file:process.env.ALEX_CONVERSATION_FILE??resolve(appDir,'.local','conversations.json'),
+  authorizeMode:(actor,mode)=>{
+    if(mode==='chat')return;
+    const id=mode==='english'?'learning.english':'story.interactive';
+    const skill=core.skills.list().find(entry=>entry.id===id && entry.conversationMode===mode);
+    if(!skill||!skill.enabled||!skill.allowedActors.includes(actor))
+      throw new Error('COMPANION_SKILL_UNAVAILABLE');
+  }});
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
 const saved=await store.load();
 if(saved)core.restore(saved);
@@ -372,7 +379,20 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           case '/api/safety/stop': result=core.emergencyStop(actor);break;
           case '/api/safety/reset': result=core.resetEmergencyStop(actor);break;
           case '/api/environment': result=core.setObstacle(data.obstaclePresent,actor);break;
-          case '/api/skills/invoke': result=core.invokeSkill(data.id,actor);break;
+          case '/api/skills/invoke': {
+            result=core.invokeSkill(data.id,actor);
+            // Existing SkillRegistry remains the source of permissions.
+            // Authorized local invocations of interactive built-ins now
+            // return a real conversation session instead of a static message.
+            if(result.ok&&auth.mode==='local'){
+              const manifest=core.skills.list().find(skill=>skill.id===data.id);
+              if(manifest?.conversationMode){
+                const session=await conversations.open(actor,manifest.conversationMode);
+                result={...result,session};
+              }
+            }
+            break;
+          }
           default:send(res,404,{ok:false,error:'NOT_FOUND'});return;
         }
         // Persist the command before returning success. Device motion is simulated only.
