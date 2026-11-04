@@ -89,6 +89,8 @@
         <div class="companion-tools">
           <label for="companion-mode">互动模式</label>
           <select id="companion-mode"><option value="english">A1 英语练习</option><option value="story">分支故事</option><option value="chat">自由聊天（需模型）</option></select>
+          <label for="companion-lesson">课程／故事内容</label>
+          <select id="companion-lesson" aria-label="选择课程或互动故事"><option value="english.a1.intro">基础英语：介绍和喜好</option></select>
           <label for="companion-history">我的历史会话</label>
           <select id="companion-history" aria-label="选择历史会话"><option value="">新对话（未选择）</option></select>
           <button id="companion-new" type="button">开始新对话</button>
@@ -101,10 +103,12 @@
           <button type="button" id="companion-stop-speaking" class="secondary-btn">停止朗读</button>
         </div>
         <div class="companion-progress">
-          <strong>文字学习记录（仅表示完成练习，不代表口语能力）</strong>
+          <strong>文字学习成果（有界独立记录；非口语能力评估）</strong>
           <label for="companion-progress-scope">查看对象</label>
           <select id="companion-progress-scope"><option value="self">当前身份</option><option value="child">儿童练习（家长可查看）</option></select>
           <p id="companion-progress-summary" role="status">尚无完成记录。</p>
+          <div id="companion-course-progress" class="learning-course-progress" aria-live="polite"></div>
+          <div id="companion-assignments" class="learning-assignments" aria-live="polite"></div>
         </div>
         <p id="companion-privacy" class="helper" role="status">需要经过验证的本地家长/儿童身份；默认对话不落盘。</p>
         <div id="companion-messages" class="companion-messages" role="log" aria-live="polite" aria-label="Alex 对话记录"></div>
@@ -207,6 +211,16 @@
             <button type="submit">设置／重置专属 PIN</button>
           </form>
           <div id="learner-access-list" class="skills-list" aria-live="polite"></div>
+          <h3>Skill 课程计划（按孩子分配）</h3>
+          <p class="helper">为指定学习者设置建议练习与目标次数；课程只统计明确的离线文字练习完成事件，不包含模型打分，也不限制孩子自由探索其他课程。</p>
+          <form id="learning-plan-form" class="command-form">
+            <select id="learning-plan-profile" aria-label="选择要安排课程的学习者" required></select>
+            <select id="learning-plan-course" aria-label="选择课程或故事" required></select>
+            <label for="learning-plan-target">目标次数</label>
+            <input id="learning-plan-target" type="number" min="1" max="20" step="1" value="2" required aria-label="目标完成次数" />
+            <button type="submit">保存学习计划</button>
+          </form>
+          <div id="learning-plan-list" class="skills-list" aria-live="polite"></div>
           <h3>长期记忆（显式保存）</h3>
           <form id="memory-form" class="command-form"><select id="memory-scope" aria-label="记忆范围"><option value="family">家庭</option><option value="child">儿童</option><option value="parent">家长私有</option></select><input id="memory-text" type="text" maxlength="1000" placeholder="需要保存的简短内容" aria-label="记忆内容" required /><button type="submit">保存记忆</button></form>
           <div id="memory-list" class="event-list" aria-live="polite"></div>
