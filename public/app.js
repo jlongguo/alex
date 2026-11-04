@@ -51,7 +51,25 @@ function render(s){mapDraw(s);$('device-count').innerHTML='1 <sub>台</sub>';$('
 $('command-form').addEventListener('submit',async e=>{e.preventDefault();const t=$('command-text').value.trim();if(t)await act('/api/command',{text:t,actor:$('actor').value,requestId:'ui_'+crypto.randomUUID().replaceAll('-','')});});
 document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>{$('command-text').value=b.dataset.command;$('command-form').requestSubmit();}));
 document.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',()=>act('/api/tasks',{capability:b.dataset.dest==='dock'?'navigation.dock':'navigation.goto',params:{destination:b.dataset.dest},actor:$('actor').value})));
-$('skills-list').addEventListener('click',e=>{const b=e.target.closest('[data-skill]');if(b)act('/api/skills/invoke',{id:b.dataset.skill,actor:$('actor').value});});
+$('skills-list').addEventListener('click',async e=>{
+ const button=e.target.closest('[data-skill]');if(!button)return;
+ const id=button.dataset.skill;
+ if(authorizedActor&&['learning.english','story.interactive'].includes(id)){
+  if(companionBusy)return;
+  companionBusy=true;
+  try{
+   const res=await api('/api/skills/invoke',{id});
+   if(!res.session)throw new Error('SKILL_SESSION_NOT_CREATED');
+   companionSessionId=res.session.id;
+   $('companion-mode').value=res.session.mode;
+   showCompanion(res.session);
+   window.location.hash='#overview';
+   companionNotice('已从技能中心开启 '+(id==='learning.english'?'A1 英语':'互动故事')+' 对话。');
+   notify('互动技能已启动；请在 Alex 互动终端回复。');
+  }catch(err){notify(err.message,true);}
+  finally{companionBusy=false;}
+ }else void act('/api/skills/invoke',{id,actor:$('actor').value});
+});
 $('btn-stop').addEventListener('click',()=>act('/api/safety/stop',{actor:$('actor').value}));
 $('btn-reset').addEventListener('click',()=>act('/api/safety/reset',{actor:$('actor').value}));
 $('obstacle').addEventListener('change',e=>act('/api/environment',{obstaclePresent:e.target.checked,actor:$('actor').value}));
