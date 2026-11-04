@@ -2,6 +2,14 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R6：短音频与云端 Provider
+
+- `GET /api/audio/capabilities`：认证后返回实际可用的 ASR/TTS、MIME 和大小上限（不含服务端密钥）。
+- `POST /api/audio/transcribe`：原始 audio/webm / ogg / mp4 / wav / mpeg，请求头 `X-Alex-Audio-Duration-Ms` 为 300～15000 的浏览器声明，`X-Alex-Language` 为 en/zh；仅在对应独立儿童获 voiceInputAllowed + cloudAudioInputAllowed 双重授权（或已验证家长）且配置 Provider 时转发。响应 `{ok:true,text,source:'cloud-asr',validated:false,requiresManualSubmit:true}`，文字不得自动发往 Agent。
+- `POST /api/audio/speak`：JSON `{text,language}`，只允许经同级授权的显式云端语音操作；返回 `audio/mpeg` 二进制（≤2 MB），no-store。
+- `POST /api/audio/cancel`：仅取消当前会话身份的正在进行音频操作。
+- 实际 Provider 兼容选项见 [R6 文档](AI_COMPANION_R6_AUDIO.md)。录音时长仅是客户端自报，**目前未做可信音频解码时长验证**。云端供应商实际隐私、音质和价格仍需单独验收。
+
 ## AI 互动终端 R5：逐人 AI / 浏览器语音隐私策略
 
 - `GET /api/learner/privacy`：需要本地已验证会话，默认返回当前用户允许的 `voiceInputAllowed`、`voiceOutputAllowed`、`cloudTextAllowed`、`preferredLanguage`、`learningPace` 和 `topics`。独立儿童只能读自己的有效配置。
