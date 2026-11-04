@@ -126,6 +126,17 @@ test('R6 actual HTTP routes enforce separate child ASR/TTS approval, allowlists 
   assert.equal(generated.type,'audio/mpeg');
   assert.equal(generated.bytes,1024);
   assert.match(generated.cache,/no-store/);
+  // Cancel a real in-flight localhost JSON request routed to a deliberately
+  // stalled fake HTTPS speech provider; no audio may be committed afterward.
+  const delayed=fetch(base+'/api/audio/speak',{method:'POST',headers:{
+    'Content-Type':'application/json',Cookie:childP
+  },body:JSON.stringify({text:'SLOW_AUDIO_CANCEL_TEST',language:'en'})});
+  await new Promise(resolve=>setTimeout(resolve,120));
+  const cancellation=await post(base,'/api/audio/cancel',{},childP);
+  assert.equal(cancellation.status,200);
+  assert.equal(cancellation.data.cancelled,true);
+  const cancelledResponse=await delayed;
+  assert.equal(cancelledResponse.status,409);
   assert.equal((await post(base,'/api/audio/cancel',{},childP)).data.cancelled,false);
   const revocation=await post(base,'/api/learner/privacy',{
    profileId:p.id,preferences:{cloudAudioInputAllowed:false}
