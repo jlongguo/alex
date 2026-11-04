@@ -10,6 +10,8 @@
   <script src="/terminal-runtime.js" defer></script>
   <script src="/voice-session.js" defer></script>
   <script src="/audio-session.js" defer></script>
+  <script src="/audio-vad.js" defer></script>
+  <script src="/audio-stream-session.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body data-current-page="overview">
@@ -118,7 +120,9 @@
         <form id="companion-form" class="command-form">
           <input id="companion-text" type="text" maxlength="500" autocomplete="off" placeholder="输入回复，或点击麦克风开始语音转文字" required aria-label="对 Alex 说的话" />
           <button id="companion-microphone" class="secondary-btn" type="button" title="浏览器语音识别，可能使用浏览器厂商服务">🎙 浏览器语音输入</button>
-          <button id="companion-cloud-record" class="secondary-btn" type="button" disabled title="上传短录音至家长配置的第三方 ASR 服务商">开始云端短录音</button>
+          <button id="companion-cloud-record" class="secondary-btn" type="button" disabled title="上传完整短录音至家长配置的第三方 ASR 服务商">开始云端短录音</button>
+          <button id="companion-stream-record" class="secondary-btn" type="button" disabled title="增量上传到 Alex；结束录音后才调用批量 ASR 供应商">开始增量录音（实验）</button>
+          <label><input id="companion-stream-vad" type="checkbox" checked /> 自动静音停录（实验）</label>
           <button id="companion-send" type="submit">发送</button>
           <button id="companion-cancel" class="secondary-btn" type="button" disabled>中止本轮</button>
         </form>
@@ -126,6 +130,7 @@
           <button type="button" id="companion-cloud-speak" class="secondary-btn" disabled>云端朗读最后回复</button>
           <button type="button" id="companion-audio-cancel" class="secondary-btn" disabled>停止录音／播放</button>
         </div>
+        <p id="companion-stream-notice" class="helper" role="status">增量录音会在录制过程中持续向 Alex 发送小片段；语音供应商仍在完成录制后处理。静音检测是音量启发式判断，不能准确识别语言。</p>
         <p id="companion-audio-policy" class="helper" role="status">云端录音和合成使用单独的家长授权，默认禁止。短音频最长 15 秒；识别文字不会自动发送。</p>
         <p id="companion-notice" class="helper" role="status"></p>
       </section>
