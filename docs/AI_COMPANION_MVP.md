@@ -29,26 +29,26 @@ Alex 是一个面向儿童和家庭的 **通用、可扩展 AI 智能终端**。
 
 ### 安全和隐私不变量
 
-1. 本地家庭认证模式 \`AUTH_MODE=local\` 才开放 \`/api/companion/*\`；demo 角色选择不代表经过认证。
+1. 本地家庭认证模式 `AUTH_MODE=local` 才开放 `/api/companion/*`；demo 角色选择不代表经过认证。
 2. 模型的自然语言回复 **没有工具调用能力**；不允许借聊天直接越过审批、设备权限或 Collision Monitor。
 3. 儿童请求不能直接读取家长会话；家长可通过明确的隐私导出获得本地家庭数据，需向家庭成员告知。
-4. 对话默认**内存级**。如设置 \`ALEX_CONVERSATION_PERSIST=1\`，会把消息原文保存本地文件；这不是加密数据库，不得直接部署公网。
-5. \`/api/privacy/erase\` 会同时处理指定家长/儿童范围内的人工记忆和本地聊天会话，但不删除审核日志、档案、备份或已经发送给第三方模型的数据。
+4. 对话默认**内存级**。如设置 `ALEX_CONVERSATION_PERSIST=1`，会把消息原文保存本地文件；这不是加密数据库，不得直接部署公网。
+5. `/api/privacy/erase` 会同时处理指定家长/儿童范围内的人工记忆和本地聊天会话，但不删除审核日志、档案、备份或已经发送给第三方模型的数据。
 6. 录音权限由浏览器管理。Alex 不上传原始音频到自己的服务器；部分浏览器 SpeechRecognition 可能使用厂商服务，必须如实告知。
 
 ## 运行
 
 启动本地家长认证：
 
-\`\`\`sh
+```sh
 bash scripts/start-local.sh
-\`\`\`
+```
 
-打开 \`http://127.0.0.1:4317/#overview\`，使用家长身份或独立 child PIN 登录。在 **Alex 互动终端** 选择离线 A1 英语或者分支故事；也可从 Skills 进入。浏览器语音是可选的，文字输入始终可用。
+打开 `http://127.0.0.1:4317/#overview`，使用家长身份或独立 child PIN 登录。在 **Alex 互动终端** 选择离线 A1 英语或者分支故事；也可从 Skills 进入。浏览器语音是可选的，文字输入始终可用。
 
 启用真正的模型文本聊天，需要使用可信供应商配置：
 
-\`\`\`sh
+```sh
 AUTH_MODE=local \
 ALEX_PARENT_PASSWORD='<本地私密密码>' \
 ALEX_CHILD_PIN='<本地私密 PIN>' \
@@ -57,21 +57,21 @@ AGENT_BASE_URL='https://provider.example/v1' \
 AGENT_MODEL='your-model' \
 AGENT_API_KEY='<模型密钥>' \
 npm start
-\`\`\`
+```
 
-默认 \`ALEX_CHAT_PROVIDER=offline\`；\`AGENT_PROVIDER=rules\`（命令分类器）和 \`ALEX_CHAT_PROVIDER\`（自然对话）是**不同**开关。仅当需要保留本地聊天记录时设置 \`ALEX_CONVERSATION_PERSIST=1\`，可自定义 \`ALEX_CONVERSATION_FILE\`。
+默认 `ALEX_CHAT_PROVIDER=offline`；`AGENT_PROVIDER=rules`（命令分类器）和 `ALEX_CHAT_PROVIDER`（自然对话）是**不同**开关。仅当需要保留本地聊天记录时设置 `ALEX_CONVERSATION_PERSIST=1`，可自定义 `ALEX_CONVERSATION_FILE`。
 
 ### API（仅本地认证会话）
 
-- \`GET /api/companion/sessions\`：只列本人会话 ID/模式/更新时间。
-- \`GET /api/companion/session?id=<UUID>\`：只读取本人会话。
-- \`POST /api/companion/open\` \`{"mode":"english"|"story"|"chat"}\`：创建会话。
-- \`POST /api/companion/turn\` \`{"id":"...","text":"..."}\`：发送一轮文字，返回文本与来源 \`offline/model\`。
-- \`POST /api/companion/delete\` \`{"id":"..."}\`：删除本人会话。
-- \`POST /api/companion/erase\` \`{"scope":"parent"|"child"|"all"}\`：仅家长，清理指定身份的会话。
-- \`POST /api/skills/invoke\`：英语/故事在本地认证模式下，除了授权状态，还返回新创建的会话。
-- \`GET /api/privacy/export\`：仅家长，包含 \`companionConversations\`。
-- \`POST /api/privacy/erase\`：仅家长，同时擦除本地记忆与相应会话。
+- `GET /api/companion/sessions`：只列本人会话 ID/模式/更新时间。
+- `GET /api/companion/session?id=<UUID>`：只读取本人会话。
+- `POST /api/companion/open` `{"mode":"english"|"story"|"chat"}`：创建会话。
+- `POST /api/companion/turn` `{"id":"...","text":"..."}`：发送一轮文字，返回文本与来源 `offline/model`。
+- `POST /api/companion/delete` `{"id":"..."}`：删除本人会话。
+- `POST /api/companion/erase` `{"scope":"parent"|"child"|"all"}`：仅家长，清理指定身份的会话。
+- `POST /api/skills/invoke`：英语/故事在本地认证模式下，除了授权状态，还返回新创建的会话。
+- `GET /api/privacy/export`：仅家长，包含 `companionConversations`。
+- `POST /api/privacy/erase`：仅家长，同时擦除本地记忆与相应会话。
 
 ## 后续编码工作（按产品价值排序）
 
