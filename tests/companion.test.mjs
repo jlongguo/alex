@@ -177,6 +177,23 @@ test('real HTTP: child role isolation, dialog turns, parent privacy export/erasu
     assert.equal(erased.body.deletedConversations,1);
     const gone=await fetch(service.base+'/api/companion/session?id='+id,{headers:{Cookie:child}});
     assert.notEqual(gone.status,200);
+
+    // Real SkillRegistry invocation now creates an actual interactive
+    // dialogue session; the existing role/capability gate runs first.
+    const skillsResponse=await fetch(service.base+'/api/skills',{headers:{Cookie:child}});
+    const skills=(await skillsResponse.json()).skills;
+    assert.equal(skills.find(x=>x.id==='learning.english').conversationMode,'english');
+    assert.equal(skills.find(x=>x.id==='story.interactive').conversationMode,'story');
+    const launched=await post('/api/skills/invoke',{id:'learning.english'},child);
+    assert.equal(launched.status,200);
+    assert.equal(launched.body.session.mode,'english');
+    assert.equal(launched.body.session.actor,'child');
+    const skillTurn=await post('/api/companion/turn',{id:launched.body.session.id,text:'Panda'},child);
+    assert.equal(skillTurn.status,200);
+    assert.equal(skillTurn.body.session.step,1);
+    const deniedSkill=await post('/api/skills/invoke',{id:'home.status'},child);
+    assert.equal(deniedSkill.status,409);
+    assert.equal(deniedSkill.body.ok,false);
     const keep=await post('/api/companion/open',{mode:'story'},parent);
     assert.equal(keep.status,200);
     const savedId=keep.body.session.id;
@@ -210,4 +227,16 @@ test('UI includes accessible companion flow without mixing device commands into 
   assert.match(js,/const CompanionSpeechRecognition=window.SpeechRecognition\|\|window.webkitSpeechRecognition/);
   assert.match(js,/recognition.onresult/);
   assert.doesNotMatch(js,/recognition.onresult=.*requestSubmit/);
+});
+
+test('conversation permission callback blocks both opening and continuing a revoked Skill',async()=>{
+  const grants=new Set(['english']);
+  const service=new CompanionConversations({authorizeMode:(actor,mode)=>{
+    if(mode!=='chat'&&!grants.has(mode))throw new Error('COMPANION_SKILL_UNAVAILABLE');
+  }});
+  await assert.rejects(async()=>service.open('child','story'),/COMPANION_SKILL_UNAVAILABLE/);
+  const session=await service.open('child','english');
+  grants.clear();
+  await assert.rejects(async()=>service.turn('child',session.id,'Hello'),/COMPANION_SKILL_UNAVAILABLE/);
+  assert.equal(service.get('child',session.id).messages.length,1);
 });
