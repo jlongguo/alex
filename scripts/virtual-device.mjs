@@ -9,6 +9,8 @@ const bearer={'Authorization':`Bearer ${token}`};
 const caps=['sim.navigation.goto','display.face','audio.output'];
 const sleep=t=>new Promise(resolve=>setTimeout(resolve,t));
 const backend=process.env.ALEX_NAV_BACKEND??'grid';
+const {VirtualPresentationRuntime}=await import('./virtual-presentation.mjs');
+const presentation=new VirtualPresentationRuntime();
 if(!['grid','ros2'].includes(backend))throw new Error('INVALID_NAV_BACKEND');
 const {GridNavigationBridge}=await import('./navigation-simulator.mjs');
 let nav;
@@ -44,7 +46,17 @@ async function run(job){
         await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'failed',reason:'Simulated route blocked'});
         return;
       }
-    } else await sleep(100);
+    }else if(['display.face','audio.output'].includes(job.capability)){
+      const observed=await presentation.render(job,{
+        isCancelled:()=>stopping||cancelled.has(job.id)
+      });
+      if(!observed)return;
+      const receipt=await request('/api/gateway/presentation','POST',{
+        deviceId,jobId:job.id,sequence:1,phase:'rendered',
+        kind:job.capability,observed
+      });
+      if(!receipt.ok)throw new Error('VIRTUAL_PRESENTATION_REJECTED');
+    }else throw new Error('UNSUPPORTED_VIRTUAL_CAPABILITY');
     if(cancelled.has(job.id)||stopping)return;
     const finished=await request('/api/gateway/result','POST',{deviceId,jobId:job.id,status:'succeeded'});
     if(finished.ok){processed.add(job.id);console.log(`[virtual] completed ${job.id}`);}
@@ -90,7 +102,7 @@ async function assertLocalFamilyServer() {
   }
 }
 await assertLocalFamilyServer();
-await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:2});
+await request('/api/devices/capabilities','POST',{deviceId,capabilities:caps,protocolVersion:3});
 await heartbeat();
 console.log(`[virtual] ${deviceId} connected; navigation backend=${backend}; waiting for parent capability approval`);
 const timer=setInterval(()=>heartbeat().catch(e=>console.error('[virtual] heartbeat:',e.message)),10000);
