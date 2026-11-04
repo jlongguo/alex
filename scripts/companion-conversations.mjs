@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {JsonStateStore} from './state-store.mjs';
 import {COMPANION_MODES,opening,offlineReply} from './companion-dialogue.mjs';
+import {resolveCourse,exerciseReply} from './skill-curriculum.mjs';
 
 const copy = value => structuredClone(value);
 const roleOf = principal => {
@@ -13,6 +14,21 @@ const validId = id => typeof id==='string' && /^[0-9a-f-]{36}$/.test(id);
 const MAX_SESSIONS_PER_PRINCIPAL = 16;
 const MAX_TOTAL_SESSIONS = 224; // parent, legacy child, up to 12 named learners
 const MAX_MESSAGES = 32;
+const MAX_EVIDENCE = 1024;
+const MAX_EVIDENCE_PER_PRINCIPAL = 128;
+const EVIDENCE_ID=/^[0-9a-f-]{36}:\d+$/;
+const validateEvidence = event => {
+  if(!event||!EVIDENCE_ID.test(event.id??'')
+     ||!validId(event.sessionId)
+     ||!['parent','child'].includes(event.actor)
+     ||roleOf(event.principal)!==event.actor
+     ||!['english_a1_text','story_choice'].includes(event.kind)
+     ||!Number.isInteger(event.round)||event.round<0||event.round>100000
+     ||typeof event.at!=='string'||Number.isNaN(Date.parse(event.at))
+     ||!Number.isInteger(event.lessonVersion)||event.lessonVersion<1||event.lessonVersion>10000
+     ||!resolveCourse(event.kind==='english_a1_text'?'english':'story',event.lessonId))
+    throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+};
 const MAX_USER_CHARS = 500;
 
 // Conversations are separate from the motor/task/control plane. Default
@@ -20,6 +36,7 @@ const MAX_USER_CHARS = 500;
 // Only a verified local-auth session may access these APIs in server.mjs.
 export class CompanionConversations {
   #sessions=new Map();
+  #evidence=[];
   #queue=Promise.resolve();
   constructor({provider=null,persist=false,file='.local/conversations.json',authorizeMode=()=>{}}={}) {
     this.provider=provider;
@@ -39,7 +56,10 @@ export class CompanionConversations {
       if(!validId(session?.id)||!['parent','child'].includes(session.actor)
         ||(session.principal!==undefined
           &&(roleOf(session.principal)!==session.actor))
-        ||!COMPANION_MODES.includes(session.mode)||!Number.isInteger(session.step)
+        ||!COMPANION_MODES.includes(session.mode)
+        ||!(session.lessonId===undefined
+          ||(session.mode!=='chat'&&resolveCourse(session.mode,session.lessonId)))
+        ||!Number.isInteger(session.step)
         ||session.step<0||session.step>5||typeof session.context!=='string'||session.context.length>50
         ||!(session.round===undefined || (Number.isInteger(session.round)&&session.round>=0&&session.round<=100000))
         ||!(session.milestones===undefined || (Array.isArray(session.milestones)&&session.milestones.length<=40
@@ -56,16 +76,51 @@ export class CompanionConversations {
     for(const owner of owners)
       if([...next.values()].filter(s=>ownedKey(s)===owner).length>MAX_SESSIONS_PER_PRINCIPAL)
         throw new Error('INVALID_CONVERSATION_FILE');
+    // v1 backfill: historical completion records were stored inside the
+    // conversation object. Migrate them idempotently without keeping
+    // the child's raw answers in this independent ledger.
+    const evidence=Array.isArray(data.evidence)?structuredClone(data.evidence):[];
+    if(evidence.length>MAX_EVIDENCE)throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+    const seen=new Set();
+    for(const row of evidence){
+      validateEvidence(row);
+      if(seen.has(row.id))throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+      seen.add(row.id);
+    }
+    for(const session of next.values()){
+      const course=resolveCourse(session.mode,session.lessonId);
+      if(!course)continue;
+      for(const m of session.milestones??[]){
+        const id=session.id+':'+m.round;
+        if(!seen.has(id)){
+          const row={id,sessionId:session.id,actor:session.actor,
+            principal:ownedKey(session),lessonId:course.id,lessonVersion:1,
+            kind:m.kind,round:m.round,at:m.at};
+          validateEvidence(row);
+          evidence.push(row);seen.add(id);
+        }
+      }
+    }
+    if(evidence.length>MAX_EVIDENCE)throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+    for(const owner of new Set(evidence.map(e=>e.principal))){
+      if(evidence.filter(e=>e.principal===owner).length>MAX_EVIDENCE_PER_PRINCIPAL)
+        throw new Error('INVALID_LEARNING_EVIDENCE_FILE');
+    }
     this.#sessions=next;
+    this.#evidence=evidence;
   }
   #enqueue(task) {
     const next=this.#queue.catch(()=>{}).then(task);
     this.#queue=next;
     return next;
   }
-  async #commit(next) {
-    if(this.store)await this.store.save({version:1,sessions:[...next.values()]});
+  async #commit(next,evidence=this.#evidence) {
+    // A single atomic snapshot commits transcripts and independent evidence.
+    // No split-brain updates across two JSON files.
+    if(this.store)await this.store.save({
+      version:1,sessions:[...next.values()],evidence});
     this.#sessions=next;
+    this.#evidence=evidence;
   }
   #owned(principal,id) {
     roleOf(principal);
@@ -83,9 +138,10 @@ export class CompanionConversations {
                  updatedAt:s.updatedAt,turns:s.messages.filter(m=>m.role==='user').length}));
   }
   get(principal,id) {return copy(this.#owned(principal,id));}
-  async open(principal,mode) {
+  async open(principal,mode,{lessonId}={}) {
     const actor=roleOf(principal);
     if(!COMPANION_MODES.includes(mode))throw new Error('INVALID_COMPANION_MODE');
+    const course=resolveCourse(mode,lessonId);
     return this.#enqueue(async()=>{
       this.authorizeMode(actor,mode);
       const next=new Map(this.#sessions);
@@ -93,9 +149,12 @@ export class CompanionConversations {
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
       while(mine.length>=MAX_SESSIONS_PER_PRINCIPAL)next.delete(mine.shift().id);
       const now=new Date().toISOString(),id=randomUUID();
-      const session={id,actor,principal,mode,step:0,context:'',round:0,milestones:[],
+      const session={id,actor,principal,mode,
+        ...(course?{lessonId:course.id,lessonVersion:course.version}:{}),
+        step:0,context:'',round:0,milestones:[],
         createdAt:now,updatedAt:now,
-        messages:[{role:'assistant',text:opening(mode,Boolean(this.provider)),source:'intro'}]};
+        messages:[{role:'assistant',text:!this.provider&&course?course.opening:
+          opening(mode,Boolean(this.provider)),source:'intro'}]};
       next.set(id,session);
       await this.#commit(next);
       return copy(session);
@@ -128,7 +187,10 @@ export class CompanionConversations {
         }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,signal});
         source='model';
       }else{
-        const response=offlineReply(current.mode,input,current.step,current.context);
+        const course=resolveCourse(current.mode,current.lessonId);
+        const response=course&&['english.a1.greetings','english.a1.daily'].includes(course.id)
+          ?exerciseReply(course.id,input,current.step)
+          :offlineReply(current.mode,input,current.step,current.context);
         reply=response.text;step=response.step;context=response.context;
         if(stream)await onDelta(reply);
       }
@@ -139,7 +201,8 @@ export class CompanionConversations {
       const now=new Date().toISOString();
       // Learning evidence is deterministic-only. No LLM can self-assert a
       // completed lesson, and text-only practice isn't voice proficiency.
-      const milestoneTarget=current.mode==='english'?5:current.mode==='story'?3:0;
+      const course=resolveCourse(current.mode,current.lessonId);
+      const milestoneTarget=course?.targetStep??0;
       const finished=source==='offline'&&milestoneTarget
         &&current.step<milestoneTarget&&step===milestoneTarget;
       const restarted=source==='offline'&&milestoneTarget
@@ -156,31 +219,57 @@ export class CompanionConversations {
         messages:[...current.messages,user,assistant].slice(-MAX_MESSAGES)};
       const next=new Map(this.#sessions);
       next.set(id,updated);
-      await this.#commit(next);
+      let evidence=this.#evidence;
+      let completedEvent=null;
+      if(finished){
+        completedEvent={
+          id:current.id+':'+round,sessionId:current.id,actor,
+          principal,lessonId:course.id,lessonVersion:1,
+          kind:course.kind,round,at:now
+        };
+        validateEvidence(completedEvent);
+        if(!evidence.some(e=>e.id===completedEvent.id)){
+          evidence=[...evidence,completedEvent];
+          // Preserve bounded evidence across automatic session eviction.
+          // Session deletion/erasure removes related evidence explicitly.
+          const mine=evidence.filter(e=>e.principal===principal);
+          if(mine.length>MAX_EVIDENCE_PER_PRINCIPAL){
+            const overflow=mine.length-MAX_EVIDENCE_PER_PRINCIPAL;
+            const old=new Set(mine.slice(0,overflow).map(e=>e.id));
+            evidence=evidence.filter(e=>!old.has(e.id));
+          }
+          if(evidence.length>MAX_EVIDENCE)
+            evidence=evidence.slice(-MAX_EVIDENCE);
+        }
+      }
+      await this.#commit(next,evidence);
       return {id,mode:current.mode,source,assistant:copy(assistant),
-              milestone:finished?copy(milestones.at(-1)):null,session:copy(updated)};
+              milestone:finished?copy(milestones.at(-1)):null,
+              learningEvidence:completedEvent?copy(completedEvent):null,
+              session:copy(updated)};
     });
   }
-  // Text-only evidence, never actual pronunciation or general proficiency.
-  // A learner can read only their verified principal. Parent may inspect
-  // all child learners as a group or a named learner intentionally.
+  // Independent evidence survives automatic session rotation, and is erased
+  // by explicit delete/erase/learner deletion. Counts are text exercise
+  // completions only; never a model-generated grade or voice proficiency.
   progress(principal,scope=principal) {
     const actor=roleOf(principal);
     if(!['parent','child','all'].includes(scope)
       && !/^learner:profile-[0-9a-f-]{36}$/.test(scope??''))
       throw new Error('INVALID_LEARNING_SCOPE');
     if(actor!=='parent'&&scope!==principal)throw new Error('PARENT_REQUIRED');
-    const sessions=[...this.#sessions.values()].filter(s=>
+    const records=this.#evidence.filter(e=>
       scope==='all'||(scope==='child'
-        ?(actor==='parent'?s.actor==='child':ownedKey(s)==='child')
-        :ownedKey(s)===scope));
-    const records=sessions.flatMap(s=>(s.milestones??[]).map(m=>({
-      actor:s.actor,principal:ownedKey(s),sessionId:s.id,mode:s.mode,
-      kind:m.kind,round:m.round,at:m.at
-    }))).sort((a,b)=>b.at.localeCompare(a.at));
+        ?(actor==='parent'?e.actor==='child':e.principal==='child')
+        :e.principal===scope)
+    ).sort((a,b)=>b.at.localeCompare(a.at));
+    const byCourse={};
+    for(const record of records)
+      byCourse[record.lessonId]=(byCourse[record.lessonId]??0)+1;
     return {
       scope,englishTextExercisesCompleted:records.filter(r=>r.kind==='english_a1_text').length,
       storyBranchesCompleted:records.filter(r=>r.kind==='story_choice').length,
+      byCourse,retentionLimit:MAX_EVIDENCE_PER_PRINCIPAL,
       recent:copy(records.slice(0,50))
     };
   }
@@ -189,7 +278,7 @@ export class CompanionConversations {
     return this.#enqueue(async()=>{
       this.#owned(principal,id);
       const next=new Map(this.#sessions);next.delete(id);
-      await this.#commit(next);
+      await this.#commit(next,this.#evidence.filter(e=>e.sessionId!==id));
       return {ok:true};
     });
   }
@@ -202,8 +291,11 @@ export class CompanionConversations {
       for(const [id,session] of next) {
         if(scope==='all'||scope===session.actor){next.delete(id);removed++;}
       }
-      await this.#commit(next);
-      return removed;
+      const evidence=this.#evidence.filter(e=>
+        !(scope==='all'||scope===e.actor));
+      const evidenceRemoved=this.#evidence.length-evidence.length;
+      await this.#commit(next,evidence);
+      return removed+evidenceRemoved; // includes orphaned evidence from rotations
     });
   }
   async eraseLearner(actor,profileId) {
@@ -216,7 +308,8 @@ export class CompanionConversations {
       let count=0;
       for(const [id,session] of next)
         if(ownedKey(session)===principal){next.delete(id);count++;}
-      await this.#commit(next);
+      const evidence=this.#evidence.filter(e=>e.principal!==principal);
+      await this.#commit(next,evidence);
       return count;
     });
   }
@@ -224,5 +317,9 @@ export class CompanionConversations {
   exportForParent(actor) {
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
     return copy([...this.#sessions.values()]);
+  }
+  exportEvidenceForParent(actor) {
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    return copy(this.#evidence);
   }
 }
