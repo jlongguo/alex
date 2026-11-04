@@ -59,10 +59,13 @@ $('skills-list').addEventListener('click',async e=>{
   if(companionBusy)return;
   companionBusy=true;
   try{
-   const res=await api('/api/skills/invoke',{id});
+   const picked=$('companion-lesson').value;
+   const lesson=curriculum.find(c=>c.id===picked&&c.skillId===id);
+   const res=await api('/api/skills/invoke',{id,...(lesson?{lessonId:picked}:{})});
    if(!res.session)throw new Error('SKILL_SESSION_NOT_CREATED');
    companionSessionId=res.session.id;
    $('companion-mode').value=res.session.mode;
+   fillLessonOptions(res.session.mode,res.session.lessonId);
    showCompanion(res.session);
    await refreshCompanionInfo();
    window.location.hash='#overview';
@@ -575,6 +578,21 @@ $('privacy-erase').addEventListener('click',async()=>{
 });
 
 
+function fillLessonOptions(mode,selected){
+ const picker=$('companion-lesson'),previous=selected??picker.value;
+ picker.replaceChildren();
+ const choices=curriculum.filter(c=>c.mode===mode);
+ for(const lesson of choices){
+   const option=document.createElement('option');
+   option.value=lesson.id;option.textContent=lesson.title+' · '+lesson.version;
+   picker.append(option);
+ }
+ if(choices.some(x=>x.id===previous))picker.value=previous;
+ picker.disabled=!authorizedActor||mode==='chat';
+}
+$('companion-mode').addEventListener('change',()=>{
+ if(!companionBusy)fillLessonOptions($('companion-mode').value);
+});
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null,companionRecognition=null;
@@ -643,7 +661,15 @@ async function refreshCompanionProgress(){
   if(!res.ok)throw new Error('学习记录暂时不可用');
   const progress=(await res.json()).progress;
   $('companion-progress-summary').textContent='A1 文字练习完成 '+progress.englishTextExercisesCompleted
-    +' 次；分支故事完成 '+progress.storyBranchesCompleted+' 次。仅统计当前保存的会话，不代表发音、考试成绩或年龄评估。';
+    +' 次；分支故事完成 '+progress.storyBranchesCompleted
+    +' 次。有界独立成果记录不因会话自动轮换而消失；删除或隐私擦除会清理。非发音／成绩测评。';
+  $('companion-course-progress').replaceChildren();
+  for(const course of curriculum){
+   const times=progress.byCourse?.[course.id]??0;
+   const line=document.createElement('p');
+   line.textContent=course.title+'：'+times+' 次文本练习完成';
+   $('companion-course-progress').append(line);
+  }
  }catch(error){companionNotice(error.message,true);}
 }
 async function refreshCompanionInfo(){
@@ -656,6 +682,19 @@ async function refreshCompanionInfo(){
   const r=await fetch('/api/companion/sessions',{cache:'no-store'});
   if(!r.ok)throw new Error('无法获取对话服务');
   const data=await r.json();
+  const courseResponse=await fetch('/api/learning/catalog',{cache:'no-store'});
+  if(courseResponse.ok)curriculum=(await courseResponse.json()).courses;
+  fillLessonOptions($('companion-mode').value);
+  const assigned=await fetch('/api/learning/plans',{cache:'no-store'});
+  const assignedPlans=assigned.ok?(await assigned.json()).plans:[];
+  $('companion-assignments').replaceChildren();
+  for(const plan of assignedPlans.filter(p=>p.status==='active')){
+    const course=curriculum.find(c=>c.id===plan.courseId);
+    if(!course)continue;
+    const el=document.createElement('p');
+    el.textContent='家长建议：'+course.title+'（目标 '+plan.targetCompletions+' 次）';
+    $('companion-assignments').append(el);
+  }
   const history=$('companion-history');
   const selected=companionSessionId;
   history.replaceChildren();
