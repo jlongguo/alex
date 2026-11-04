@@ -233,7 +233,9 @@ test('UI includes accessible companion flow without mixing device commands into 
   // endpoint remains server-side for compatibility and API tests.
   assert.match(js,/companion-history.*addEventListener\('change'/);
   assert.match(js,/await refreshCompanionInfo\(\)/);
-  assert.match(js,/const CompanionSpeechRecognition=window.SpeechRecognition\|\|window.webkitSpeechRecognition/);
+  assert.match(js,/const voiceBridge=new globalThis.AlexVoiceBridge/);
+  assert.match(js,/refreshCompanionPrivacy\(true\)/);
+  assert.match(js,/voiceBridge\.startListening/);
   assert.match(js,/recognition.onresult/);
   assert.doesNotMatch(js,/recognition.onresult=.*requestSubmit/);
 });
