@@ -9,7 +9,7 @@ export class PolicyEngine {
   }
   checkSkill(actor:Actor, skillId:string):PermissionDecision {
     if(actor!=='child'&&actor!=='parent')return {allowed:false,reason:'Unknown actor.'};
-    if(actor==='child'&&!['learning.english','story.interactive'].includes(skillId)) {
+    if(actor==='child'&&!['learning.english','story.interactive','quiz.science'].includes(skillId)) {
       return {allowed:false,reason:'This skill requires parental permission.'};
     }
     return {allowed:true};
