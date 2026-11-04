@@ -187,6 +187,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const outcome=await gateway.telemetry(data.deviceId,token,data);
     send(res,outcome.ok?200:409,outcome);return;
   }
+  if(req.method==='POST' && pathname==='/api/gateway/presentation'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const data=await body(req);
+    const token=req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+    const result=await gateway.presentation(data.deviceId,token,data);
+    await audit.record({actor:'device',action:'gateway.presentation',
+      outcome:result.ok?'allowed':'denied'});
+    send(res,result.ok?200:409,result);return;
+  }
   if(req.method==='POST' && pathname==='/api/gateway/result'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const data=await body(req);
@@ -217,7 +226,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   const session=auth.current(req);
   if(isPrivate && !session.authenticated){send(res,401,{ok:false,error:'UNAUTHENTICATED'});return;}
   // Demo remains loopback-only and must not be used as a real family security boundary.
-  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
+  if(req.method==='GET' && pathname==='/api/health'){send(res,200,{ok:true,mode:'simulation',authMode:auth.mode,agentProvider:provider.kind,realAI:useAgent,agentMemoryOptIn:agentMemoryEnabled,physicalSafety:false,persistentTasks:true,virtualDeviceGateway:true,virtualPresentationProtocol:3,workflowOrchestrator:true,planOrchestrator:true,planProposals:true,planProposalProvider:proposalProvider.kind,independentLearnerIdentity:true,companion:{available:auth.mode==='local',provider:conversations.providerKind,transcriptsPersisted:conversations.persist,voice:'browser_only_optional',streaming:true,learningEvidence:'text_only'},navigationTelemetry:true,simulationBridge:"grid-v1",ros2Connected:false,physicalDeviceActions:false});return;}
   if(req.method==='GET' && (pathname==='/api/proposals'||pathname.startsWith('/api/proposals/timeline/'))){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
