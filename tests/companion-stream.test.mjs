@@ -40,6 +40,8 @@ test('SSE parser rejects truncated, oversized, malformed and tool-calling respon
   [frame({choices:[{delta:{tool_calls:[{id:'fake'}]}}]}),DONE],
   [delta('a'.repeat(1201)),DONE],
   [delta('okay'), 'x'.repeat(140000), DONE],
+  [delta('preview'),frame({choices:[{delta:{},finish_reason:'length'}]}),DONE],
+  [delta('preview'),frame({choices:[{delta:{},finish_reason:'content_filter'}]}),DONE],
   [DONE], // no assistant text
  ];
  for(const chunks of bad)await assert.rejects(
@@ -141,4 +143,19 @@ test('model replies never count as certified learning or pronunciation evidence'
  for(let i=0;i<6;i++)await service.turn('child',opened.id,'I like blue');
  assert.equal(service.progress('child').englishTextExercisesCompleted,0);
  assert.equal(service.progress('parent','child').recent.length,0);
+});
+
+
+test('nonstream response refuses upstream tool-call completion and partial finish',async()=>{
+ for(const finish of ['length','content_filter','tool_calls']){
+  const provider=new CompatibleCompanionProvider({
+   baseUrl:'https://fake.example/v1',apiKey:'key',model:'model',
+   fetchFn:async()=>({ok:true,status:200,json:async()=>({
+    choices:[{finish_reason:finish,message:{content:'A misleading partial answer'}}]
+   })})
+  });
+  await assert.rejects(async()=>provider.reply({
+   mode:'chat',actor:'child',messages:[{role:'user',text:'Hello'}]
+  }),/CHAT_STREAM_(INCOMPLETE_FINISH|TOOLS_FORBIDDEN)/);
+ }
 });
