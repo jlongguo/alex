@@ -227,7 +227,7 @@ test('UI includes accessible companion flow without mixing device commands into 
   assert.match(js,/\/api\/companion\/stream/);
   assert.match(js,/STREAM_INCOMPLETE_NO_COMMIT/);
   assert.match(js,/companionAbort\?\.abort\(\)/);
-  assert.match(js,/companionState\('listening'\)/);
+  assert.match(js,/voiceBridge\.startListening/);
   assert.match(js,/\/api\/companion\/progress/);
   // The browser now uses the authoritative SSE route; the legacy JSON turn
   // endpoint remains server-side for compatibility and API tests.
@@ -236,8 +236,10 @@ test('UI includes accessible companion flow without mixing device commands into 
   assert.match(js,/const voiceBridge=new globalThis.AlexVoiceBridge/);
   assert.match(js,/refreshCompanionPrivacy\(true\)/);
   assert.match(js,/voiceBridge\.startListening/);
-  assert.match(js,/recognition.onresult/);
-  assert.doesNotMatch(js,/recognition.onresult=.*requestSubmit/);
+  const bridge=await readFile(join(cwd,'public/voice-session.js'),'utf8');
+  assert.match(bridge,/recognition\.onresult/);
+  assert.match(bridge,/this\.onTranscript\(\{text:transcript,isFinal\}\)/);
+  assert.doesNotMatch(bridge,/requestSubmit|\/api\/companion\/stream/);
 });
 
 test('conversation permission callback blocks both opening and continuing a revoked Skill',async()=>{
