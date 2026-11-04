@@ -69,3 +69,19 @@ body [data-nav-view].hidden,body [data-nav-view].hidden[data-nav-view]{display:n
 #companion-text { flex:1; min-width:170px; }
 #companion-microphone[disabled] { opacity:.5; }
 @media (max-width:640px) {.companion-message{max-width:96%;}.companion-tools select{flex:1;min-width:130px;}}
+
+
+/* Virtual terminal state is visual feedback, not physical sensor telemetry. */
+.companion-runtime { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:9px 12px; border-radius:12px; background:rgba(98,151,181,.10); margin:12px 0; }
+.companion-avatar { display:inline-grid; place-items:center; width:38px; height:38px; border-radius:50%; background:rgba(49,163,143,.20); font-size:22px; transition:transform .20s ease; }
+.companion-runtime[data-state="listening"] .companion-avatar { transform:scale(1.14); background:rgba(42,167,132,.32); }
+.companion-runtime[data-state="thinking"] .companion-avatar { transform:rotate(45deg); }
+.companion-runtime[data-state="speaking"] .companion-avatar { background:rgba(75,120,220,.24); }
+.companion-runtime[data-state="error"] .companion-avatar { background:rgba(194,73,74,.22); }
+.companion-runtime #companion-stop-speaking { margin-left:auto; }
+.companion-progress { border:1px solid rgba(130,151,174,.20); border-radius:12px; padding:10px 12px; margin:12px 0; font-size:13px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.companion-progress p { margin:0; flex:1 1 210px; }
+.companion-progress select { max-width:210px; min-height:34px; }
+.companion-message[data-preview="true"] { border:1px dashed rgba(90,146,197,.6); opacity:.83; }
+#companion-cancel:not(:disabled) { border-color:rgba(194,73,74,.65); }
+@media(prefers-reduced-motion:reduce) {.companion-avatar { transition:none; }}

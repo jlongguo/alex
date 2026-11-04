@@ -2,6 +2,14 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R2：流式、学习记录（2026-11-04）
+
+- `POST /api/companion/stream`，JSON 请求 `{"id":"<UUID>","text":"I like apples."}`，返回 `text/event-stream`。流依次出现 `ready`、多个 `delta`、成功时唯一权威 `committed`；失败时出现 `error`。**仅接收到 delta 不代表提交成功**。
+- `GET /api/companion/progress`：当前经验证会话的文字练习完成摘要。家长用 `?scope=child` 查看儿童摘要，儿童无权读取家长记录。
+- 浏览器中止后未提交的流式文本不会进入对话记录。学习完成记录只源于离线句型/剧情步骤，不能作为发音或真实课堂考核证明。
+
+完整协议与限制见 [AI Companion R2](AI_COMPANION_R2_STREAM.md)。
+
 ## AI 互动终端（2026-11-04）
 
 `GET /api/companion/sessions`、`GET /api/companion/session?id=<UUID>` 和 `POST /api/companion/open|turn|delete` 均要求经过验证的本地会话，并按家长/儿童身份隔离；`POST /api/companion/erase` 只允许家长。

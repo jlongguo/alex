@@ -94,12 +94,24 @@
           <button id="companion-delete" type="button" class="secondary-btn">删除当前对话</button>
           <label class="companion-voice"><input type="checkbox" id="companion-read-aloud" /> 朗读回复</label>
         </div>
+        <div class="companion-runtime" id="companion-runtime" data-state="idle" role="status">
+          <span class="companion-avatar" aria-hidden="true">✦</span>
+          <strong id="companion-runtime-label">Alex · 等待交流</strong>
+          <button type="button" id="companion-stop-speaking" class="secondary-btn">停止朗读</button>
+        </div>
+        <div class="companion-progress">
+          <strong>文字学习记录（仅表示完成练习，不代表口语能力）</strong>
+          <label for="companion-progress-scope">查看对象</label>
+          <select id="companion-progress-scope"><option value="self">当前身份</option><option value="child">儿童练习（家长可查看）</option></select>
+          <p id="companion-progress-summary" role="status">尚无完成记录。</p>
+        </div>
         <p id="companion-privacy" class="helper" role="status">需要经过验证的本地家长/儿童身份；默认对话不落盘。</p>
         <div id="companion-messages" class="companion-messages" role="log" aria-live="polite" aria-label="Alex 对话记录"></div>
         <form id="companion-form" class="command-form">
           <input id="companion-text" type="text" maxlength="500" autocomplete="off" placeholder="输入回复，或点击麦克风开始语音转文字" required aria-label="对 Alex 说的话" />
           <button id="companion-microphone" class="secondary-btn" type="button" title="仅在支持语音识别的浏览器可用">🎙 语音输入</button>
           <button id="companion-send" type="submit">发送</button>
+          <button id="companion-cancel" class="secondary-btn" type="button" disabled>中止本轮</button>
         </form>
         <p id="companion-notice" class="helper" role="status"></p>
       </section>

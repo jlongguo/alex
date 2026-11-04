@@ -73,6 +73,12 @@ npm start
 - `GET /api/privacy/export`：仅家长，包含 `companionConversations`。
 - `POST /api/privacy/erase`：仅家长，同时擦除本地记忆与相应会话。
 
+## R2 已实现的新增代码与仍需验收的边界
+
+本轮新增 `POST /api/companion/stream`（真实逐块文字流和中止后丢弃未提交响应）、`GET /api/companion/progress`（文字教学完成步骤）、虚拟终端生成/听写/朗读状态，详情见 [R2 流式契约](AI_COMPANION_R2_STREAM.md)。
+
+这些功能目前由 Node / HTTP 测试验证；真实供应商延迟、浏览器权限、断网、声学与儿童体验尚未完成实测。学习标记随会话删除，不是独立长期档案；AI 模型输出不能直接赋予学习成绩或设备权限。
+
 ## 后续编码工作（按产品价值排序）
 
 - **R2 对话能力：** 实际模型服务联调、上下文窗口与 token 成本、流式回复、工具调用审批链、错误恢复、网络断连体验；不放宽 Child 安全权限。

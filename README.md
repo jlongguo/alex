@@ -2,6 +2,13 @@
 
 > AI Companion 主线开发（2026-11-04）：新会话 API、可选真实模型多轮文字聊天、A1 互动英语、分支故事、家庭隐私和浏览器可选语音入口。详情见 [AI Companion MVP](docs/AI_COMPANION_MVP.md)。机器人 ROS2/Gazebo 是可选后端，三段导航仍需真实验证；不能据此推断语音/AI 已验收。
 
+## AI Companion R2 · 流式与可中断的虚拟终端
+
+- [R2 Streaming Contract](docs/AI_COMPANION_R2_STREAM.md)：流式文字回复、显式中止、完整提交标记和安全的失败回滚。
+- 离线英语与故事会在完成明确步骤后保存文字学习标记；只有家长可主动查看儿童身份的摘要。**不是发音评分或学习水平认证**。
+- Web 终端可显示生成/听写/朗读状态；浏览器语音能力仍需兼容性验收，可能使用厂商在线语音服务。
+- 这批改动在 PR #37 中，叠加于尚未合并的 PR #36；不代表 ROS2 三段导航或真实模型已通过验收。
+
 ## Console navigation fix
 
 The four sidebar entries now navigate to real workspace views (overview, devices, skills, events), support hash deep links and browser history, and remain accessible through a four-tab mobile bottom bar. The Devices view explains parent-session requirements instead of silently appearing empty. See [docs/CONSOLE_NAVIGATION.md](docs/CONSOLE_NAVIGATION.md) for details and checks. Navigation never bypasses server permissions.
