@@ -2,6 +2,16 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R5：逐人 AI / 浏览器语音隐私策略
+
+- `GET /api/learner/privacy`：需要本地已验证会话，默认返回当前用户允许的 `voiceInputAllowed`、`voiceOutputAllowed`、`cloudTextAllowed`、`preferredLanguage`、`learningPace` 和 `topics`。独立儿童只能读自己的有效配置。
+- `GET /api/learner/privacy?profileId=profile-UUID`：仅家长查看具体孩子的配置；跨孩子 403。
+- `POST /api/learner/privacy`：仅家长，JSON `{profileId,preferences:{voiceInputAllowed,voiceOutputAllowed,cloudTextAllowed,preferredLanguage,learningPace,topics}}`，支持字段局部更新但不可写任意提示词。云模型授权撤销时对该孩子正在生成的请求尝试中断。
+- 已配置云模型时，所有模式每回合都按验证的学习者判断是否允许向第三方上传对话；未授权的儿童仍可使用确定性的本地英语、故事、科学 Skill，但不能使用无离线实现的自由聊天。
+- 浏览器识别文本只是输入框预览，未经用户二次点击“发送”不调用聊天 API；语音录制不会由 Alex 后端保存。
+- 家长隐私导出新增 `learnerPrivacy`；scope=child/all 的清理、删除学习者档案都会清除/重置相应授权。远端模型的已接收数据不在本地删除范围。
+- 完整约束和人工验收见 [R5](AI_COMPANION_R5_VOICE_PRIVACY.md)。
+
 ## AI 互动终端 R4：课程、计划及独立学习成果
 
 - GET /api/learning/catalog：经本地验证的用户可查看已安装、允许执行的固定文本课程 ID、版本和描述。

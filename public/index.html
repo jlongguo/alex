@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <script src="/navigation.js" defer></script>
   <script src="/terminal-runtime.js" defer></script>
+  <script src="/voice-session.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body data-current-page="overview">
@@ -96,6 +97,7 @@
           <button id="companion-new" type="button">开始新对话</button>
           <button id="companion-delete" type="button" class="secondary-btn">删除当前对话</button>
           <label class="companion-voice"><input type="checkbox" id="companion-read-aloud" /> 朗读回复</label>
+          <span id="companion-voice-policy" class="helper" role="status">语音默认关闭；由家长按孩子授权，并且仍需浏览器确认权限。</span>
         </div>
         <div class="companion-runtime" id="companion-runtime" data-state="idle" role="status">
           <span class="companion-avatar" aria-hidden="true">✦</span>
@@ -211,6 +213,29 @@
             <button type="submit">设置／重置专属 PIN</button>
           </form>
           <div id="learner-access-list" class="skills-list" aria-live="polite"></div>
+          <h3>学习者专属 AI 与语音隐私</h3>
+          <p class="helper">所有儿童设置默认关闭。允许语音输入不代表语音只在本地处理：浏览器可能将识别内容交给语音服务商。允许云端文字对话会将输入文本及近期聊天发给家长配置的模型供应商；撤销授权影响下一次模型请求，正在生成的回复会尽力中断。</p>
+          <form id="learner-privacy-form" class="command-form">
+            <label for="learner-privacy-profile">学习者</label>
+            <select id="learner-privacy-profile" aria-label="选择隐私授权的学习者" required></select>
+            <label><input id="learner-privacy-mic" type="checkbox" /> 允许手动开启浏览器语音识别</label>
+            <label><input id="learner-privacy-speech" type="checkbox" /> 允许浏览器朗读回复</label>
+            <label><input id="learner-privacy-cloud" type="checkbox" /> 允许将文字和近期对话发送至家长配置的云端 AI</label>
+            <label for="learner-privacy-language">偏好语言</label>
+            <select id="learner-privacy-language"><option value="bilingual">中英双语</option><option value="zh">中文</option><option value="en">英文</option></select>
+            <label for="learner-privacy-pace">交互节奏</label>
+            <select id="learner-privacy-pace"><option value="slow">慢速</option><option value="normal">正常</option></select>
+            <label for="learner-privacy-topic">兴趣方向</label>
+            <select id="learner-privacy-topic">
+              <option value="">不指定</option><option value="animals">动物</option>
+              <option value="nature">自然</option><option value="science">科学</option>
+              <option value="stories">故事</option><option value="music">音乐</option>
+              <option value="art">绘画</option><option value="sports">运动</option>
+              <option value="robots">机器人</option>
+            </select>
+            <button type="submit">保存该孩子的授权和偏好</button>
+          </form>
+          <p id="learner-privacy-status" class="helper" role="status">请选择学习者后加载当前授权。</p>
           <h3>Skill 课程计划（按孩子分配）</h3>
           <p class="helper">为指定学习者设置建议练习与目标次数；课程只统计明确的离线文字练习完成事件，不包含模型打分，也不限制孩子自由探索其他课程。</p>
           <form id="learning-plan-form" class="command-form">

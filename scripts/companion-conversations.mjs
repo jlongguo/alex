@@ -39,13 +39,26 @@ export class CompanionConversations {
   #sessions=new Map();
   #evidence=[];
   #queue=Promise.resolve();
-  constructor({provider=null,persist=false,file='.local/conversations.json',authorizeMode=()=>{}}={}) {
+  constructor({provider=null,persist=false,file='.local/conversations.json',
+    authorizeMode=()=>{},authorizeModel=()=>null}={}) {
     this.provider=provider;
     this.authorizeMode=authorizeMode;
+    this.authorizeModel=authorizeModel;
     this.persist=Boolean(persist);
     this.store=this.persist?new JsonStateStore(file):null;
   }
   get providerKind(){return this.provider?'compatible':'offline';}
+  #modelFor(principal,mode){
+    if(!this.provider)return {available:false,context:null};
+    try{return {available:true,context:this.authorizeModel(principal)};}
+    catch(error){
+      // Refusing third-party transfer must not break trusted offline Skills.
+      // Generic chat has no deterministic fallback and stays prohibited.
+      if(error?.message==='CHILD_CLOUD_TEXT_DISABLED'&&mode!=='chat')
+        return {available:false,context:null};
+      throw error;
+    }
+  }
   async load() {
     if(!this.store)return;
     const data=await this.store.load();
@@ -167,6 +180,7 @@ export class CompanionConversations {
     const course=resolveCourse(mode,lessonId);
     return this.#enqueue(async()=>{
       this.authorizeMode(actor,mode);
+      const model=this.#modelFor(principal,mode);
       const next=new Map(this.#sessions);
       const mine=[...next.values()].filter(s=>ownedKey(s)===principal)
         .sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));
@@ -176,15 +190,15 @@ export class CompanionConversations {
         ...(course?{lessonId:course.id,lessonVersion:course.version}:{}),
         step:0,context:'',round:0,milestones:[],
         createdAt:now,updatedAt:now,
-        messages:[{role:'assistant',text:!this.provider&&course?course.opening:
-          opening(mode,Boolean(this.provider)),source:'intro'}]};
+        messages:[{role:'assistant',text:!model.available&&course?course.opening:
+          opening(mode,model.available),source:'intro'}]};
       next.set(id,session);
       await this.#commit(next);
       return copy(session);
     });
   }
-  async turn(principal,id,text) {
-    return this.#processTurn(principal,id,text,{});
+  async turn(principal,id,text,{signal}={}) {
+    return this.#processTurn(principal,id,text,{signal});
   }
   async streamTurn(principal,id,text,{signal,onDelta=()=>{}}={}) {
     if(typeof onDelta!=='function')throw new Error('INVALID_COMPANION_CALLBACK');
@@ -199,15 +213,20 @@ export class CompanionConversations {
       if(signal?.aborted)throw new Error('COMPANION_TURN_CANCELLED');
       const current=this.#owned(principal,id);
       this.authorizeMode(actor,current.mode);
+      // Parent may revoke cloud access while a session is open. Recheck on
+      // every turn, including SSE before any model tokens can leave the host.
+      const model=this.#modelFor(principal,current.mode);
       const input=text.trim();
       const user={role:'user',text:input,source:'user'};
       let reply,step=current.step,context=current.context,source='offline';
-      if(this.provider) {
+      if(model.available) {
         const history=[...current.messages,{role:'user',text:input}];
         if(stream){
           if(typeof this.provider.streamReply!=='function')throw new Error('CHAT_STREAM_UNAVAILABLE');
-          reply=await this.provider.streamReply({actor,mode:current.mode,messages:history,signal,onDelta});
-        }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,signal});
+          reply=await this.provider.streamReply({actor,mode:current.mode,messages:history,
+            context:model.context,signal,onDelta});
+        }else reply=await this.provider.reply({actor,mode:current.mode,messages:history,
+          context:model.context,signal});
         source='model';
       }else{
         const course=resolveCourse(current.mode,current.lessonId);
