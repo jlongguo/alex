@@ -8,13 +8,15 @@ const PACES=new Set(['slow','normal']);
 const clone=x=>structuredClone(x);
 export const DEFAULT_LEARNER_PRIVACY=Object.freeze({
   voiceInputAllowed:false,voiceOutputAllowed:false,cloudTextAllowed:false,
+  cloudAudioInputAllowed:false,cloudAudioOutputAllowed:false,
   preferredLanguage:'bilingual',learningPace:'slow',topics:[]
 });
 function validPreferences(value){
   if(!value||typeof value!=='object'||Array.isArray(value)
     ||Object.keys(value).some(k=>!Object.keys(DEFAULT_LEARNER_PRIVACY).includes(k)))
     throw new Error('INVALID_LEARNER_PRIVACY');
-  for(const flag of ['voiceInputAllowed','voiceOutputAllowed','cloudTextAllowed'])
+  for(const flag of ['voiceInputAllowed','voiceOutputAllowed','cloudTextAllowed',
+    'cloudAudioInputAllowed','cloudAudioOutputAllowed'])
     if(typeof value[flag]!=='boolean')throw new Error('INVALID_LEARNER_PRIVACY');
   if(!LANGS.has(value.preferredLanguage)||!PACES.has(value.learningPace)
     ||!Array.isArray(value.topics)||value.topics.length>5
@@ -37,14 +39,21 @@ export class LearnerPrivacy {
     if(saved.version!==1||!Array.isArray(saved.rows)||saved.rows.length>MAX_PROFILES)
       throw new Error('INVALID_LEARNER_PRIVACY_FILE');
     const seen=new Set();
+    const rows=[];
     for(const row of saved.rows){
       if(!row||!PROFILE.test(row.profileId)||seen.has(row.profileId)
         ||typeof row.updatedAt!=='string'||Number.isNaN(Date.parse(row.updatedAt)))
         throw new Error('INVALID_LEARNER_PRIVACY_FILE');
       seen.add(row.profileId);
-      validPreferences(row.preferences);
+      // R5 snapshots predate the explicit cloud audio grants.
+      // Fail closed for all existing learners rather than inheriting
+      // browser-based voice consent as vendor-upload permission.
+      const preferences=validPreferences({
+        ...DEFAULT_LEARNER_PRIVACY,...row.preferences
+      });
+      rows.push({...row,preferences});
     }
-    this.#rows=clone(saved.rows);
+    this.#rows=clone(rows);
   }
   forProfile(profileId){
     if(!PROFILE.test(profileId??''))throw new Error('INVALID_LEARNER_PROFILE');
@@ -54,6 +63,7 @@ export class LearnerPrivacy {
     if(principal==='parent')return {
       ...clone(DEFAULT_LEARNER_PRIVACY),
       voiceInputAllowed:true,voiceOutputAllowed:true,cloudTextAllowed:true,
+      cloudAudioInputAllowed:true,cloudAudioOutputAllowed:true,
       parentControlled:false
     };
     if(principal==='child')return {...clone(DEFAULT_LEARNER_PRIVACY),parentControlled:true,legacyShared:true};
