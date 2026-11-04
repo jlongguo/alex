@@ -649,7 +649,50 @@ $('companion-mode').addEventListener('change',()=>{
 });
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
-let companionAbort=null,companionRecognition=null;
+let companionAbort=null;
+const voiceBridge=new globalThis.AlexVoiceBridge({
+ recognitionFactory:(window.SpeechRecognition||window.webkitSpeechRecognition)
+   ?()=>new (window.SpeechRecognition||window.webkitSpeechRecognition)():null,
+ synthesis:window.speechSynthesis??null,
+ utteranceFactory:typeof window.SpeechSynthesisUtterance==='function'
+   ?text=>new window.SpeechSynthesisUtterance(text):null,
+ onState:next=>companionState(next),
+ onTranscript:({text,isFinal})=>{
+  $('companion-text').value=text;
+  companionNotice(isFinal?'识别文字已完成，请检查后手动发送。':
+    '语音识别文字预览（可能调用浏览器厂商服务）。');
+ },
+ onError:code=>{companionState('error');companionNotice('语音失败：'+code,true);}
+});
+let privacyPollAt=0;
+async function refreshCompanionPrivacy(force=false){
+ if(!authorizedActor){
+  companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);return;
+ }
+ if(!force&&Date.now()-privacyPollAt<3000)return;
+ const identity=companionActor;privacyPollAt=Date.now();
+ try{
+  const response=await fetch('/api/learner/privacy',{cache:'no-store'});
+  if(!response.ok)throw new Error('VOICE_POLICY_UNAVAILABLE');
+  const next=(await response.json()).preferences;
+  if(identity!==companionActor)return;
+  companionPrivacy=next;voiceBridge.setConsent(next);
+  const support=voiceBridge.snapshot();
+  $('companion-microphone').disabled=!next.voiceInputAllowed||!support.recognitionSupported;
+  $('companion-read-aloud').disabled=!next.voiceOutputAllowed||!support.speechSupported;
+  if($('companion-read-aloud').disabled)$('companion-read-aloud').checked=false;
+  $('companion-voice-policy').textContent='当前：麦克风'+(next.voiceInputAllowed?'已授权':'已关闭')+
+    ' · 朗读'+(next.voiceOutputAllowed?'已授权':'已关闭')+
+    ' · 云模型文字'+(next.cloudTextAllowed?'已授权':'禁止')+
+    '。识别可能使用浏览器厂商云端；需检查文字并手动发送。';
+ }catch{
+  if(identity!==companionActor)return;
+  companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
+  $('companion-microphone').disabled=true;$('companion-read-aloud').disabled=true;
+  $('companion-read-aloud').checked=false;
+  $('companion-voice-policy').textContent='隐私授权暂无法验证：语音和云端文字使用默认关闭。';
+ }
+}
 const terminalRuntime=new globalThis.AlexTerminalRuntime();
 function companionState(next) {
  terminalRuntime.transition(next,{reason:'browser-ui'});
@@ -686,25 +729,16 @@ function showCompanion(session) {
   container.append(makeCompanionBubble(message.role,message.text,message.source).line);
  container.scrollTop=container.scrollHeight;
 }
-function stopCompanionSpeech(){
- if('speechSynthesis' in window)window.speechSynthesis.cancel();
- if($('companion-runtime').dataset.state==='speaking')companionState('idle');
-}
+function stopCompanionSpeech(){voiceBridge.stopSpeaking();}
 function speakCompanion(text,mode){
- if(!$('companion-read-aloud').checked||!('speechSynthesis' in window))return;
- stopCompanionSpeech();
- const utterance=new SpeechSynthesisUtterance(text);
- utterance.lang=mode==='english'?'en-US':'zh-CN';
- utterance.rate=mode==='english'?.85:1;
- companionState('speaking');
- const revision=terminalRuntime.snapshot().revision;
- utterance.onend=()=>{if(terminalRuntime.current(revision))companionState('idle');};
- utterance.onerror=()=>{
-  if(terminalRuntime.current(revision)){
-   companionState('error');companionNotice('浏览器朗读失败，可以继续使用文字。',true);
-  }
- };
- window.speechSynthesis.speak(utterance);
+ if(!$('companion-read-aloud').checked)return;
+ if(!companionPrivacy.voiceOutputAllowed){
+  $('companion-read-aloud').checked=false;companionNotice('家长尚未授权朗读。',true);return;
+ }
+ try{
+  voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
+    rate:mode==='english'?.85:1});
+ }catch(err){companionNotice(err.message,true);companionState('error');}
 }
 async function refreshCompanionProgress(){
  if(!authorizedActor){$('companion-progress-summary').textContent='请登录后查看学习记录。';return;}
@@ -936,40 +970,32 @@ $('companion-delete').addEventListener('click',async()=>{
  }catch(err){companionNotice(err.message,true);}
  finally{companionBusy=false;}
 });
-const CompanionSpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-$('companion-microphone').disabled=!CompanionSpeechRecognition;
-$('companion-microphone').addEventListener('click',()=>{
- if(!authorizedActor||!CompanionSpeechRecognition||companionBusy)return;
- if(companionRecognition){companionRecognition.stop();companionRecognition=null;companionState('idle');return;}
- stopCompanionSpeech();
- const recognition=new CompanionSpeechRecognition();
- companionRecognition=recognition;
- recognition.lang=$('companion-mode').value==='english'?'en-US':'zh-CN';
- recognition.interimResults=false;recognition.maxAlternatives=1;
- recognition.onresult=event=>{
-  if(companionRecognition!==recognition)return; // stale browser callback
-  $('companion-text').value=event.results?.[0]?.[0]?.transcript?.slice(0,500)??'';
-  companionNotice('语音已转为文本，请检查后点击发送。');
- };
- recognition.onerror=()=>{
-  if(companionRecognition===recognition){
-   companionState('error');companionNotice('当前浏览器语音识别不可用，请使用文字输入。',true);
+$('companion-microphone').disabled=true;
+$('companion-read-aloud').disabled=true;
+$('companion-microphone').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ await refreshCompanionPrivacy(true);
+ if(!companionPrivacy.voiceInputAllowed){
+  companionNotice('家长未授予此学习者麦克风权限。',true);return;
+ }
+ try{
+  if(voiceBridge.snapshot().state==='listening'){
+   voiceBridge.stopListening();companionNotice('已停止语音识别。');return;
   }
- };
- recognition.onend=()=>{
-  if(companionRecognition!==recognition)return;
-  companionRecognition=null;
-  if($('companion-runtime').dataset.state==='listening')companionState('idle');
- };
- try{recognition.start();companionState('listening');companionNotice('仅在浏览器授权后识别；可能调用浏览器厂商服务。');}
- catch{companionRecognition=null;companionState('error');companionNotice('浏览器无法启动语音识别。',true);}
+  voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
+  companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
+ }catch(err){companionNotice(err.message,true);}
 });
 window.addEventListener('pagehide',()=>{
  terminalRuntime.interrupt('pagehide');
  companionAbort?.abort();
- if(companionRecognition){companionRecognition.abort();companionRecognition=null;}
- stopCompanionSpeech();
+ voiceBridge.interrupt('pagehide');
 });
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden)voiceBridge.interrupt('page-hidden');
+ else void refreshCompanionPrivacy(true);
+});
+setInterval(()=>{if(authorizedActor)void refreshCompanionPrivacy();},3000);
 
 // All listeners and state are installed before authentication can launch any polling.
 void initAuth();
