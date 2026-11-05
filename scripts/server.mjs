@@ -911,7 +911,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   }
   const assets={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js','/navigation.js':'navigation.js','/terminal-runtime.js':'terminal-runtime.js','/voice-session.js':'voice-session.js','/audio-session.js':'audio-session.js',
     '/audio-vad.js':'audio-vad.js',
-    '/audio-stream-session.js':'audio-stream-session.js'};
+    '/audio-stream-session.js':'audio-stream-session.js',
+    '/realtime-pcm-session.js':'realtime-pcm-session.js',
+    '/pcm-capture-processor.js':'pcm-capture-processor.js'};
   if(req.method!=='GET'||!(pathname in assets)){send(res,404,{ok:false,error:'NOT_FOUND'});return;}
   const file=assets[pathname];
   const bytes=await readFile(resolve(publicDir,file));
