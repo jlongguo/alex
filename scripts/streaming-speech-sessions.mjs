@@ -25,11 +25,14 @@ export class StreamingSpeechSessions {
  #metrics=new Map();
  constructor({provider,now=()=>Date.now(),makeId=randomUUID,
    maxActive=SPEECH_MAX_ACTIVE,budget=new SpeechDeliveryBudget(),
-   latency=new SpeechLatencyObserver()}={}){
+   latency=new SpeechLatencyObserver(),authorizeDelivery=()=>{}}={}){
   if(!provider||typeof provider.open!=='function')
    throw Error('INVALID_SPEECH_PROVIDER');
+  if(typeof authorizeDelivery!=='function')
+   throw Error('INVALID_SPEECH_DELIVERY_AUTHORIZER');
   this.provider=provider;this.now=now;this.makeId=makeId;
   this.maxActive=maxActive;this.budget=budget;this.latency=latency;
+  this.authorizeDelivery=authorizeDelivery;
  }
  #record(principal,event,extra={}){
   const row=this.#metrics.get(principal)??empty();
@@ -81,7 +84,9 @@ export class StreamingSpeechSessions {
    controller:new AbortController(),source:null,seq:0,acked:0,
    busy:false,deliveredSamples:0,playedSamples:0,
    firstChunkAt:null,firstAckAt:null,drained:false,outstanding:new Map(),
-   receipts:new SentencePlaybackReceipts({sentenceCount:segments?.length??1})
+   receipts:new SentencePlaybackReceipts({sentenceCount:segments?.length??1}),
+   lastDeliveredSentenceIndex:-1,lastDeliveryAt:null,
+   lastAckSentenceIndex:-1,lastAckAt:null
   };
   this.#sessions.set(id,session);this.#owners.set(principal,id);
   this.#record(principal,'started');
@@ -117,6 +122,11 @@ export class StreamingSpeechSessions {
   if(session.outstanding.size>=SPEECH_MAX_UNACKED)
    throw Error('SPEECH_PLAYBACK_BACKPRESSURE');
   this.budget.check(principal);
+  try{this.authorizeDelivery(principal);}
+  catch(error){
+   this.#release(session,'cancelled');
+   throw error;
+  }
   session.busy=true;session.lastAt=this.now();
   try{
    const block=await session.source.read();
@@ -141,6 +151,13 @@ export class StreamingSpeechSessions {
      ||block.samples!==block.pcm.length/2){
     throw Error('SPEECH_PROVIDER_INVALID_PCM');
    }
+   // Authorization may change while an upstream read is pending. Recheck
+   // inside the owner-bound session before charging or returning PCM.
+   try{this.authorizeDelivery(principal);}
+   catch(error){
+    if(Buffer.isBuffer(block?.pcm))block.pcm.fill(0);
+    throw error;
+   }
    // Count only bytes accepted into the authenticated downlink. Checking
    // after provider.read() also protects against a partial final block.
    const segmentIndex=block.sentenceIndex??0;
@@ -153,7 +170,17 @@ export class StreamingSpeechSessions {
    if(segmentIndex<previous||segmentIndex>previous+1)
     throw Error('SPEECH_INVALID_SENTENCE_INDEX');
    this.budget.consume(principal,block.samples);
-   session.receipts.delivered(segmentIndex,block.samples,this.now());
+   const observedAt=this.now();
+   session.receipts.delivered(segmentIndex,block.samples,observedAt);
+   if(segmentIndex!==session.lastDeliveredSentenceIndex){
+    this.latency.record(principal,'sentenceFirstDeliveryMs',
+      Math.max(0,observedAt-session.openedAt));
+    if(session.lastDeliveryAt!==null)
+     this.latency.record(principal,'sentenceHandoffMs',
+       Math.max(0,observedAt-session.lastDeliveryAt));
+   }
+   session.lastDeliveredSentenceIndex=segmentIndex;
+   session.lastDeliveryAt=observedAt;
    session.seq++;
    session.outstanding.set(seq,{samples:block.samples,segmentIndex});
    session.deliveredSamples+=block.samples;session.lastAt=this.now();
@@ -179,7 +206,17 @@ export class StreamingSpeechSessions {
     ||!session.outstanding.has(seq))
    throw Error('INVALID_SPEECH_ACK_SEQUENCE');
   const {samples,segmentIndex}=session.outstanding.get(seq);
-  session.receipts.acknowledge(segmentIndex,samples,this.now());
+  const acknowledgedAt=this.now();
+  session.receipts.acknowledge(segmentIndex,samples,acknowledgedAt);
+  if(segmentIndex!==session.lastAckSentenceIndex){
+   this.latency.record(principal,'sentenceFirstAckMs',
+     Math.max(0,acknowledgedAt-session.openedAt));
+   if(session.lastAckAt!==null)
+    this.latency.record(principal,'sentenceAckTransitionMs',
+      Math.max(0,acknowledgedAt-session.lastAckAt));
+  }
+  session.lastAckSentenceIndex=segmentIndex;
+  session.lastAckAt=acknowledgedAt;
   session.outstanding.delete(seq);session.acked++;
   session.playedSamples+=samples;
   session.lastAt=this.now();

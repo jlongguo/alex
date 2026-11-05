@@ -3,6 +3,12 @@
 // Only two ~100ms PCM frames may be scheduled ahead. Each real playback
 // onended callback ACKs its frame. These remain client claims, not proof.
 // No audio/voice sample is saved in localStorage, disk or IndexedDB.
+// Nearest-rank percentile on a bounded collection of scheduling gaps.
+const alexSpeechGapQuantile=(samples,q)=>{
+ if(!samples.length)return null;
+ const sorted=[...samples].sort((a,b)=>a-b);
+ return sorted[Math.ceil(sorted.length*q)-1];
+};
 class AlexStreamingSpeechBridge {
  #epoch=0;#phase='idle';#session=null;#ctx=null;
  #sources=new Set();#poller=null;#controller=null;#fetching=false;
@@ -10,6 +16,7 @@ class AlexStreamingSpeechBridge {
  #firstAudioAt=null;#requestedAt=null;#firstScheduledLatencyMs=null;
  #starves=0;#playedSamples=0;
  #sentenceIndex=0;#sentenceCount=1;#claimedSentenceIndex=0;
+ #lastScheduledSentence=-1;#scheduledSentenceGaps=[];
  constructor({fetchFn=fetch,
    contextFactory=()=>new (globalThis.AudioContext||globalThis.webkitAudioContext)(),
    scheduler=setInterval,clearScheduler=clearInterval,
@@ -23,6 +30,9 @@ class AlexStreamingSpeechBridge {
    nextSeq:this.#seq,playedMsClaimed:Math.round(this.#playedSamples/24),
    sentenceIndex:this.#sentenceIndex,sentenceCount:this.#sentenceCount,
    claimedSentenceIndex:this.#claimedSentenceIndex,
+   sentenceScheduledGaps:this.#scheduledSentenceGaps.length,
+   sentenceScheduledGapP50Ms:alexSpeechGapQuantile(this.#scheduledSentenceGaps,0.5),
+   sentenceScheduledGapP95Ms:alexSpeechGapQuantile(this.#scheduledSentenceGaps,0.95),
    firstAudioMs:this.#firstAudioAt,
    firstScheduledLatencyMs:this.#firstScheduledLatencyMs,
    underruns:this.#starves});}
@@ -62,6 +72,7 @@ class AlexStreamingSpeechBridge {
   this.#requestedAt=null;this.#firstScheduledLatencyMs=null;
   this.#starves=0;this.#playedSamples=0;
   this.#sentenceIndex=0;this.#sentenceCount=1;this.#claimedSentenceIndex=0;
+  this.#lastScheduledSentence=-1;this.#scheduledSentenceGaps=[];
   this.#cancelRemote(id);
   this.#cancelVoiceTurn(turn);
   this.#set('idle',reason);
@@ -182,7 +193,15 @@ class AlexStreamingSpeechBridge {
     source.buffer=buffer;source.connect(ctx.destination);
     const now=ctx.currentTime;
     if(this.#seq>0&&this.#nextTime<now-0.03)this.#starves++;
+    const previousScheduledEnd=this.#nextTime;
     const when=Math.max(now+0.02,this.#nextTime);
+    if(this.#lastScheduledSentence>=0
+      &&sentenceIndex>this.#lastScheduledSentence){
+     const gap=Math.max(0,Math.round((when-previousScheduledEnd)*1000));
+     this.#scheduledSentenceGaps.push(gap);
+     if(this.#scheduledSentenceGaps.length>16)this.#scheduledSentenceGaps.shift();
+    }
+    this.#lastScheduledSentence=sentenceIndex;
     this.#nextTime=when+samples/24000;
     const seq=this.#seq++;
     this.#sentenceIndex=sentenceIndex;

@@ -2,7 +2,11 @@
 // Records durations only, never transcripts, audio, model text or session IDs.
 const MAX_MS=120_000;
 const DEFAULT_WINDOW=128;
-const TYPES=['firstChunkMs','firstPlaybackAckMs','completionMs'];
+const TYPES=[
+ 'firstChunkMs','firstPlaybackAckMs','completionMs',
+ 'sentenceFirstDeliveryMs','sentenceHandoffMs','sentenceFirstAckMs',
+ 'sentenceAckTransitionMs'
+];
 const validPrincipal=p=>typeof p==='string'&&p.length>0&&p.length<=100;
 const isChild=p=>p==='child'||p.startsWith('learner:');
 function quantile(values,q){
