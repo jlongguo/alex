@@ -221,3 +221,20 @@ export class RealtimePcmSessions {
 }
 export const REALTIME_PCM_FRAME_BYTES=FRAME_MAX;
 export const REALTIME_PCM_TOTAL_BYTES=PCM_MAX;
+
+
+export async function readRealtimePcmFrame(req){
+  if(req.headers['content-type']!=='application/octet-stream')
+    throw new Error('INVALID_REALTIME_CONTENT_TYPE');
+  const expected=Number(req.headers['content-length']);
+  if(Number.isFinite(expected)&&expected>FRAME_MAX)
+    throw new Error('INVALID_REALTIME_PCM_BYTES');
+  const parts=[];let total=0;
+  for await(const chunk of req){
+    total+=chunk.byteLength;
+    if(total>FRAME_MAX)throw new Error('INVALID_REALTIME_PCM_BYTES');
+    parts.push(chunk);
+  }
+  if(total<2||total%2)throw new Error('INVALID_REALTIME_PCM_BYTES');
+  return Buffer.concat(parts,total);
+}
