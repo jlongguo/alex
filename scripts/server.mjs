@@ -26,6 +26,7 @@ import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.m
 import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
 import {StreamingPcmSpeechProvider} from './streaming-speech-provider.mjs';
 import {StreamingSpeechSessions} from './streaming-speech-sessions.mjs';
+import {SegmentedPcmSpeechProvider} from './segmented-pcm-speech-provider.mjs';
 import {VoiceTurnOrchestrator} from './voice-turn-orchestrator.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 
@@ -84,7 +85,7 @@ const speechDeliveryBudget=new SpeechDeliveryBudget({
   dailySeconds:speechDeliveryDailySeconds
 });
 const speechPlayback=speechStreamProvider
- ?new StreamingSpeechSessions({provider:speechStreamProvider,
+ ?new StreamingSpeechSessions({provider:new SegmentedPcmSpeechProvider({provider:speechStreamProvider}),
    budget:speechDeliveryBudget}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
