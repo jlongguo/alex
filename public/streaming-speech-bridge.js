@@ -40,7 +40,7 @@ class AlexStreamingSpeechBridge {
     this.#controller=controller;this.#principal=principal;
     this.#set('starting');
     // AudioContext must be activated inside user gesture before network await.
-    await this.player.begin({owner:principal,turn:'pending'});
+    await this.player.begin({owner:principal,turn:'speech-'+String(epoch)});
     if(epoch!==this.#epoch)throw Error('SPEECH_CANCELLED');
     try{
       const response=await this.fetchFn('/api/audio/speech/start',{
@@ -55,9 +55,6 @@ class AlexStreamingSpeechBridge {
       if(typeof id!=='string'||!id)throw Error('SPEECH_INVALID_SESSION');
       if(epoch!==this.#epoch){void this.#cancelServer(id);throw Error('SPEECH_CANCELLED');}
       this.#id=id;
-      // Rebind the player to opaque server-side turn before the first frame.
-      await this.player.begin({owner:principal,turn:id});
-      if(epoch!==this.#epoch)throw Error('SPEECH_CANCELLED');
       this.#set('playing');
       this.#running=this.#pump(epoch,principal,id,controller.signal);
       void this.#running.catch(()=>{});
@@ -83,7 +80,7 @@ class AlexStreamingSpeechBridge {
         const data=await response.json();
         if(epoch!==this.#epoch||signal.aborted)throw Error('SPEECH_CANCELLED');
         if(data.done===true){
-          this.player.finish({owner:principal,turn:id});
+          this.player.finish({owner:principal,turn:'speech-'+String(epoch)});
           this.#set('draining');
           return;
         }
@@ -95,7 +92,7 @@ class AlexStreamingSpeechBridge {
           throw Error('SPEECH_INVALID_FRAME');
         const pcm=new Uint8Array(raw.length);
         for(let i=0;i<raw.length;i++)pcm[i]=raw.charCodeAt(i);
-        try{this.player.append({owner:principal,turn:id,seq:data.seq,
+        try{this.player.append({owner:principal,turn:'speech-'+String(epoch),seq:data.seq,
           sampleRate:24000,pcm});}finally{pcm.fill(0);}
       }
     }catch(error){
