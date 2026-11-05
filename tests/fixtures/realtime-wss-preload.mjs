@@ -65,7 +65,7 @@ class Socket extends EventEmitter {
  destroy(){if(this.closed)return;this.closed=true;this.emit('close');}
 }
 https.request=(url,options,...rest)=>{
- if(String(url).startsWith('wss://api.openai.com/v1/realtime?intent=transcription')){
+ if(String(url).startsWith('https://api.openai.com/v1/realtime?intent=transcription')){
   if(options?.headers?.Authorization!=='Bearer private-realtime-fixture')
     throw Error('Missing realtime key in fixture');
   const socket=new Socket();
