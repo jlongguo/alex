@@ -2,6 +2,18 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R9：用户主动流式语音播放
+
+以下均要求本地家庭认证、有效 Cookie、当前学习者已由家长分别授权 `voiceOutputAllowed` + `cloudAudioOutputAllowed`，以及管理员独立启用 `ALEX_SPEECH_STREAM_PROVIDER=compatible`。
+
+- `GET /api/audio/playback/capabilities`：当前角色的流式合成可用性、PCM16/24k 与最多 3 个未确认音频片；不返回密钥。
+- `POST /api/audio/playback/start`：JSON `{text}` 最多 500 字，用户主动提交选定回复后开新合成会话，返回专属 opaque ID。没有自动广播和自动机器人调度。
+- `POST /api/audio/playback/next`：JSON `{id,seq}`，按顺序获取最多 4800 字节的裸 PCM16 块，`Content-Type:application/octet-stream`，附 `X-Alex-Speech-Seq` 与 `X-Alex-Speech-Samples`；204 表示流已经结束，队列仍可能有未播完块。
+- `POST /api/audio/playback/ack`：JSON `{id,seq}`，浏览器 `onended` 事件后有序申报播放进度，不能重放 ACK；该申报**不是声学播放证明**。
+- `POST /api/audio/playback/status`：JSON `{id}`，只读取本学习者会话的非内容状态；`POST /api/audio/playback/cancel` 显式打断并返回客户端已 ACK 的毫秒数。
+- `GET /api/audio/playback/metrics`：仅本身份的开始/完成/取消/过期、样本数，不包含朗读正文或声音。家长删除孩子档案或 child/all 隐私擦除时同样清空相关指标。
+- 详细上限、隐私和验收边界见 [R9](AI_COMPANION_R9_STREAMING_SPEECH.md)。此接口仅面向本机原型，真实服务商和浏览器未完成现场 QA。
+
 ## AI 互动终端 R8：真实上游实时 PCM16 转写
 
 - `GET /api/audio/realtime/capabilities`：当前已登录角色对 WSS 实时 ASR 的权限、格式与上限；不暴露配置密钥，默认 disabled。
