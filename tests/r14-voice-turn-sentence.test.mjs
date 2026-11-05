@@ -20,7 +20,8 @@ test('R14 only opens TTS with first complete sentence from committed reply',asyn
  const result=await manager.run('learner:one',{conversationId:conversation,text:'hello'});
  assert.equal(spoken,'First sentence.');
  assert.equal(result.speechSegmentCount,2);
- assert.equal(result.speechTextTruncated,true);
+ assert.equal(result.speechTextTruncated,false);
+ assert.equal(result.speechSegmentsSelected,2);
  assert.equal(result.assistant.text,'First sentence. Second sentence is longer.');
  manager.cancel('learner:one',turn);
 });

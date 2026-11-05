@@ -58,7 +58,7 @@ export class StreamingSpeechSessions {
   }
   return this.#sessions.size;
  }
- async start(principal,{text}={}){
+ async start(principal,{text,segments}={}){
   if(typeof principal!=='string'||!principal||principal.length>100)
    throw Error('INVALID_AUDIO_PRINCIPAL');
   this.sweep();
@@ -83,7 +83,7 @@ export class StreamingSpeechSessions {
   this.#sessions.set(id,session);this.#owners.set(principal,id);
   this.#record(principal,'started');
   try{
-   const source=await this.provider.open({text,signal:session.controller.signal});
+   const source=await this.provider.open({text,segments,signal:session.controller.signal});
    if(this.#sessions.get(id)!==session||session.controller.signal.aborted){
     await source.close();throw Error('AUDIO_REQUEST_CANCELLED');
    }

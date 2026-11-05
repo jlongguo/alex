@@ -105,7 +105,9 @@ test('R11 validates identity, input, single-flight and scope cancellation',async
 test('R11 never sends provisional output to TTS; only committed text',async()=>{
  const {orchestrator,calls}=fixture({reply:'x'.repeat(700)});
  const result=await orchestrator.run(A,{conversationId:session,text:'Hi'});
- assert.equal(result.speechTextTruncated,true);
+ assert.equal(result.speechTextTruncated,false);
+ assert.equal(result.speechSegmentCount,2);
+ assert.equal(result.speechSegmentsSelected,2);
  assert.equal(calls[1].spoken.length,500);
  assert.equal(result.assistant.text.length,700);
  orchestrator.cancel(A,result.turn.id);
