@@ -129,7 +129,9 @@ class AlexRealtimePcmBridge {
     }
   }
   #frame(buffer,epoch,id){
-    if(this.#phase!=='recording')return;
+    // Worklet flush can emit its final short PCM frame *after* stop()
+    // moved the UI to flushing; accept it before the flushed ACK.
+    if(!['recording','flushing'].includes(this.#phase))return;
     if(buffer.byteLength<2||buffer.byteLength>9600||buffer.byteLength%2
       ||this.#bytes+buffer.byteLength>720000||this.#queued>=5){
       this.interrupt('realtime-backpressure-or-invalid-frame');
