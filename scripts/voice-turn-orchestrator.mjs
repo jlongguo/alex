@@ -76,11 +76,12 @@ export class VoiceTurnOrchestrator {
     assistant:result.assistant,session:result.session,
     speechTextTruncated:spoken.length>500};
   }catch(error){
-   t.phase=t.controller.signal.aborted?'cancelled':'failed';
+   const cancelled=t.controller.signal.aborted
+     ||error?.message==='VOICE_TURN_CANCELLED'
+     ||error?.message==='COMPANION_TURN_CANCELLED';
+   t.phase=cancelled?'cancelled':'failed';
    this.#release(t);
-   if(t.controller.signal.aborted&&error?.message!=='VOICE_TURN_CANCELLED'
-     &&error?.message!=='COMPANION_TURN_CANCELLED')
-    throw Error('VOICE_TURN_CANCELLED');
+   if(cancelled)throw Error('VOICE_TURN_CANCELLED');
    throw error;
   }finally{clearTimeout(timeout);}
  }
