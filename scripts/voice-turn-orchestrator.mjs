@@ -53,7 +53,8 @@ export class VoiceTurnOrchestrator {
   t.controller.abort();
   if(cancelSpeech&&t.speechId)this.speech.cancel(t.principal,t.speechId);
  }
- async run(principal,{conversationId,text}={}){
+ async run(principal,{conversationId,text,onCreated=()=>{}}={}){
+  if(typeof onCreated!=='function')throw Error('INVALID_VOICE_TURN_CALLBACK');
   if(!isPrincipal(principal)||!isId(conversationId)
     ||typeof text!=='string'||!text.trim()||text.length>500
     ||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text))
@@ -72,6 +73,7 @@ export class VoiceTurnOrchestrator {
   const timeout=setTimeout(()=>t.controller.abort(),MAX_MS);
   timeout.unref?.();
   try{
+   onCreated(id);
    this.#check(t);
    const modelPending=Promise.resolve().then(()=>
     this.conversations.streamTurn(principal,conversationId,text,{
@@ -93,8 +95,8 @@ export class VoiceTurnOrchestrator {
    // A cancelled request cannot strand a late-opened upstream TTS session.
    // Handle its eventual resolution even when the deadline already won.
    speechPending.then(start=>{
-    if(t.controller.signal.aborted||this.#byId.get(id)!==t)
-     this.speech.cancel(principal,start?.id);
+    if((t.controller.signal.aborted||this.#byId.get(id)!==t)
+      &&isId(start?.id))this.speech.cancel(principal,start.id);
    },()=>{});
    const start=await abortable(speechPending,t.controller.signal);
    if(t.controller.signal.aborted||this.#byId.get(id)!==t)
