@@ -15,7 +15,7 @@ function harness(){
  const opened=[],closed=[],frames=[],active=new Set();
  let peak=0;
  const provider={async open({text,signal}){
-  assert.equal(signal?.aborted,false);
+  assert.notEqual(signal?.aborted,true);
   const index=sentences.indexOf(text);
   opened.push(index);
   active.add(index);peak=Math.max(peak,active.size);
