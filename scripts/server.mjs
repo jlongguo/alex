@@ -531,6 +531,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       'Content-Length':block.pcm.byteLength,
       'X-Alex-Speech-Seq':String(block.seq),
       'X-Alex-Speech-Samples':String(block.samples),
+      'X-Alex-Speech-Sentence-Index':String(block.sentenceIndex),
+      'X-Alex-Speech-Sentence-Count':String(block.sentenceCount),
       'Cache-Control':'no-store, no-transform',
       'X-Content-Type-Options':'nosniff',
       'Content-Security-Policy':"default-src 'none'"

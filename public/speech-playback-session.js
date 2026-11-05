@@ -9,6 +9,7 @@ class AlexStreamingSpeechBridge {
  #seq=0;#nextTime=0;#drained=false;#pendingAck=0;#voiceTurn=null;
  #firstAudioAt=null;#requestedAt=null;#firstScheduledLatencyMs=null;
  #starves=0;#playedSamples=0;
+ #sentenceIndex=0;#sentenceCount=1;#claimedSentenceIndex=0;
  constructor({fetchFn=fetch,
    contextFactory=()=>new (globalThis.AudioContext||globalThis.webkitAudioContext)(),
    scheduler=setInterval,clearScheduler=clearInterval,
@@ -20,6 +21,8 @@ class AlexStreamingSpeechBridge {
    playing:this.#phase==='playing'||this.#phase==='buffering',
    sessionId:this.#session,queued:this.#sources.size,
    nextSeq:this.#seq,playedMsClaimed:Math.round(this.#playedSamples/24),
+   sentenceIndex:this.#sentenceIndex,sentenceCount:this.#sentenceCount,
+   claimedSentenceIndex:this.#claimedSentenceIndex,
    firstAudioMs:this.#firstAudioAt,
    firstScheduledLatencyMs:this.#firstScheduledLatencyMs,
    underruns:this.#starves});}
@@ -58,6 +61,7 @@ class AlexStreamingSpeechBridge {
   this.#pendingAck=0;this.#firstAudioAt=null;
   this.#requestedAt=null;this.#firstScheduledLatencyMs=null;
   this.#starves=0;this.#playedSamples=0;
+  this.#sentenceIndex=0;this.#sentenceCount=1;this.#claimedSentenceIndex=0;
   this.#cancelRemote(id);
   this.#cancelVoiceTurn(turn);
   this.#set('idle',reason);
@@ -152,6 +156,17 @@ class AlexStreamingSpeechBridge {
     }
     const expectedSeq=Number(response.headers.get('x-alex-speech-seq'));
     const samples=Number(response.headers.get('x-alex-speech-samples'));
+    const rawSentence=response.headers.get('x-alex-speech-sentence-index');
+    const rawCount=response.headers.get('x-alex-speech-sentence-count');
+    const sentenceIndex=rawSentence===null?0:Number(rawSentence);
+    const sentenceCount=rawCount===null?1:Number(rawCount);
+    if(!Number.isSafeInteger(sentenceIndex)||!Number.isSafeInteger(sentenceCount)
+      ||sentenceCount<1||sentenceCount>4||sentenceIndex<0
+      ||sentenceIndex>=sentenceCount
+      ||sentenceIndex<this.#sentenceIndex
+      ||sentenceIndex>this.#sentenceIndex+1
+      ||(this.#seq>0&&sentenceCount!==this.#sentenceCount))
+     throw Error('SPEECH_PLAYBACK_INVALID_SENTENCE_METADATA');
     const binary=await response.arrayBuffer();
     if(epoch!==this.#epoch)return;
     if(expectedSeq!==this.#seq||!Number.isSafeInteger(samples)
@@ -170,13 +185,15 @@ class AlexStreamingSpeechBridge {
     const when=Math.max(now+0.02,this.#nextTime);
     this.#nextTime=when+samples/24000;
     const seq=this.#seq++;
+    this.#sentenceIndex=sentenceIndex;
+    this.#sentenceCount=sentenceCount;
     this.#sources.add(source);
     source.onended=()=>{
      this.#sources.delete(source);
      try{source.disconnect();}catch{}
      if(epoch!==this.#epoch)return;
      this.#pendingAck++;
-     void this.#ack(epoch,id,seq,samples);
+     void this.#ack(epoch,id,seq,samples,sentenceIndex);
      this.#completeIfReady(epoch);
     };
     source.start(when);
@@ -196,7 +213,7 @@ class AlexStreamingSpeechBridge {
    if(epoch===this.#epoch)this.#fetching=false;
   }
  }
- async #ack(epoch,id,seq,samples){
+ async #ack(epoch,id,seq,samples,sentenceIndex){
   try{
    const response=await this.fetchFn('/api/audio/playback/ack',{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -209,8 +226,10 @@ class AlexStreamingSpeechBridge {
    }
    const data=await response.json();
    if(epoch!==this.#epoch)return;
-   if(data.acknowledgedSeq!==seq)
+   if(data.acknowledgedSeq!==seq
+     ||(data.sentenceIndex!==undefined&&data.sentenceIndex!==sentenceIndex))
     throw Error('SPEECH_PLAYBACK_ACK_MISMATCH');
+   this.#claimedSentenceIndex=sentenceIndex;
    this.#playedSamples+=samples;
   }catch(error){
    if(epoch===this.#epoch){

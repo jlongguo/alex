@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {SPEECH_PCM_RATE} from './streaming-speech-provider.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 import {SpeechLatencyObserver} from './speech-latency-observer.mjs';
+import {SentencePlaybackReceipts} from './sentence-playback-receipts.mjs';
 
 export const SPEECH_MAX_ACTIVE=4;
 export const SPEECH_MAX_UNACKED=3;
@@ -43,6 +44,7 @@ export class StreamingSpeechSessions {
   session.controller.abort();
   try{void session.source?.close?.();}catch{}
   session.outstanding.clear();
+  session.receipts?.cancel();
   if(reason)this.#record(session.principal,reason);
  }
  sweep(){
@@ -78,7 +80,8 @@ export class StreamingSpeechSessions {
    id,principal,openedAt:startedAt,lastAt:startedAt,phase:'starting',
    controller:new AbortController(),source:null,seq:0,acked:0,
    busy:false,deliveredSamples:0,playedSamples:0,
-   firstChunkAt:null,firstAckAt:null,drained:false,outstanding:new Map()
+   firstChunkAt:null,firstAckAt:null,drained:false,outstanding:new Map(),
+   receipts:new SentencePlaybackReceipts({sentenceCount:segments?.length??1})
   };
   this.#sessions.set(id,session);this.#owners.set(principal,id);
   this.#record(principal,'started');
@@ -140,9 +143,19 @@ export class StreamingSpeechSessions {
    }
    // Count only bytes accepted into the authenticated downlink. Checking
    // after provider.read() also protects against a partial final block.
+   const segmentIndex=block.sentenceIndex??0;
+   if(!Number.isSafeInteger(segmentIndex)||segmentIndex<0
+     ||segmentIndex>=session.receipts.snapshot().sentenceCount)
+    throw Error('SPEECH_INVALID_SENTENCE_INDEX');
+   // Invalid sentence metadata must not charge a learner's delivered-audio
+   // allowance. Validate the transition before accounting any samples.
+   const previous=session.receipts.snapshot().deliveredSentenceIndex;
+   if(segmentIndex<previous||segmentIndex>previous+1)
+    throw Error('SPEECH_INVALID_SENTENCE_INDEX');
    this.budget.consume(principal,block.samples);
+   session.receipts.delivered(segmentIndex,block.samples,this.now());
    session.seq++;
-   session.outstanding.set(seq,block.samples);
+   session.outstanding.set(seq,{samples:block.samples,segmentIndex});
    session.deliveredSamples+=block.samples;session.lastAt=this.now();
    if(session.firstChunkAt===null){
     session.firstChunkAt=this.now();
@@ -152,7 +165,9 @@ export class StreamingSpeechSessions {
    }
    const row=this.#metrics.get(principal);
    row.deliveredSamples+=block.samples;
-   return {done:false,seq,samples:block.samples,pcm:block.pcm};
+   return {done:false,seq,samples:block.samples,pcm:block.pcm,
+     sentenceIndex:segmentIndex,
+     sentenceCount:session.receipts.snapshot().sentenceCount};
   }catch(error){
    if(this.#sessions.get(id)===session)this.#release(session,'failed');
    throw error;
@@ -163,7 +178,8 @@ export class StreamingSpeechSessions {
   if(!Number.isSafeInteger(seq)||seq!==session.acked
     ||!session.outstanding.has(seq))
    throw Error('INVALID_SPEECH_ACK_SEQUENCE');
-  const samples=session.outstanding.get(seq);
+  const {samples,segmentIndex}=session.outstanding.get(seq);
+  session.receipts.acknowledge(segmentIndex,samples,this.now());
   session.outstanding.delete(seq);session.acked++;
   session.playedSamples+=samples;
   session.lastAt=this.now();
@@ -182,7 +198,8 @@ export class StreamingSpeechSessions {
     Math.max(0,this.now()-session.openedAt));
    this.#release(session,null);
   }
-  return {acknowledgedSeq:seq,nextAckSeq:session.acked,
+  return {acknowledgedSeq:seq,sentenceIndex:segmentIndex,
+   nextAckSeq:session.acked,
    playedSamplesClaimed:session.playedSamples,
    playedMsClaimed:Math.round(session.playedSamples/SPEECH_PCM_RATE*1000),
    completed:finished};
@@ -196,7 +213,8 @@ export class StreamingSpeechSessions {
    playedSamplesClaimed:session.playedSamples,
    firstChunkMs:session.firstChunkAt===null?null:
     Math.max(0,session.firstChunkAt-session.openedAt),
-   playbackAttested:false};
+   playbackAttested:false,
+   sentenceReceipts:session.receipts.snapshot()};
  }
  cancel(principal,id){
   if(id===undefined||id===null)id=this.#owners.get(principal);
