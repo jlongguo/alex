@@ -77,6 +77,9 @@ test('R8 WebSocket real RFC6455 handshake, authentication, masked outbound frame
  assert.equal(fixture.calls[0].options.headers.Upgrade,'websocket');
  assert.equal(fixture.calls[0].options.headers['Sec-WebSocket-Version'],'13');
  assert.equal(fixture.calls[0].options.method,'GET');
+ assert.equal(fixture.calls[0].url,
+  'https://api.openai.com/v1/realtime?intent=transcription',
+  'Node HTTPS client must upgrade an https: request, never pass wss: to https.request');
  const events=[];
  ws.on('json',event=>events.push(event));
  ws.send({type:'session.update',value:'safe'});
