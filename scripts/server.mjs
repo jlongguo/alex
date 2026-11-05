@@ -86,7 +86,8 @@ const speechDeliveryBudget=new SpeechDeliveryBudget({
 });
 const speechPlayback=speechStreamProvider
  ?new StreamingSpeechSessions({provider:new SegmentedPcmSpeechProvider({provider:speechStreamProvider}),
-   budget:speechDeliveryBudget}):null;
+   budget:speechDeliveryBudget,
+   authorizeDelivery:principal=>audioAllowed(principal,'tts')}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
