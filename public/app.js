@@ -1204,7 +1204,8 @@ $('companion-realtime-record').addEventListener('click',async()=>{
  streamingAudioBridge.interrupt('realtime-capture-start');
  try{
   await realtimePcmBridge.start({
-    language:$('companion-mode').value==='english'?'en':'zh'
+    language:$('companion-mode').value==='english'?'en':'zh',
+    autoStopOnSilence:$('companion-stream-vad').checked
   });
  }catch(err){companionNotice(err.message,true);}
 });
