@@ -1,3 +1,11 @@
+# Alex R9 主线增量（2026-11-05）
+
+PR #45 叠加在 R8 的 Draft PR #44 上：新增 [R9 流式 PCM 语音播放、手动插话与隐私验收](AI_COMPANION_R9_STREAMING_SPEECH.md)。浏览器收到的是可逐段播放的 PCM16 音频，而不是必须等整段 MP3 完成。独立的 HTTPS PCM TTS Provider 负责按需读取、类型与体积约束；本地会话层做按学习者授权、限频、顺序 Pull、最大 3 个未确认片段、取消和临时数据清理；浏览器 WebAudio 预排程 2 个短片段，以播放结束事件作客户端进度申报。保留 R6 的 MP3 回退、R8 的实时 ASR 和原有可扩展 Skill。
+
+这属于按需流式合成与用户主动抢话打断，不是同一模型会话上的自然实时语音对答。R10 再推进统一语音轮次编排、ASR→LLM→TTS 低延迟衔接、真实音频与成本基准、儿童音频隐私/加密和硬件边界。ROS2/Nav2 是可选支线。
+
+---
+
 # Alex R8 主线 Coding（2026-11-05）
 
 PR #44 基于已合并到 main 的 R7：[R8 WSS PCM 实时转写、权限与验收](AI_COMPANION_R8_REALTIME_TRANSCRIPTION.md)。引入有界 TLS WebSocket Transport、真正上游实时转写专用 Provider、PCM16/24kHz 浏览器 AudioWorklet、按学习者权限隔离的实时会话，以及输入帧、增量文字/最终确认、打断/清理、异常背压等完整契约。默认 disabled，不使用云端时仍可继续原有离线 Skill 和短录音。模拟 WSS fixture 测试不能代替真实供应商质量、成本和儿童语音安全审查。

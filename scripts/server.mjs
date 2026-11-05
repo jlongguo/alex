@@ -24,6 +24,8 @@ import {AudioTurnGate,readAudioUpload} from './audio-transport.mjs';
 import {AudioIngressSessions,readAudioChunk} from './audio-ingress-sessions.mjs';
 import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.mjs';
 import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
+import {StreamingPcmSpeechProvider} from './streaming-speech-provider.mjs';
+import {StreamingSpeechSessions} from './streaming-speech-sessions.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -63,6 +65,18 @@ const realtimeProvider=realtimeMode==='openai-transcription'
   }):null;
 const realtimeSessions=realtimeProvider
   ?new RealtimePcmSessions({provider:realtimeProvider}):null;
+const speechStreamMode=process.env.ALEX_SPEECH_STREAM_PROVIDER??'disabled';
+if(!['disabled','compatible'].includes(speechStreamMode))
+ throw Error('INVALID_SPEECH_STREAM_MODE');
+const speechStreamProvider=speechStreamMode==='compatible'
+ ?new StreamingPcmSpeechProvider({
+  baseUrl:process.env.ALEX_SPEECH_STREAM_BASE_URL,
+  apiKey:process.env.ALEX_SPEECH_STREAM_API_KEY,
+  model:process.env.ALEX_SPEECH_STREAM_MODEL,
+  voice:process.env.ALEX_SPEECH_STREAM_VOICE??'alloy'
+ }):null;
+const speechPlayback=speechStreamProvider
+ ?new StreamingSpeechSessions({provider:speechStreamProvider}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
@@ -140,9 +154,12 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'AUDIO_ALREADY_ACTIVE','AUDIO_REQUEST_CANCELLED','AUDIO_ALREADY_FINISHING',
   'AUDIO_TURN_NOT_RECORDING','AUDIO_REALTIME_NOT_READY',
   'AUDIO_REALTIME_BACKPRESSURE','AUDIO_REALTIME_CONNECTION_CLOSED',
-  'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED'].includes(message)?409:
+  'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
+  'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
+  'SPEECH_PROVIDER_PCM_TOO_LARGE'].includes(message)?409:
   message==='AUDIO_SERVER_BUSY'?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
-  'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+  'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
+  'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -170,7 +187,7 @@ const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Ga
 const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('Workflow tick:',err.message)),250);
 const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
 const audioSweepTimer=setInterval(()=>{
-  audioIngress.sweep();realtimeSessions?.sweep();
+  audioIngress.sweep();realtimeSessions?.sweep();speechPlayback?.sweep();
 },2000);
 audioSweepTimer.unref?.();
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
@@ -383,6 +400,102 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
   }
+  if(req.method==='GET' && pathname==='/api/audio/playback/capabilities'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req),prefs=learnerPrivacy.forPrincipal(principal);
+    send(res,200,{ok:true,provider:speechStreamProvider?.kind??'disabled',
+      outputAllowed:!!(speechPlayback&&prefs.voiceOutputAllowed&&prefs.cloudAudioOutputAllowed),
+      sampleRate:24000,format:'pcm16-mono-24khz',maxChunkBytes:4800,
+      maxUnacknowledged:3,requiresExplicitPlay:true,
+      playbackProof:'client-claimed',audioNotPersisted:true,
+      duplex:false});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/playback/start'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'tts');
+    if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    res.on('close',()=>{if(!res.writableEnded)speechPlayback.cancel(principal);});
+    const params=await body(req);
+    const started=await speechPlayback.start(principal,{text:params.text});
+    try{audioAllowed(principal,'tts');}
+    catch(error){speechPlayback.cancel(principal,started.id);throw error;}
+    if(res.destroyed){speechPlayback.cancel(principal,started.id);return;}
+    send(res,200,{ok:true,session:started});
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,
+      action:'audio.playback.start',outcome:'allowed'});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/playback/next'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'tts');
+    if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    speechPlayback.status(principal,params.id);
+    res.on('close',()=>{if(!res.writableEnded)
+      speechPlayback.cancel(principal,params.id);});
+    const block=await speechPlayback.next(principal,params.id,params.seq);
+    if(block.done){
+      if(!res.destroyed){res.writeHead(204,{'Cache-Control':'no-store',
+        'X-Content-Type-Options':'nosniff'});res.end();}
+      return;
+    }
+    try{audioAllowed(principal,'tts');}
+    catch(error){speechPlayback.cancel(principal,params.id);block.pcm.fill(0);throw error;}
+    if(res.destroyed){block.pcm.fill(0);return;}
+    res.on('finish',()=>block.pcm.fill(0));
+    res.writeHead(200,{
+      'Content-Type':'application/octet-stream',
+      'Content-Length':block.pcm.byteLength,
+      'X-Alex-Speech-Seq':String(block.seq),
+      'X-Alex-Speech-Samples':String(block.samples),
+      'Cache-Control':'no-store, no-transform',
+      'X-Content-Type-Options':'nosniff',
+      'Content-Security-Policy':"default-src 'none'"
+    });
+    res.end(block.pcm);return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/playback/ack'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'tts');
+    if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    const confirmed=speechPlayback.ack(principal,params.id,params.seq);
+    send(res,200,{ok:true,...confirmed});
+    if(confirmed.completed)await audit.record({
+      actor:auth.current(req).actor,learnerId:auth.current(req).learnerId,
+      action:'audio.playback.completed',outcome:'allowed'});
+    return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/playback/status'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'tts');
+    if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    send(res,200,{ok:true,session:speechPlayback.status(principal,params.id)});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/playback/cancel'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const params=await body(req);
+    const result=speechPlayback?.cancel(principal,params.id)??{cancelled:false};
+    send(res,200,{ok:true,...result});
+    if(result.cancelled)await audit.record({
+      actor:auth.current(req).actor,learnerId:auth.current(req).learnerId,
+      action:'audio.playback.cancel',outcome:'allowed'});
+    return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/playback/metrics'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    send(res,200,{ok:true,scope:'self',
+      metrics:speechPlayback?.metrics(principal)??null,
+      rawAudioStored:false,textStored:false,
+      playbackProof:'client-claimed'});return;
+  }
   if(req.method==='GET' && pathname==='/api/audio/realtime/capabilities'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const principal=principalFor(req),p=learnerPrivacy.forPrincipal(principal);
@@ -546,8 +659,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     // Cancellation only applies to this authenticated identity.
     const stopped=audioIngress.cancel(principal);
     const live=realtimeSessions?.cancel(principal)??false;
+    const playback=speechPlayback?.cancel(principal).cancelled??false;
     const upstream=audioGate.cancel(principal);
-    send(res,200,{ok:true,cancelled:stopped||live||upstream});return;
+    send(res,200,{ok:true,cancelled:stopped||live||playback||upstream});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/transcribe'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -724,6 +838,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           audioIngress.cancel('learner:'+data.profileId);
           realtimeSessions?.cancel('learner:'+data.profileId);
         }
+        if(!result.privacy.preferences.cloudAudioOutputAllowed||
+          !result.privacy.preferences.voiceOutputAllowed)
+          speechPlayback?.cancel('learner:'+data.profileId);
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,plan:await learningPlans.assign(actor,{
@@ -819,6 +936,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           audioGate.cancel('learner:'+data.id);
           audioIngress.erasePrincipal('learner:'+data.id);
           realtimeSessions?.erasePrincipal('learner:'+data.id);
+          speechPlayback?.erasePrincipal('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -837,12 +955,14 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(['child','all'].includes(data.scope)){
           abortAllChildCompanion();audioGate.cancelChild();
           audioIngress.cancelAllChildren();realtimeSessions?.cancelChildren();
+          speechPlayback?.cancelChildren();
         }
         const erasedAudioMetricsPrincipals=audioIngress.eraseScope(data.scope);
         const erasedRealtimeAudioPrincipals=realtimeSessions?.eraseScope(data.scope)??0;
+        const erasedSpeechPlaybackPrincipals=speechPlayback?.eraseScope(data.scope)??0;
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,erasedAudioMetricsPrincipals,
-          erasedRealtimeAudioPrincipals,
+          erasedRealtimeAudioPrincipals,erasedSpeechPlaybackPrincipals,
           note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
       }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
@@ -916,6 +1036,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     '/audio-vad.js':'audio-vad.js',
     '/audio-stream-session.js':'audio-stream-session.js',
     '/realtime-pcm-session.js':'realtime-pcm-session.js',
+    '/speech-playback-session.js':'speech-playback-session.js',
     '/pcm-capture-processor.js':'pcm-capture-processor.js'};
   if(req.method!=='GET'||!(pathname in assets)){send(res,404,{ok:false,error:'NOT_FOUND'});return;}
   const file=assets[pathname];
@@ -933,6 +1054,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
 function shutdown(){
+  speechPlayback?.cancelChildren();speechPlayback?.cancel('parent');
   realtimeSessions?.cancelChildren();
   realtimeSessions?.cancel('parent');
   clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}

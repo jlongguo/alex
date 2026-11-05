@@ -147,6 +147,7 @@ function applySession(session){
   cloudAudioBridge.interrupt('identity-changed');
   streamingAudioBridge.interrupt('identity-changed');
   realtimePcmBridge.interrupt('identity-changed');
+  streamingSpeechBridge.interrupt('identity-changed');
   audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
   privacyPollAt=0;
@@ -664,6 +665,49 @@ $('companion-mode').addEventListener('change',()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null;
+const streamingSpeechBridge=new globalThis.AlexStreamingSpeechBridge({
+ onStatus:({phase,message,playedMsClaimed,underruns})=>{
+  const mapped={requesting:'thinking',buffering:'thinking',
+    playing:'speaking',complete:'idle',error:'error',idle:'idle'}[phase];
+  if(mapped&&$('companion-runtime').dataset.state!==mapped)
+    companionState(mapped);
+  $('companion-playback-status').textContent=(message??'音频播放状态')+
+    ' · 播放事件估计 '+playedMsClaimed+' ms · 缓冲空档 '+underruns;
+  $('companion-barge-in').disabled=!['buffering','playing'].includes(phase);
+  $('companion-stream-speak').textContent=
+    ['buffering','playing'].includes(phase)
+    ?'停止流式朗读':'流式朗读最后回复（实验）';
+  if(['buffering','playing'].includes(phase))
+    $('companion-audio-cancel').disabled=false;
+ }
+});
+let speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+async function refreshSpeechStreamCapabilities(){
+ const identity=companionActor;
+ if(!authorizedActor){
+  streamingSpeechBridge.interrupt('not-authenticated');
+  speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+  $('companion-stream-speak').disabled=true;
+  $('companion-barge-in').disabled=true;return;
+ }
+ try{
+  const response=await fetch('/api/audio/playback/capabilities',{cache:'no-store'});
+  if(!response.ok)throw Error('SPEECH_POLICY_UNAVAILABLE');
+  const next=await response.json();
+  if(identity!==companionActor)return;
+  if(!next.outputAllowed&&streamingSpeechBridge.snapshot().playing)
+    streamingSpeechBridge.interrupt('parent-revoked');
+  speechStreamCapabilities=next;
+  $('companion-stream-speak').disabled=!next.outputAllowed||
+    !(globalThis.AudioContext||globalThis.webkitAudioContext);
+ }catch{
+  if(identity!==companionActor)return;
+  streamingSpeechBridge.interrupt('policy-unavailable');
+  speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+  $('companion-stream-speak').disabled=true;
+  $('companion-barge-in').disabled=true;
+ }
+}
 const realtimePcmBridge=new globalThis.AlexRealtimePcmBridge({
  onPartial:({text})=>{
   // Never auto-send intermediate transcript to chat or an Agent tool.
@@ -710,6 +754,8 @@ async function refreshRealtimeCapabilities(){
   if(identity!==companionActor)return;
   realtimeCapabilities={inputAllowed:false,provider:'disabled'};
   realtimePcmBridge.interrupt('policy-unavailable');
+  streamingSpeechBridge.interrupt('policy-unavailable');
+  $('companion-stream-speak').disabled=true;
   $('companion-realtime-record').disabled=true;
  }
 }
@@ -757,6 +803,8 @@ async function refreshAudioCapabilities(){
   cloudAudioBridge.interrupt('not-authenticated');
   streamingAudioBridge.interrupt('not-authenticated');
   realtimePcmBridge.interrupt('not-authenticated');
+  streamingSpeechBridge.interrupt('not-authenticated');
+  $('companion-stream-speak').disabled=true;
   $('companion-realtime-record').disabled=true;
   $('companion-stream-record').disabled=true;
   $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;return;
@@ -773,6 +821,7 @@ async function refreshAudioCapabilities(){
   if(!next.inputAllowed&&streamingAudioBridge.snapshot().state!=='idle')
     streamingAudioBridge.interrupt('parent-revoked');
   await refreshRealtimeCapabilities();
+  await refreshSpeechStreamCapabilities();
   audioCapabilities=next;
   $('companion-stream-record').disabled=!next.inputAllowed||
     !(navigator.mediaDevices?.getUserMedia&&globalThis.MediaRecorder);
@@ -881,6 +930,7 @@ function showCompanion(session) {
 function stopCompanionSpeech(){
  voiceBridge.stopSpeaking();
  cloudAudioBridge.interrupt('stop-speech');
+ streamingSpeechBridge.interrupt('stop-speech');
 }
 function speakCompanion(text,mode){
  if(!$('companion-read-aloud').checked)return;
@@ -891,6 +941,7 @@ function speakCompanion(text,mode){
   cloudAudioBridge.interrupt('browser-speech-start');
   streamingAudioBridge.interrupt('browser-speech-start');
   realtimePcmBridge.interrupt('browser-speech-start');
+  streamingSpeechBridge.interrupt('browser-speech-start');
   voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
     rate:mode==='english'?.85:1});
  }catch(err){companionNotice(err.message,true);companionState('error');}
@@ -1069,6 +1120,7 @@ $('companion-form').addEventListener('submit',async e=>{
  voiceBridge.interrupt('chat-submit');cloudAudioBridge.interrupt('chat-submit');
  streamingAudioBridge.interrupt('chat-submit');
  realtimePcmBridge.interrupt('chat-submit');
+ streamingSpeechBridge.interrupt('chat-submit');
  companionState('thinking');
  const controller=new AbortController();companionAbort=controller;
  try{
@@ -1144,6 +1196,7 @@ $('companion-cloud-record').addEventListener('click',async()=>{
  voiceBridge.interrupt('cloud-capture-start');
  streamingAudioBridge.interrupt('cloud-capture-start');
  realtimePcmBridge.interrupt('cloud-capture-start');
+ streamingSpeechBridge.interrupt('cloud-capture-start');
  try{await cloudAudioBridge.startCapture({
    language:$('companion-mode').value==='english'?'en':'zh'
  });}
@@ -1162,6 +1215,7 @@ $('companion-cloud-speak').addEventListener('click',async()=>{
  voiceBridge.interrupt('cloud-speech-start');
  streamingAudioBridge.interrupt('cloud-speech-start');
  realtimePcmBridge.interrupt('cloud-speech-start');
+ streamingSpeechBridge.interrupt('cloud-speech-start');
  await cloudAudioBridge.speak(reply.slice(0,500),{
    language:$('companion-mode').value==='english'?'en':'zh'
  });
@@ -1180,6 +1234,7 @@ $('companion-stream-record').addEventListener('click',async()=>{
  voiceBridge.interrupt('incremental-capture-start');
  cloudAudioBridge.interrupt('incremental-capture-start');
  realtimePcmBridge.interrupt('incremental-capture-start');
+ streamingSpeechBridge.interrupt('incremental-capture-start');
  try{
   await streamingAudioBridge.startCapture({
     language:$('companion-mode').value==='english'?'en':'zh',
@@ -1202,6 +1257,7 @@ $('companion-realtime-record').addEventListener('click',async()=>{
  voiceBridge.interrupt('realtime-capture-start');
  cloudAudioBridge.interrupt('realtime-capture-start');
  streamingAudioBridge.interrupt('realtime-capture-start');
+ streamingSpeechBridge.interrupt('realtime-capture-start');
  try{
   await realtimePcmBridge.start({
     language:$('companion-mode').value==='english'?'en':'zh',
@@ -1209,10 +1265,52 @@ $('companion-realtime-record').addEventListener('click',async()=>{
   });
  }catch(err){companionNotice(err.message,true);}
 });
+$('companion-stream-speak').disabled=true;
+$('companion-barge-in').disabled=true;
+$('companion-stream-speak').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ if(streamingSpeechBridge.snapshot().playing){
+  streamingSpeechBridge.interrupt('user-stop');return;
+ }
+ await refreshCompanionPrivacy(true);
+ await refreshSpeechStreamCapabilities();
+ if(!speechStreamCapabilities.outputAllowed){
+  companionNotice('没有独立的云端语音合成授权或尚未配置流式供应商。',true);return;
+ }
+ const messages=$('companion-messages').querySelectorAll(
+   '.companion-message[data-role="assistant"] p');
+ const reply=messages.length?messages[messages.length-1].textContent?.trim():'';
+ if(!reply){companionNotice('没有可供朗读的回复。',true);return;}
+ voiceBridge.interrupt('streaming-speech-start');
+ cloudAudioBridge.interrupt('streaming-speech-start');
+ realtimePcmBridge.interrupt('streaming-speech-start');
+ streamingAudioBridge.interrupt('streaming-speech-start');
+ try{await streamingSpeechBridge.play(reply.slice(0,500),{
+  language:$('companion-mode').value==='english'?'en':'zh'
+ });}catch(error){companionNotice(error.message,true);}
+});
+$('companion-barge-in').addEventListener('click',async()=>{
+ if(!authorizedActor)return;
+ // Explicit user action, not always-on wake-word listening.
+ streamingSpeechBridge.interrupt('user-barge-in');
+ await refreshCompanionPrivacy(true);
+ if(!companionPrivacy.voiceInputAllowed){
+  companionNotice('未获得浏览器语音识别授权，已中止播放。',true);return;
+ }
+ if(!voiceBridge.snapshot().recognitionSupported){
+  companionNotice('浏览器不支持语音识别，可选择手动输入。',true);return;
+ }
+ cloudAudioBridge.interrupt('barge-in');
+ streamingAudioBridge.interrupt('barge-in');
+ realtimePcmBridge.interrupt('barge-in');
+ voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
+ companionNotice('已停止朗读并开启浏览器语音识别。文字仍需手动确认。');
+});
 $('companion-audio-cancel').addEventListener('click',async()=>{
  cloudAudioBridge.interrupt('user-cancel');
  streamingAudioBridge.interrupt('user-cancel');
  realtimePcmBridge.interrupt('user-cancel');
+ streamingSpeechBridge.interrupt('user-cancel');
  if(authorizedActor)fetch('/api/audio/cancel',{method:'POST'}).catch(()=>{});
 });
 $('companion-microphone').disabled=true;
@@ -1230,6 +1328,7 @@ $('companion-microphone').addEventListener('click',async()=>{
   cloudAudioBridge.interrupt('browser-webspeech-start');
   streamingAudioBridge.interrupt('browser-webspeech-start');
   realtimePcmBridge.interrupt('browser-webspeech-start');
+  streamingSpeechBridge.interrupt('browser-webspeech-start');
   voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
   companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
  }catch(err){companionNotice(err.message,true);}
@@ -1241,12 +1340,14 @@ window.addEventListener('pagehide',()=>{
  cloudAudioBridge.interrupt('pagehide');
  streamingAudioBridge.interrupt('pagehide');
  realtimePcmBridge.interrupt('pagehide');
+ streamingSpeechBridge.interrupt('pagehide');
 });
 document.addEventListener('visibilitychange',()=>{
  if(document.hidden){
   voiceBridge.interrupt('page-hidden');cloudAudioBridge.interrupt('page-hidden');
   streamingAudioBridge.interrupt('page-hidden');
   realtimePcmBridge.interrupt('page-hidden');
+  streamingSpeechBridge.interrupt('page-hidden');
  }
  else void refreshCompanionPrivacy(true);
 });
