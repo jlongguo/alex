@@ -46,6 +46,7 @@ export class VoiceTurnOrchestrator {
     ||typeof text!=='string'||!text.trim()||text.length>500
     ||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text))
    throw Error('INVALID_VOICE_TURN_INPUT');
+  this.sweep();
   if(this.#active.has(principal))throw Error('VOICE_TURN_ALREADY_ACTIVE');
   if(this.#active.size>=this.maxActive)throw Error('VOICE_TURN_SERVER_BUSY');
   this.authorize(principal);
@@ -70,6 +71,10 @@ export class VoiceTurnOrchestrator {
    t.phase='opening-speech';
    const start=await this.speech.start(principal,{text:spoken.slice(0,500)});
    t.speechId=start.id;
+   if(t.controller.signal.aborted||this.#byId.get(id)!==t){
+    this.speech.cancel(principal,start.id);
+    throw Error('VOICE_TURN_CANCELLED');
+   }
    this.#check(t);
    t.phase='ready';
    return {turn:this.#snapshot(t),speechSession:start,
@@ -85,7 +90,12 @@ export class VoiceTurnOrchestrator {
    throw error;
   }finally{clearTimeout(timeout);}
  }
- status(principal,id){return this.#snapshot(this.#owned(principal,id));}
+ status(principal,id){this.sweep();return this.#snapshot(this.#owned(principal,id));}
+ sweep(){
+  for(const t of [...this.#byId.values()])
+   if(this.now()-t.startedAt>75000)this.cancel(t.principal,t.id);
+  return this.#active.size;
+ }
  cancel(principal,id=this.#active.get(principal)){
   const t=this.#byId.get(id);
   if(!t||t.principal!==principal)return {cancelled:false};
@@ -110,5 +120,5 @@ export class VoiceTurnOrchestrator {
   }
   return count;
  }
- activeCount(){return this.#active.size;}
+ activeCount(){return this.sweep();}
 }
