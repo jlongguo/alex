@@ -561,6 +561,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     send(res,200,{ok:true,scope:'self',
       metrics:speechPlayback?.metrics(principal)??null,
+      latency:speechPlayback?.latencyMetrics(principal)??null,
       deliveryBudget:speechPlayback?.deliveryBudget(principal)??null,
       rawAudioStored:false,textStored:false,
       playbackProof:'client-claimed'});return;
