@@ -5,7 +5,7 @@ const validCount=n=>Number.isSafeInteger(n)&&n>=1&&n<=MAX_SENTENCES;
 const validSamples=n=>Number.isSafeInteger(n)&&n>0&&n<=2400;
 const validClock=n=>Number.isFinite(n)&&n>=0;
 export class SentencePlaybackReceipts {
- #rows;#lastDelivered=0;#lastAcked=0;#cancelled=false;
+ #rows;#lastDelivered=-1;#lastAcked=-1;#cancelled=false;
  constructor({sentenceCount=1}={}){
   if(!validCount(sentenceCount))throw Error('INVALID_SENTENCE_RECEIPT_COUNT');
   this.#rows=Array.from({length:sentenceCount},(_,index)=>({
@@ -56,6 +56,6 @@ export class SentencePlaybackReceipts {
  }
  cancel(){
   this.#cancelled=true;
-  this.#rows=[];this.#lastDelivered=0;this.#lastAcked=0;
+  this.#rows=[];this.#lastDelivered=-1;this.#lastAcked=-1;
  }
 }
