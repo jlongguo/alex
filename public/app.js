@@ -688,6 +688,7 @@ async function refreshSpeechStreamCapabilities(){
   streamingSpeechBridge.interrupt('not-authenticated');
   speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
   $('companion-stream-speak').disabled=true;
+  $('companion-send-voice-turn').disabled=true;
   $('companion-barge-in').disabled=true;return;
  }
  try{
@@ -716,11 +717,13 @@ async function refreshSpeechStreamCapabilities(){
   }
   $('companion-stream-speak').disabled=!next.outputAllowed||
     !(globalThis.AudioContext||globalThis.webkitAudioContext);
+  $('companion-send-voice-turn').disabled=$('companion-stream-speak').disabled;
  }catch{
   if(identity!==companionActor)return;
   streamingSpeechBridge.interrupt('policy-unavailable');
   speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
   $('companion-stream-speak').disabled=true;
+  $('companion-send-voice-turn').disabled=true;
   $('companion-barge-in').disabled=true;
  }
 }
@@ -1126,6 +1129,46 @@ async function receiveCompanionStream(response,onDelta) {
   return committed;
  }finally{reader.releaseLock();}
 }
+// A separate opt-in turn, preserving the ordinary text-only send path.
+$('companion-send-voice-turn').addEventListener('click',()=>{
+ if(!authorizedActor||companionBusy||!companionSessionId
+   ||!speechStreamCapabilities.outputAllowed)return;
+ const text=$('companion-text').value.trim();
+ if(!text)return;
+ companionBusy=true;
+ $('companion-send').disabled=true;
+ $('companion-send-voice-turn').disabled=true;
+ $('companion-cancel').disabled=false;
+ voiceBridge.interrupt('voice-turn-submit');
+ cloudAudioBridge.interrupt('voice-turn-submit');
+ realtimePcmBridge.interrupt('voice-turn-submit');
+ streamingAudioBridge.interrupt('voice-turn-submit');
+ const principal=companionActor,conversationId=companionSessionId;
+ companionState('thinking');
+ // No await before AudioContext.resume(): preserve the browser gesture.
+ void streamingSpeechBridge.playVoiceTurn({
+  conversationId,text,
+  language:$('companion-mode').value==='english'?'en':'zh',
+  onCommitted:payload=>{
+   if(companionActor!==principal||companionSessionId!==conversationId)return;
+   $('companion-text').value='';
+   showCompanion(payload.session);
+   void refreshCompanionInfo();
+   companionNotice('文字回复已提交，正在播放音频；播放事件不代表孩子实际听到。');
+  }
+ }).catch(async error=>{
+  if(companionActor===principal&&companionSessionId===conversationId){
+   try{await restoreCompanion(conversationId);}catch{}
+   companionNotice('语音轮次未完成：'+error.message,true);
+  }
+ }).finally(()=>{
+  companionBusy=false;
+  $('companion-send').disabled=!authorizedActor;
+  $('companion-send-voice-turn').disabled=!authorizedActor
+    ||!speechStreamCapabilities.outputAllowed;
+  $('companion-cancel').disabled=true;
+ });
+});
 $('companion-form').addEventListener('submit',async e=>{
  e.preventDefault();
  if(!authorizedActor||companionBusy)return;
@@ -1181,7 +1224,9 @@ $('companion-form').addEventListener('submit',async e=>{
  }
 });
 $('companion-cancel').addEventListener('click',()=>{
- companionAbort?.abort();companionNotice('已请求取消本轮生成。');
+ companionAbort?.abort();
+ streamingSpeechBridge.interrupt('voice-turn-cancel');
+ companionNotice('已请求取消本轮生成或语音。');
 });
 $('companion-stop-speaking').addEventListener('click',()=>stopCompanionSpeech());
 $('companion-delete').addEventListener('click',async()=>{
