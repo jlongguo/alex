@@ -415,11 +415,16 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     audioAllowed(principal,'tts');
     if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    res.on('close',()=>{if(!res.writableEnded)speechPlayback.cancel(principal);});
     const params=await body(req);
     const started=await speechPlayback.start(principal,{text:params.text});
     try{audioAllowed(principal,'tts');}
     catch(error){speechPlayback.cancel(principal,started.id);throw error;}
-    send(res,200,{ok:true,session:started});return;
+    if(res.destroyed){speechPlayback.cancel(principal,started.id);return;}
+    send(res,200,{ok:true,session:started});
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,
+      action:'audio.playback.start',outcome:'allowed'});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/next'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -457,7 +462,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     audioAllowed(principal,'tts');
     if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
     const params=await body(req);
-    send(res,200,{ok:true,...speechPlayback.ack(principal,params.id,params.seq)});return;
+    const confirmed=speechPlayback.ack(principal,params.id,params.seq);
+    send(res,200,{ok:true,...confirmed});
+    if(confirmed.completed)await audit.record({
+      actor:auth.current(req).actor,learnerId:auth.current(req).learnerId,
+      action:'audio.playback.completed',outcome:'allowed'});
+    return;
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/status'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -471,7 +481,11 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const principal=principalFor(req);
     const params=await body(req);
-    send(res,200,{ok:true,...(speechPlayback?.cancel(principal,params.id)??{cancelled:false})});
+    const result=speechPlayback?.cancel(principal,params.id)??{cancelled:false};
+    send(res,200,{ok:true,...result});
+    if(result.cancelled)await audit.record({
+      actor:auth.current(req).actor,learnerId:auth.current(req).learnerId,
+      action:'audio.playback.cancel',outcome:'allowed'});
     return;
   }
   if(req.method==='GET' && pathname==='/api/audio/playback/metrics'){
