@@ -5,6 +5,7 @@
 import {randomUUID} from 'node:crypto';
 import {SPEECH_PCM_RATE} from './streaming-speech-provider.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
+import {SpeechLatencyObserver} from './speech-latency-observer.mjs';
 
 export const SPEECH_MAX_ACTIVE=4;
 export const SPEECH_MAX_UNACKED=3;
@@ -22,11 +23,12 @@ export class StreamingSpeechSessions {
  #attempts=new Map();
  #metrics=new Map();
  constructor({provider,now=()=>Date.now(),makeId=randomUUID,
-   maxActive=SPEECH_MAX_ACTIVE,budget=new SpeechDeliveryBudget()}={}){
+   maxActive=SPEECH_MAX_ACTIVE,budget=new SpeechDeliveryBudget(),
+   latency=new SpeechLatencyObserver()}={}){
   if(!provider||typeof provider.open!=='function')
    throw Error('INVALID_SPEECH_PROVIDER');
   this.provider=provider;this.now=now;this.makeId=makeId;
-  this.maxActive=maxActive;this.budget=budget;
+  this.maxActive=maxActive;this.budget=budget;this.latency=latency;
  }
  #record(principal,event,extra={}){
   const row=this.#metrics.get(principal)??empty();
@@ -76,7 +78,7 @@ export class StreamingSpeechSessions {
    id,principal,openedAt:startedAt,lastAt:startedAt,phase:'starting',
    controller:new AbortController(),source:null,seq:0,acked:0,
    busy:false,deliveredSamples:0,playedSamples:0,
-   firstChunkAt:null,drained:false,outstanding:new Map()
+   firstChunkAt:null,firstAckAt:null,drained:false,outstanding:new Map()
   };
   this.#sessions.set(id,session);this.#owners.set(principal,id);
   this.#record(principal,'started');
@@ -125,6 +127,8 @@ export class StreamingSpeechSessions {
      this.#record(principal,'completed',{
       lastClaimedPlaybackMs:Math.round(session.playedSamples/SPEECH_PCM_RATE*1000)
      });
+     this.latency.record(principal,'completionMs',
+       Math.max(0,this.now()-session.openedAt));
      this.#release(session,null);
     }
     return {done:true};
@@ -142,9 +146,9 @@ export class StreamingSpeechSessions {
    session.deliveredSamples+=block.samples;session.lastAt=this.now();
    if(session.firstChunkAt===null){
     session.firstChunkAt=this.now();
-    this.#record(principal,null,{
-     lastFirstChunkMs:Math.max(0,this.now()-session.openedAt)
-    });
+    const elapsed=Math.max(0,this.now()-session.openedAt);
+    this.#record(principal,null,{lastFirstChunkMs:elapsed});
+    this.latency.record(principal,'firstChunkMs',elapsed);
    }
    const row=this.#metrics.get(principal);
    row.deliveredSamples+=block.samples;
@@ -163,12 +167,19 @@ export class StreamingSpeechSessions {
   session.outstanding.delete(seq);session.acked++;
   session.playedSamples+=samples;
   session.lastAt=this.now();
+  if(session.firstAckAt===null){
+   session.firstAckAt=session.lastAt;
+   this.latency.record(principal,'firstPlaybackAckMs',
+     Math.max(0,session.firstAckAt-session.openedAt));
+  }
   this.#metrics.get(principal).acknowledgedSamples+=samples;
   const finished=session.drained&&!session.outstanding.size;
   if(finished){
    this.#record(principal,'completed',{
     lastClaimedPlaybackMs:Math.round(session.playedSamples/SPEECH_PCM_RATE*1000)
    });
+   this.latency.record(principal,'completionMs',
+    Math.max(0,this.now()-session.openedAt));
    this.#release(session,null);
   }
   return {acknowledgedSeq:seq,nextAckSeq:session.acked,
@@ -207,6 +218,7 @@ export class StreamingSpeechSessions {
   const removed=this.#metrics.delete(principal);
   this.#attempts.delete(principal);
   this.budget.erasePrincipal(principal);
+  this.latency.erasePrincipal(principal);
   return Number(removed);
  }
  eraseScope(scope){
@@ -222,9 +234,11 @@ export class StreamingSpeechSessions {
     count+=this.erasePrincipal(principal);
   }
   this.budget.eraseScope(scope);
+  this.latency.eraseScope(scope);
   return count;
  }
  metrics(principal){return structuredClone(this.#metrics.get(principal)??empty());}
  deliveryBudget(principal){return this.budget.snapshot(principal);}
+ latencyMetrics(principal){return this.latency.snapshot(principal);}
  activeCount(){this.sweep();return this.#sessions.size;}
 }
