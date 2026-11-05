@@ -24,6 +24,8 @@ import {AudioTurnGate,readAudioUpload} from './audio-transport.mjs';
 import {AudioIngressSessions,readAudioChunk} from './audio-ingress-sessions.mjs';
 import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.mjs';
 import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
+import {StreamingSpeechProvider} from './streaming-speech-provider.mjs';
+import {OutboundSpeechSessions} from './outbound-speech-sessions.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -63,6 +65,18 @@ const realtimeProvider=realtimeMode==='openai-transcription'
   }):null;
 const realtimeSessions=realtimeProvider
   ?new RealtimePcmSessions({provider:realtimeProvider}):null;
+// R9 optional downlink TTS; server-only secret and independent cloud opt-in.
+const speechMode=process.env.ALEX_STREAMING_SPEECH_PROVIDER??'disabled';
+if(!['disabled','pcm-compatible'].includes(speechMode))
+  throw new Error('INVALID_SPEECH_PROVIDER_MODE');
+const speechProvider=speechMode==='pcm-compatible'
+  ?new StreamingSpeechProvider({
+    url:process.env.ALEX_STREAMING_SPEECH_URL,
+    apiKey:process.env.ALEX_STREAMING_SPEECH_API_KEY,
+    model:process.env.ALEX_STREAMING_SPEECH_MODEL,
+    voice:process.env.ALEX_STREAMING_SPEECH_VOICE??'alloy'
+  }):null;
+let speechSessions=null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
@@ -170,7 +184,7 @@ const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Ga
 const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('Workflow tick:',err.message)),250);
 const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
 const audioSweepTimer=setInterval(()=>{
-  audioIngress.sweep();realtimeSessions?.sweep();
+  audioIngress.sweep();realtimeSessions?.sweep();speechSessions?.sweep();
 },2000);
 audioSweepTimer.unref?.();
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
@@ -206,6 +220,10 @@ const audioAllowed=(principal,mode)=>{
   if(!allowed)throw new Error('CHILD_CLOUD_AUDIO_DISABLED');
   return prefs;
 };
+speechSessions=speechProvider?new OutboundSpeechSessions({
+  provider:speechProvider,
+  authorize:principal=>audioAllowed(principal,'tts')
+}):null;
 const server=http.createServer(asyncWrap(async(req,res)=>{
   const pathname=new URL(req.url??'/',`http://${req.headers.host ?? 'localhost'}`).pathname;
   const origin=req.headers.origin;
@@ -382,6 +400,53 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     }
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
+  }
+  // R9 incremental downlink. Every request is authenticated/owner bound.
+  // Each long-poll yields at most one 100ms PCM16 frame to bound memory.
+  if(pathname.startsWith('/api/audio/speech/')){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const action=pathname.slice('/api/audio/speech/'.length);
+    if(req.method==='GET'&&action==='capabilities'){
+      const prefs=learnerPrivacy.forPrincipal(principal);
+      send(res,200,{ok:true,provider:speechProvider?'pcm-compatible':'disabled',
+        outputAllowed:!!(speechSessions&&prefs.voiceOutputAllowed
+          &&prefs.cloudAudioOutputAllowed),
+        codec:'pcm16',sampleRate:24000,channels:1,
+        maxFrameBytes:9600,manualStartRequired:true,
+        transcriptPersistence:false});
+      return;
+    }
+    if(req.method==='POST'&&action==='cancel'){
+      const input=await body(req);
+      send(res,200,{ok:true,cancelled:speechSessions?.cancel(principal,input.id)??false});
+      return;
+    }
+    audioAllowed(principal,'tts');
+    if(!speechSessions)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    if(req.method==='POST'&&action==='start'){
+      const input=await body(req);
+      const started=speechSessions.start(principal,input.text);
+      // Consent may be revoked synchronously as provider starts.
+      try{audioAllowed(principal,'tts');}
+      catch(error){speechSessions.cancel(principal,started.id);throw error;}
+      send(res,200,{ok:true,session:started});return;
+    }
+    if(req.method==='GET'&&action==='read'){
+      const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
+      const abort=new AbortController();
+      res.on('close',()=>{if(!res.writableEnded)abort.abort();});
+      const result=await speechSessions.read(principal,id,{signal:abort.signal});
+      try{
+        audioAllowed(principal,'tts');
+        if(!res.destroyed&&!res.writableEnded)
+          send(res,200,result.done?{ok:true,done:true,frames:result.frames,
+            pcmBytes:result.pcmBytes}:{ok:true,done:false,seq:result.seq,
+            sampleRate:result.sampleRate,pcm:Buffer.from(result.pcm).toString('base64')});
+      }finally{result.pcm?.fill(0);}
+      return;
+    }
+    send(res,404,{ok:false,error:'UNKNOWN_SPEECH_ROUTE'});return;
   }
   if(req.method==='GET' && pathname==='/api/audio/realtime/capabilities'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -932,5 +997,6 @@ server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:
 function shutdown(){
   realtimeSessions?.cancelChildren();
   realtimeSessions?.cancel('parent');
+  for(const principal of ['parent','child'])speechSessions?.cancel(principal);
   clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
