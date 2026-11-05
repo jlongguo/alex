@@ -88,7 +88,8 @@ export class SegmentedPcmSpeechProvider {
      if(closed||controller.signal.aborted)throw cancelError();
      if(!block||typeof block.done!=='boolean')
       throw Error('INVALID_SEGMENTED_PCM_FRAME');
-     if(!block.done)return block;
+     if(!block.done)return {...block,sentenceIndex:index,
+      sentenceCount:segments.length};
      cleanup(current);current=null;
      index++;
      if(index===segments.length)return {done:true};
