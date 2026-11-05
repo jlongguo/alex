@@ -4,6 +4,7 @@
 // another chunk. Acks are client playback claims, NOT acoustic attestation.
 import {randomUUID} from 'node:crypto';
 import {SPEECH_PCM_RATE} from './streaming-speech-provider.mjs';
+import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 
 export const SPEECH_MAX_ACTIVE=4;
 export const SPEECH_MAX_UNACKED=3;
@@ -21,11 +22,11 @@ export class StreamingSpeechSessions {
  #attempts=new Map();
  #metrics=new Map();
  constructor({provider,now=()=>Date.now(),makeId=randomUUID,
-   maxActive=SPEECH_MAX_ACTIVE}={}){
+   maxActive=SPEECH_MAX_ACTIVE,budget=new SpeechDeliveryBudget()}={}){
   if(!provider||typeof provider.open!=='function')
    throw Error('INVALID_SPEECH_PROVIDER');
   this.provider=provider;this.now=now;this.makeId=makeId;
-  this.maxActive=maxActive;
+  this.maxActive=maxActive;this.budget=budget;
  }
  #record(principal,event,extra={}){
   const row=this.#metrics.get(principal)??empty();
@@ -59,6 +60,7 @@ export class StreamingSpeechSessions {
   if(typeof principal!=='string'||!principal||principal.length>100)
    throw Error('INVALID_AUDIO_PRINCIPAL');
   this.sweep();
+  this.budget.check(principal);
   if(this.#owners.has(principal))throw Error('AUDIO_ALREADY_ACTIVE');
   if(this.#sessions.size>=this.maxActive)throw Error('AUDIO_SERVER_BUSY');
   const startedAt=this.now();
@@ -109,6 +111,7 @@ export class StreamingSpeechSessions {
    throw Error('INVALID_SPEECH_SEQUENCE');
   if(session.outstanding.size>=SPEECH_MAX_UNACKED)
    throw Error('SPEECH_PLAYBACK_BACKPRESSURE');
+  this.budget.check(principal);
   session.busy=true;session.lastAt=this.now();
   try{
    const block=await session.source.read();
@@ -131,6 +134,9 @@ export class StreamingSpeechSessions {
      ||block.samples!==block.pcm.length/2){
     throw Error('SPEECH_PROVIDER_INVALID_PCM');
    }
+   // Count only bytes accepted into the authenticated downlink. Checking
+   // after provider.read() also protects against a partial final block.
+   this.budget.consume(principal,block.samples);
    session.seq++;
    session.outstanding.set(seq,block.samples);
    session.deliveredSamples+=block.samples;session.lastAt=this.now();
@@ -200,6 +206,7 @@ export class StreamingSpeechSessions {
   this.cancel(principal);
   const removed=this.#metrics.delete(principal);
   this.#attempts.delete(principal);
+  this.budget.erasePrincipal(principal);
   return Number(removed);
  }
  eraseScope(scope){
@@ -217,5 +224,6 @@ export class StreamingSpeechSessions {
   return count;
  }
  metrics(principal){return structuredClone(this.#metrics.get(principal)??empty());}
+ deliveryBudget(principal){return this.budget.snapshot(principal);}
  activeCount(){this.sweep();return this.#sessions.size;}
 }
