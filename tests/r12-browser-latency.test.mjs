@@ -8,7 +8,7 @@ const json=value=>new Response(JSON.stringify(value),{
 const wait=()=>new Promise(resolve=>setImmediate(resolve));
 const token='11111111-1111-4111-8111-111111111111';
 test('R12 client distinguishes request time from the moment audio is scheduled',async()=>{
- let clock=1000,source;
+ let clock=1000,source,reads=0;
  const events=[];
  const bridge=new globalThis.AlexStreamingSpeechBridge({
   clock:()=>clock,
@@ -30,6 +30,7 @@ test('R12 client distinguishes request time from the moment audio is scheduled',
       sampleRate:24000,maxUnacknowledged:3}});
    }
    if(path==='/api/audio/playback/next'){
+    if(reads++>0)return new Response(null,{status:204});
     clock+=45;
     return new Response(new Uint8Array(4800),{
      headers:{'x-alex-speech-seq':'0','x-alex-speech-samples':'2400'}
