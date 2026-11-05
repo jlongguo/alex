@@ -145,7 +145,12 @@ export function connectSecureJsonSocket({
   return new Promise((resolve,reject)=>{
     const nonce=randomBytes(16).toString('base64');
     const accept=createHash('sha1').update(nonce+GUID).digest('base64');
-    const req=requestFactory(target,{
+    // Node https.request only accepts https: URLs; RFC6455 starts as
+    // HTTPS then upgrades to WebSocket. Pass the https: URL to the request
+    // factory, retaining the validated original wss: URL for policy.
+    const upgradeTarget=new URL(target);
+    upgradeTarget.protocol='https:';
+    const req=requestFactory(upgradeTarget,{
       method:'GET',timeout:timeoutMs,
       headers:{
         Authorization:'Bearer '+apiKey,
