@@ -221,6 +221,7 @@ export class StreamingSpeechSessions {
      ||(scope==='parent'&&!child))
     count+=this.erasePrincipal(principal);
   }
+  this.budget.eraseScope(scope);
   return count;
  }
  metrics(principal){return structuredClone(this.#metrics.get(principal)??empty());}
