@@ -22,6 +22,8 @@ import {LearnerPrivacy} from './learner-privacy.mjs';
 import {CompatibleAudioProvider,MAX_AUDIO_UPLOAD_BYTES,MAX_AUDIO_MS} from './audio-provider.mjs';
 import {AudioTurnGate,readAudioUpload} from './audio-transport.mjs';
 import {AudioIngressSessions,readAudioChunk} from './audio-ingress-sessions.mjs';
+import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.mjs';
+import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -48,6 +50,19 @@ const audioProvider=audioMode==='compatible'?new CompatibleAudioProvider({
   speechModel:process.env.ALEX_AUDIO_TTS_MODEL,
   voice:process.env.ALEX_AUDIO_VOICE??'alloy'
 }):null;
+// Real upstream PCM16/24k WSS transcription is an independent opt-in
+// provider. The R6/R7 batch provider remains the default/fallback.
+const realtimeMode=process.env.ALEX_REALTIME_PROVIDER??'disabled';
+if(!['disabled','openai-transcription'].includes(realtimeMode))
+  throw new Error('INVALID_REALTIME_PROVIDER_MODE');
+const realtimeProvider=realtimeMode==='openai-transcription'
+  ?new RealtimeTranscriptionProvider({
+    url:process.env.ALEX_REALTIME_URL??'wss://api.openai.com/v1/realtime?intent=transcription',
+    apiKey:process.env.ALEX_REALTIME_API_KEY,
+    model:process.env.ALEX_REALTIME_ASR_MODEL??'gpt-live-transcribe'
+  }):null;
+const realtimeSessions=realtimeProvider
+  ?new RealtimePcmSessions({provider:realtimeProvider}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
@@ -123,9 +138,11 @@ const send = (res, status, data) => {
 };
 const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLED','AUDIO_PROVIDER_NOT_CONFIGURED',
   'AUDIO_ALREADY_ACTIVE','AUDIO_REQUEST_CANCELLED','AUDIO_ALREADY_FINISHING',
-  'AUDIO_TURN_NOT_RECORDING'].includes(message)?409:
+  'AUDIO_TURN_NOT_RECORDING','AUDIO_REALTIME_NOT_READY',
+  'AUDIO_REALTIME_BACKPRESSURE','AUDIO_REALTIME_CONNECTION_CLOSED',
+  'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED'].includes(message)?409:
   message==='AUDIO_SERVER_BUSY'?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
-  'AUDIO_TURN_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+  'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -152,7 +169,9 @@ const tickTimer=setInterval(()=>core.tick(.1),100);
 const gatewayTimer=setInterval(()=>gateway.expire().catch(err=>console.error('Gateway expiry:',err.message)),1000);
 const workflowTimer=setInterval(()=>workflows.tick().catch(err=>console.error('Workflow tick:',err.message)),250);
 const planTimer=setInterval(()=>plans.tick().catch(err=>console.error('Plan tick:',err.message)),250);
-const audioSweepTimer=setInterval(()=>audioIngress.sweep(),2000);
+const audioSweepTimer=setInterval(()=>{
+  audioIngress.sweep();realtimeSessions?.sweep();
+},2000);
 audioSweepTimer.unref?.();
 const keepAliveTimer=setInterval(()=>{for(const res of clients)try{res.write(': heartbeat\n\n');}catch{clients.delete(res);}},15000);
 
@@ -364,6 +383,83 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
     send(res,200,{session:conversations.get(actor,id)});return;
   }
+  if(req.method==='GET' && pathname==='/api/audio/realtime/capabilities'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req),p=learnerPrivacy.forPrincipal(principal);
+    send(res,200,{ok:true,provider:realtimeProvider?.kind??'disabled',
+      inputAllowed:!!(realtimeProvider&&p.voiceInputAllowed&&p.cloudAudioInputAllowed),
+      format:'pcm16-mono-24khz',maxFrameBytes:9600,
+      maxAudioBytes:720000,maxDurationMs:15000,
+      upstreamStreaming:!!realtimeProvider,
+      transcriptMode:'manual-submit-preview',
+      serverAudioStorage:false});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/realtime/start'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!realtimeSessions)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    const started=await realtimeSessions.start(principal,{
+      language:params.language??'zh'});
+    audioAllowed(principal,'asr');
+    send(res,200,{ok:true,session:started});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/realtime/frame'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!realtimeSessions)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const id=req.headers['x-alex-realtime-id'];
+    // Validate signed-in session owner before receiving any PCM bytes.
+    realtimeSessions.status(principal,id);
+    const data=await readRealtimePcmFrame(req);
+    try{
+      const seq=Number(req.headers['x-alex-frame-seq']);
+      const receipt=await realtimeSessions.append(principal,id,{seq,data});
+      send(res,200,{ok:true,...receipt});
+    }finally{data.fill(0);}
+    return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/realtime/status'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!realtimeSessions)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const id=new URL(req.url,`http://${incomingHost}`).searchParams.get('id');
+    send(res,200,{ok:true,session:realtimeSessions.status(principal,id)});return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/realtime/metrics'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    send(res,200,{ok:true,scope:'self',
+      metrics:realtimeSessions?.metrics(principal)??null,
+      transcriptStored:false,rawAudioStored:false});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/realtime/commit'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    audioAllowed(principal,'asr');
+    if(!realtimeSessions)throw new Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    const params=await body(req);
+    realtimeSessions.status(principal,params.id);
+    res.on('close',()=>{if(!res.writableEnded)
+      realtimeSessions.cancel(principal,params.id);});
+    const result=await realtimeSessions.commit(principal,params.id,{
+      authorized:()=>audioAllowed(principal,'asr')
+    });
+    if(!res.destroyed)send(res,200,{ok:true,...result});
+    await audit.record({actor:auth.current(req).actor,
+      learnerId:auth.current(req).learnerId,
+      action:'audio.realtime.commit',outcome:'allowed'});return;
+  }
+  if(req.method==='POST' && pathname==='/api/audio/realtime/cancel'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const params=await body(req);
+    send(res,200,{ok:true,cancelled:realtimeSessions?.cancel(principal,params.id)??false});
+    return;
+  }
   if(req.method==='GET' && pathname==='/api/audio/capabilities'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     const principal=principalFor(req),prefs=learnerPrivacy.forPrincipal(principal);
@@ -446,8 +542,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     // Cancellation only applies to this authenticated identity.
     const stopped=audioIngress.cancel(principal);
+    const live=realtimeSessions?.cancel(principal)??false;
     const upstream=audioGate.cancel(principal);
-    send(res,200,{ok:true,cancelled:stopped||upstream});return;
+    send(res,200,{ok:true,cancelled:stopped||live||upstream});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/transcribe'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -622,6 +719,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           !result.privacy.preferences.cloudAudioOutputAllowed){
           audioGate.cancel('learner:'+data.profileId);
           audioIngress.cancel('learner:'+data.profileId);
+          realtimeSessions?.cancel('learner:'+data.profileId);
         }
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
@@ -717,6 +815,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           abortCompanion('learner:'+data.id);
           audioGate.cancel('learner:'+data.id);
           audioIngress.erasePrincipal('learner:'+data.id);
+          realtimeSessions?.erasePrincipal('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -734,11 +833,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         const clearedLearnerPrivacy=await learnerPrivacy.clearForPrivacy(actor,data.scope);
         if(['child','all'].includes(data.scope)){
           abortAllChildCompanion();audioGate.cancelChild();
-          audioIngress.cancelAllChildren();
+          audioIngress.cancelAllChildren();realtimeSessions?.cancelChildren();
         }
         const erasedAudioMetricsPrincipals=audioIngress.eraseScope(data.scope);
+        const erasedRealtimeAudioPrincipals=realtimeSessions?.eraseScope(data.scope)??0;
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,erasedAudioMetricsPrincipals,
+          erasedRealtimeAudioPrincipals,
           note:'Audit metadata, profiles and remote model provider data are not erased by this operation.'};
       }else if(pathname==='/api/memory'){
         const entry=await memory.add(actor,data.scope,data.text);
@@ -826,5 +927,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   res.end(bytes);
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
-function shutdown(){clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
+function shutdown(){
+  realtimeSessions?.cancelChildren();
+  realtimeSessions?.cancel('parent');
+  clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
