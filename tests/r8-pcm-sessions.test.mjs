@@ -131,3 +131,19 @@ test('R8 actual HTTP raw PCM frame parser validates declared and read byte limit
  mime.headers={'content-type':'audio/webm'};
  await assert.rejects(()=>readRealtimePcmFrame(mime),/INVALID_REALTIME_CONTENT_TYPE/);
 });
+
+
+test('R8 revocation while WSS handshake is pending cannot leave a live child session',async()=>{
+ let allowConnection,closed=0;
+ const provider={open:()=>new Promise(resolve=>allowConnection=resolve)};
+ const manager=new RealtimePcmSessions({provider});
+ const starting=manager.start(A);
+ await Promise.resolve();
+ assert.equal(manager.activeCount(),1);
+ assert.equal(manager.cancel(A),true);
+ allowConnection({cancel(){},close(){closed++;}});
+ await assert.rejects(starting,/AUDIO_REQUEST_CANCELLED/);
+ assert.equal(manager.activeCount(),0);
+ assert.ok(closed>=1);
+ assert.equal(manager.metrics(A).completed,0);
+});
