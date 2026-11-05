@@ -26,6 +26,7 @@ import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.m
 import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
 import {StreamingPcmSpeechProvider} from './streaming-speech-provider.mjs';
 import {StreamingSpeechSessions} from './streaming-speech-sessions.mjs';
+import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -75,8 +76,15 @@ const speechStreamProvider=speechStreamMode==='compatible'
   model:process.env.ALEX_SPEECH_STREAM_MODEL,
   voice:process.env.ALEX_SPEECH_STREAM_VOICE??'alloy'
  }):null;
+// This is a local delivered-audio allowance, NOT a cloud invoice ceiling.
+const speechDeliveryDailySeconds=Number(
+  process.env.ALEX_SPEECH_DAILY_DELIVERY_SECONDS??120);
+const speechDeliveryBudget=new SpeechDeliveryBudget({
+  dailySeconds:speechDeliveryDailySeconds
+});
 const speechPlayback=speechStreamProvider
- ?new StreamingSpeechSessions({provider:speechStreamProvider}):null;
+ ?new StreamingSpeechSessions({provider:speechStreamProvider,
+   budget:speechDeliveryBudget}):null;
 const learningPlans=new LearningPlans(
   process.env.ALEX_LEARNING_PLANS_FILE??resolve(appDir,'.local','learning-plans.json'));
 const gateway=new DeviceGateway(process.env.GATEWAY_FILE??resolve(appDir,'.local','gateway.json'),devices);
@@ -408,6 +416,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       sampleRate:24000,format:'pcm16-mono-24khz',maxChunkBytes:4800,
       maxUnacknowledged:3,requiresExplicitPlay:true,
       playbackProof:'client-claimed',audioNotPersisted:true,
+      deliveryBudgetSeconds:speechDeliveryDailySeconds,
+      deliveryBudgetKind:'alex-delivered-not-vendor-billed',
       duplex:false});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/start'){
@@ -493,6 +503,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     send(res,200,{ok:true,scope:'self',
       metrics:speechPlayback?.metrics(principal)??null,
+      deliveryBudget:speechPlayback?.deliveryBudget(principal)??null,
       rawAudioStored:false,textStored:false,
       playbackProof:'client-claimed'});return;
   }
