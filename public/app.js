@@ -890,6 +890,7 @@ function speakCompanion(text,mode){
  try{
   cloudAudioBridge.interrupt('browser-speech-start');
   streamingAudioBridge.interrupt('browser-speech-start');
+  realtimePcmBridge.interrupt('browser-speech-start');
   voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
     rate:mode==='english'?.85:1});
  }catch(err){companionNotice(err.message,true);companionState('error');}
@@ -1142,6 +1143,7 @@ $('companion-cloud-record').addEventListener('click',async()=>{
  }
  voiceBridge.interrupt('cloud-capture-start');
  streamingAudioBridge.interrupt('cloud-capture-start');
+ realtimePcmBridge.interrupt('cloud-capture-start');
  try{await cloudAudioBridge.startCapture({
    language:$('companion-mode').value==='english'?'en':'zh'
  });}
@@ -1159,6 +1161,7 @@ $('companion-cloud-speak').addEventListener('click',async()=>{
  if(!reply){companionNotice('没有可朗读的回复。',true);return;}
  voiceBridge.interrupt('cloud-speech-start');
  streamingAudioBridge.interrupt('cloud-speech-start');
+ realtimePcmBridge.interrupt('cloud-speech-start');
  await cloudAudioBridge.speak(reply.slice(0,500),{
    language:$('companion-mode').value==='english'?'en':'zh'
  });
@@ -1176,6 +1179,7 @@ $('companion-stream-record').addEventListener('click',async()=>{
  }
  voiceBridge.interrupt('incremental-capture-start');
  cloudAudioBridge.interrupt('incremental-capture-start');
+ realtimePcmBridge.interrupt('incremental-capture-start');
  try{
   await streamingAudioBridge.startCapture({
     language:$('companion-mode').value==='english'?'en':'zh',
@@ -1183,9 +1187,31 @@ $('companion-stream-record').addEventListener('click',async()=>{
   });
  }catch(err){companionNotice(err.message,true);}
 });
+$('companion-realtime-record').disabled=true;
+$('companion-realtime-record').addEventListener('click',async()=>{
+ if(!authorizedActor||companionBusy)return;
+ if(realtimePcmBridge.snapshot().recording){
+  await realtimePcmBridge.stop();return;
+ }
+ await refreshCompanionPrivacy(true);
+ await refreshRealtimeCapabilities();
+ if(!realtimeCapabilities.inputAllowed){
+  companionNotice('实时转写供应商未配置或当前身份未获得单独云端录音授权。',true);
+  return;
+ }
+ voiceBridge.interrupt('realtime-capture-start');
+ cloudAudioBridge.interrupt('realtime-capture-start');
+ streamingAudioBridge.interrupt('realtime-capture-start');
+ try{
+  await realtimePcmBridge.start({
+    language:$('companion-mode').value==='english'?'en':'zh'
+  });
+ }catch(err){companionNotice(err.message,true);}
+});
 $('companion-audio-cancel').addEventListener('click',async()=>{
  cloudAudioBridge.interrupt('user-cancel');
  streamingAudioBridge.interrupt('user-cancel');
+ realtimePcmBridge.interrupt('user-cancel');
  if(authorizedActor)fetch('/api/audio/cancel',{method:'POST'}).catch(()=>{});
 });
 $('companion-microphone').disabled=true;
@@ -1202,6 +1228,7 @@ $('companion-microphone').addEventListener('click',async()=>{
   }
   cloudAudioBridge.interrupt('browser-webspeech-start');
   streamingAudioBridge.interrupt('browser-webspeech-start');
+  realtimePcmBridge.interrupt('browser-webspeech-start');
   voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
   companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
  }catch(err){companionNotice(err.message,true);}
