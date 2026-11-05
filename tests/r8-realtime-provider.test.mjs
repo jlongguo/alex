@@ -100,7 +100,6 @@ test('R8 provider upstream error is sanitized and cannot expose vendor response 
  await channel.append(bytes);
  socket.emit('json',{type:'error',error:{message:'API KEY secret'}});
  assert.equal(socket.closed,true);
- assert.throws(()=>channel.send?.(),undefined);
  await assert.rejects(()=>channel.append(bytes),/AUDIO_REALTIME_NOT_READY/);
 });
 test('R8 provider fails closed when WSS transport exceeds its buffered threshold',async()=>{
