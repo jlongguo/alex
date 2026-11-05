@@ -7,6 +7,7 @@ Base: merged R17 `main` at `1259cbb036cb6531a9ec344787528ee95cb539ca`.
 - Fix the existing authenticated `/api/audio/playback/start` disconnect lifecycle. A stale HTTP request now cancels **only its own newly created speech session ID**, rather than calling the mutable principal-wide current-session cancel hook. The request unregisters its close listener on exit. It also rechecks connection state before returning an upstream TTS session.
 - Use a test-only preload fixture to simulate a real local HTTP server whose cloud TTS vendor is stalled in a PCM stream and **does not cooperate with AbortSignal**. The fixture never talks to the real Internet.
 - Add an authenticated, parent/learner localhost test. Grant voice output, begin a pending `/next`, revoke cloud audio output, release the test vendor barrier, then verify no HTTP 200 PCM is returned, no claimed ACK exists, no delivered audio quota is charged, and the learner can no longer use the endpoint.
+- Add server-session tests proving that a non-cooperative provider's late PCM buffer is zeroed without charging quota, and that an older canceled request cannot corrupt a newer session owned by the same learner.
 - Add browser tests where a late PCM response arrives after user interruption. It must not schedule a WebAudio buffer or generate an ACK from the stale epoch. Existing speaker/player and PCM framing code are unchanged.
 
 ## Non-goals and honest limitations
@@ -18,7 +19,7 @@ The supplier may continue processing requests after cancellation, and local PCM-
 ## Validation
 
 ```sh
-node --test tests/r18-http-stalled-revocation.test.mjs tests/r18-browser-stale-frame.test.mjs
+node --test tests/r18-http-stalled-revocation.test.mjs tests/r18-browser-stale-frame.test.mjs tests/r18-stale-pcm-zeroization.test.mjs
 npm test
 npm run sim:check
 npm run sim:preflight
