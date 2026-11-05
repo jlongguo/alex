@@ -2,6 +2,17 @@
 
 默认地址 `http://127.0.0.1:4317`。默认 demo 是不安全演示模式；家庭会话、私有资料与 AI Companion 必须在 `AUTH_MODE=local` 下使用家长密码/儿童 PIN。API 仅监听本机，不得直接开放互联网。
 
+## AI 互动终端 R8：真实上游实时 PCM16 转写
+
+- `GET /api/audio/realtime/capabilities`：当前已登录角色对 WSS 实时 ASR 的权限、格式与上限；不暴露配置密钥，默认 disabled。
+- `POST /api/audio/realtime/start`：JSON `{language:'zh'|'en'}`，经过验证身份 + 家长独立音频授权后创建临时上游 WSS transcription session，返回 opaque id。
+- `POST /api/audio/realtime/frame`：纯二进制 `application/octet-stream`，头部 `X-Alex-Realtime-Id`、`X-Alex-Frame-Seq`。输入必须 PCM16/24k 单声道小帧，字节数为 2～9600 的偶数；绝不接受伪装成 PCM 的 R7 WebM。
+- `GET /api/audio/realtime/status?id=...`：仅当前验证身份可查看自己的阶段、已接收帧数/字节数与最多 500 字的当前转写预览；跨孩子访问 403。
+- `POST /api/audio/realtime/commit`：JSON `{id}`，通知上游提交最后音频缓冲并等待最终转写，输出 `requiresManualSubmit:true`，不会自动触发聊天/设备 API。
+- `POST /api/audio/realtime/cancel`：仅取消当前身份会话和上游 WSS。家长撤销云端录音授权、删除学习者或 child/all 擦除会同步取消对应临时会话。
+- `GET /api/audio/realtime/metrics`：只返回当前身份的非内容音频帧计数与时间，隐私擦除可清空。不得存储声音样本、发音评分或对话文字。
+- 此功能是“上游实时转写”，**不是全双工语音对话**，不保证生产级 PCM 重采样或音质；必须使用可选的 `ALEX_REALTIME_PROVIDER=openai-transcription`、有效 `ALEX_REALTIME_API_KEY` 和家长明确授权，详见 [R8](AI_COMPANION_R8_REALTIME_TRANSCRIPTION.md)。
+
 ## AI 互动终端 R7：浏览器增量音频会话
 
 - `POST /api/audio/turn/start`：JSON `{mime,language}`，创建临时的、按服务端已验证身份绑定的音频会话，返回 opaque id、64KiB 分片、1.5MB 总量及过期边界。
