@@ -122,7 +122,11 @@ export class StreamingSpeechSessions {
   if(session.outstanding.size>=SPEECH_MAX_UNACKED)
    throw Error('SPEECH_PLAYBACK_BACKPRESSURE');
   this.budget.check(principal);
-  this.authorizeDelivery(principal);
+  try{this.authorizeDelivery(principal);}
+  catch(error){
+   this.#release(session,'cancelled');
+   throw error;
+  }
   session.busy=true;session.lastAt=this.now();
   try{
    const block=await session.source.read();
@@ -149,7 +153,11 @@ export class StreamingSpeechSessions {
    }
    // Authorization may change while an upstream read is pending. Recheck
    // inside the owner-bound session before charging or returning PCM.
-   this.authorizeDelivery(principal);
+   try{this.authorizeDelivery(principal);}
+   catch(error){
+    if(Buffer.isBuffer(block?.pcm))block.pcm.fill(0);
+    throw error;
+   }
    // Count only bytes accepted into the authenticated downlink. Checking
    // after provider.read() also protects against a partial final block.
    const segmentIndex=block.sentenceIndex??0;
