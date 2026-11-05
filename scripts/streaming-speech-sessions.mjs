@@ -130,8 +130,12 @@ export class StreamingSpeechSessions {
   session.busy=true;session.lastAt=this.now();
   try{
    const block=await session.source.read();
-   if(this.#sessions.get(id)!==session||session.controller.signal.aborted)
+   if(this.#sessions.get(id)!==session||session.controller.signal.aborted){
+    // A non-cooperative vendor may resolve a stale read after the owner
+    // revoked the session. Drop and zero its memory before returning.
+    if(Buffer.isBuffer(block?.pcm))block.pcm.fill(0);
     throw Error('AUDIO_REQUEST_CANCELLED');
+   }
    if(block.done){
     session.drained=true;
     session.phase='drained';
