@@ -70,8 +70,9 @@ test('R11 revocation while speech opens cancels only owned generated speech',asy
   onSpeech:()=>new Promise(resolve=>release=resolve)
  });
  const task=orchestrator.run(A,{conversationId:session,text:'Hi'});
- for(let i=0;i<5&&!release;i++)await Promise.resolve();
- assert.ok(release);
+ for(let i=0;i<40&&!release;i++)
+  await new Promise(resolve=>setImmediate(resolve));
+ assert.ok(release,'TTS opening must be observed before consent revocation');
  allowed=false;
  release({id:audio});
  await assert.rejects(task,/CHILD_CLOUD_AUDIO_DISABLED/);
