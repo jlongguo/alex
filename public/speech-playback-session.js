@@ -7,7 +7,8 @@ class AlexStreamingSpeechBridge {
  #epoch=0;#phase='idle';#session=null;#ctx=null;
  #sources=new Set();#poller=null;#controller=null;#fetching=false;
  #seq=0;#nextTime=0;#drained=false;#pendingAck=0;#voiceTurn=null;
- #firstAudioAt=null;#starves=0;#playedSamples=0;
+ #firstAudioAt=null;#requestedAt=null;#firstScheduledLatencyMs=null;
+ #starves=0;#playedSamples=0;
  constructor({fetchFn=fetch,
    contextFactory=()=>new (globalThis.AudioContext||globalThis.webkitAudioContext)(),
    scheduler=setInterval,clearScheduler=clearInterval,
@@ -19,7 +20,9 @@ class AlexStreamingSpeechBridge {
    playing:this.#phase==='playing'||this.#phase==='buffering',
    sessionId:this.#session,queued:this.#sources.size,
    nextSeq:this.#seq,playedMsClaimed:Math.round(this.#playedSamples/24),
-   firstAudioMs:this.#firstAudioAt,underruns:this.#starves});}
+   firstAudioMs:this.#firstAudioAt,
+   firstScheduledLatencyMs:this.#firstScheduledLatencyMs,
+   underruns:this.#starves});}
  #set(phase,message){
   this.#phase=phase;
   this.onStatus({phase,message,...this.snapshot()});
@@ -53,6 +56,7 @@ class AlexStreamingSpeechBridge {
   this.#ctx=null;this.#session=null;this.#voiceTurn=null;this.#fetching=false;
   this.#seq=0;this.#nextTime=0;this.#drained=false;
   this.#pendingAck=0;this.#firstAudioAt=null;
+  this.#requestedAt=null;this.#firstScheduledLatencyMs=null;
   this.#starves=0;this.#playedSamples=0;
   this.#cancelRemote(id);
   this.#cancelVoiceTurn(turn);
@@ -73,6 +77,7 @@ class AlexStreamingSpeechBridge {
    throw Error('INVALID_AUDIO_LANGUAGE');
   this.interrupt('new-speech');
   const epoch=++this.#epoch;
+  this.#requestedAt=this.clock();
   const controller=new AbortController();this.#controller=controller;
   this.#set('requesting','正在请求播放许可和 Web Audio 输出；第三方将处理选定的回复文字。');
   let id;
@@ -177,6 +182,8 @@ class AlexStreamingSpeechBridge {
     source.start(when);
     if(this.#firstAudioAt===null){
      this.#firstAudioAt=this.clock();
+     this.#firstScheduledLatencyMs=Math.max(0,
+       this.#firstAudioAt-this.#requestedAt);
      this.#set('playing','已开始逐片播放第三方生成的语音。点击停止或开始录音可以打断。');
     }
    }
