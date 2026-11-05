@@ -26,6 +26,7 @@ import {RealtimeTranscriptionProvider} from './realtime-transcription-provider.m
 import {RealtimePcmSessions,readRealtimePcmFrame} from './realtime-pcm-sessions.mjs';
 import {StreamingPcmSpeechProvider} from './streaming-speech-provider.mjs';
 import {StreamingSpeechSessions} from './streaming-speech-sessions.mjs';
+import {VoiceTurnOrchestrator} from './voice-turn-orchestrator.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -129,6 +130,17 @@ const conversations=new CompanionConversations({
   },
   authorizeModel:principal=>learnerPrivacy.modelContext(principal)
 });
+const voiceTurns=speechPlayback?new VoiceTurnOrchestrator({
+  conversations,speech:speechPlayback,
+  authorize:principal=>{
+    audioAllowedForVoice(principal);
+  }
+}):null;
+function audioAllowedForVoice(principal){
+ const prefs=learnerPrivacy.forPrincipal(principal);
+ if(!prefs.voiceOutputAllowed||!prefs.cloudAudioOutputAllowed)
+  throw Error('CHILD_CLOUD_AUDIO_DISABLED');
+}
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
 const saved=await store.load();
 if(saved)core.restore(saved);
@@ -346,6 +358,51 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const cursor=new URL(req.url,`http://${incomingHost}`).searchParams.get('after')??'0';
     if(!/^\d{1,15}$/.test(cursor)){send(res,400,{ok:false,error:'INVALID_EVENT_CURSOR'});return;}
     send(res,200,{events:plans.getEvents(Number(cursor))});return;
+  }
+  // R11 reviewed-text voice turn: text is committed by the existing
+  // conversation pipeline before a separate PCM playback session is opened.
+  // No provisional model token is spoken and no ASR result auto-submitted.
+  if(pathname.startsWith('/api/voice/turn/')){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    const action=pathname.slice('/api/voice/turn/'.length);
+    if(req.method==='GET'&&action==='capabilities'){
+      const p=learnerPrivacy.forPrincipal(principal);
+      send(res,200,{ok:true,available:!!voiceTurns,
+        outputAllowed:!!(voiceTurns&&p.voiceOutputAllowed&&p.cloudAudioOutputAllowed),
+        manualInputRequired:true,provisionalSpeech:false,
+        textBeforeSpeech:true,duplex:false});return;
+    }
+    if(req.method==='POST'&&action==='cancel'){
+      const input=await body(req);
+      send(res,200,{ok:true,...(voiceTurns?.cancel(principal,input.id)
+        ??{cancelled:false})});return;
+    }
+    if(!voiceTurns)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
+    if(req.method==='POST'&&action==='start'){
+      audioAllowed(principal,'tts');
+      const input=await body(req);
+      const cancel=new AbortController();
+      const disconnect=()=>{if(!res.writableEnded){
+        cancel.abort();voiceTurns.cancel(principal);
+      }};
+      res.on('close',disconnect);
+      try{
+        // The existing conversation manager does its own model/text policy checks.
+        const result=await voiceTurns.run(principal,{
+          conversationId:input.conversationId,text:input.text});
+        if(cancel.signal.aborted||res.destroyed){
+          voiceTurns.cancel(principal,result.turn.id);return;
+        }
+        send(res,200,{ok:true,...result});
+      }finally{res.off('close',disconnect);}
+      return;
+    }
+    if(req.method==='POST'&&action==='status'){
+      const input=await body(req);
+      send(res,200,{ok:true,turn:voiceTurns.status(principal,input.id)});return;
+    }
+    send(res,404,{ok:false,error:'UNKNOWN_VOICE_TURN_ROUTE'});return;
   }
   // SSE streamed replies have provisional token events and exactly one
   // authoritative committed event; no unfinished text is persisted. This
@@ -852,6 +909,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(!result.privacy.preferences.cloudAudioOutputAllowed||
           !result.privacy.preferences.voiceOutputAllowed)
           speechPlayback?.cancel('learner:'+data.profileId);
+        if(!result.privacy.preferences.cloudAudioOutputAllowed||
+           !result.privacy.preferences.voiceOutputAllowed||
+           !result.privacy.preferences.cloudTextAllowed)
+          voiceTurns?.cancel('learner:'+data.profileId);
       }else if(pathname==='/api/learning/assign'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,plan:await learningPlans.assign(actor,{
@@ -948,6 +1009,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           audioIngress.erasePrincipal('learner:'+data.id);
           realtimeSessions?.erasePrincipal('learner:'+data.id);
           speechPlayback?.erasePrincipal('learner:'+data.id);
+          voiceTurns?.erasePrincipal('learner:'+data.id);
           await learnerCredentials.revoke(actor,data.id);
           await conversations.eraseLearner(actor,data.id);
           await learningPlans.removeProfile(actor,data.id);
@@ -966,11 +1028,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(['child','all'].includes(data.scope)){
           abortAllChildCompanion();audioGate.cancelChild();
           audioIngress.cancelAllChildren();realtimeSessions?.cancelChildren();
-          speechPlayback?.cancelChildren();
+          speechPlayback?.cancelChildren();voiceTurns?.cancelChildren();
         }
         const erasedAudioMetricsPrincipals=audioIngress.eraseScope(data.scope);
         const erasedRealtimeAudioPrincipals=realtimeSessions?.eraseScope(data.scope)??0;
         const erasedSpeechPlaybackPrincipals=speechPlayback?.eraseScope(data.scope)??0;
+        voiceTurns?.eraseScope(data.scope);
         result={ok:true,deletedMemoryEntries:removed,deletedConversations,deletedLearningPlans,
           clearedLearnerPrivacy,erasedAudioMetricsPrincipals,
           erasedRealtimeAudioPrincipals,erasedSpeechPlaybackPrincipals,
@@ -1065,6 +1128,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
 }));
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
 function shutdown(){
+  voiceTurns?.eraseScope('all');
   speechPlayback?.cancelChildren();speechPlayback?.cancel('parent');
   realtimeSessions?.cancelChildren();
   realtimeSessions?.cancel('parent');
