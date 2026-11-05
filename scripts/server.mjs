@@ -402,7 +402,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const params=await body(req);
     const started=await realtimeSessions.start(principal,{
       language:params.language??'zh'});
-    audioAllowed(principal,'asr');
+    // Consent can change during the external WSS handshake: do not retain
+    // a live upstream session if the second authorization check fails.
+    try{audioAllowed(principal,'asr');}
+    catch(error){realtimeSessions.cancel(principal,started.id);throw error;}
     send(res,200,{ok:true,session:started});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/realtime/frame'){
