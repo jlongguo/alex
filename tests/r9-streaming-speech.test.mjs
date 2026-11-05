@@ -49,7 +49,7 @@ test('R9 abort blocks provider request before any audio leaves host',async()=>{
 });
 async function loadPlayer(){
   const source=await readFile(new URL('../public/streaming-speech-player.js',import.meta.url),'utf8');
-  const sandbox={};
+  const sandbox={Uint8Array,DataView,Float32Array};
   vm.runInNewContext(source,sandbox);
   return sandbox.AlexStreamingSpeechPlayer;
 }
