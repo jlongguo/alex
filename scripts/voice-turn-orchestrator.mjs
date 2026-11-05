@@ -2,7 +2,7 @@
 // ASR input is NOT auto-submitted. No speech before committed text reply.
 import {randomUUID} from 'node:crypto';
 import {VoiceTurnTelemetry} from './voice-turn-telemetry.mjs';
-import {SpeechSentenceSegmenter} from './speech-sentence-segmenter.mjs';
+import {ProvisionalTurnText} from './provisional-turn-text.mjs';
 const MAX_ACTIVE=4, MAX_MS=45000;
 const isPrincipal=x=>typeof x==='string'&&x.length>0&&x.length<=100;
 const isId=x=>typeof x==='string'&&/^[0-9a-f-]{36}$/.test(x);
@@ -71,6 +71,7 @@ export class VoiceTurnOrchestrator {
    controller:new AbortController(),speechId:null,committed:false,
    modelCommittedAt:null};
   this.#active.set(principal,id);this.#byId.set(id,t);
+  const staged=new ProvisionalTurnText();
   const timeout=setTimeout(()=>t.controller.abort(),MAX_MS);
   timeout.unref?.();
   try{
@@ -78,7 +79,8 @@ export class VoiceTurnOrchestrator {
    this.#check(t);
    const modelPending=Promise.resolve().then(()=>
     this.conversations.streamTurn(principal,conversationId,text,{
-     signal:t.controller.signal,onDelta:()=>{} // Only committed text may be spoken.
+     signal:t.controller.signal,
+     onDelta:delta=>staged.push(delta) // Provisional data never goes to TTS.
     }));
    const result=await abortable(modelPending,t.controller.signal);
    // The companion manager has already committed its reply when it resolves.
@@ -93,9 +95,8 @@ export class VoiceTurnOrchestrator {
    if(typeof spoken!=='string'||!spoken.trim())throw Error('VOICE_TURN_EMPTY_REPLY');
    // Only committed assistant text enters the sentence segmenter. Never
    // speak a provisional delta or cut the spoken excerpt mid-sentence.
-   const segmenter=new SpeechSentenceSegmenter();
-   segmenter.push(spoken);
-   const committedSegments=segmenter.commit();
+   const stagedResult=staged.commit(spoken);
+   const committedSegments=stagedResult.segments;
    // Cap upstream spending and buffered providers to four committed
    // sentences. The old single-sentence path remains valid.
    const selectedSegments=committedSegments.slice(0,4);
@@ -123,8 +124,10 @@ export class VoiceTurnOrchestrator {
     assistant:result.assistant,session:result.session,
     speechTextTruncated:committedSegments.length>selectedSegments.length,
     speechSegmentCount:committedSegments.length,
-    speechSegmentsSelected:selectedSegments.length};
+    speechSegmentsSelected:selectedSegments.length,
+    provisionalMatchedCommit:stagedResult.matched};
   }catch(error){
+   staged.discard();
    const cancelled=t.controller.signal.aborted
      ||error?.message==='VOICE_TURN_CANCELLED'
      ||error?.message==='COMPANION_TURN_CANCELLED';
