@@ -4,14 +4,16 @@
 class AlexRealtimePcmBridge {
   #epoch=0;#phase='idle';#turnId=null;#ctx=null;#source=null;
   #worklet=null;#gain=null;#stream=null;#timer=null;
-  #poller=null;#flush=null;#controller=null;#pending=Promise.resolve();
+  #poller=null;#flush=null;#controller=null;#vad=null;
+  #pending=Promise.resolve();
   #queued=0;#seq=0;#bytes=0;#lastPartial='';
   constructor({fetchFn=fetch,mediaDevices=navigator.mediaDevices,
     contextFactory=()=>new (globalThis.AudioContext||globalThis.webkitAudioContext)(),
     workletFactory=(ctx)=>new AudioWorkletNode(ctx,'alex-pcm16-capture'),
+    monitorFactory=options=>new globalThis.AlexEnergyAudioMonitor(options),
     onPartial=()=>{},onTranscript=()=>{},onStatus=()=>{}}={}){
     Object.assign(this,{fetchFn,mediaDevices,contextFactory,workletFactory,
-      onPartial,onTranscript,onStatus});
+      monitorFactory,onPartial,onTranscript,onStatus});
   }
   snapshot(){return Object.freeze({
     phase:this.#phase,epoch:this.#epoch,recording:this.#phase==='recording',
@@ -25,6 +27,8 @@ class AlexRealtimePcmBridge {
   #releaseMic(){
     if(this.#timer!==null){clearTimeout(this.#timer);this.#timer=null;}
     if(this.#poller!==null){clearInterval(this.#poller);this.#poller=null;}
+    try{this.#vad?.stop?.();}catch{}
+    this.#vad=null;
     this.#flush?.();
     this.#flush=null;
     try{this.#worklet?.port?.postMessage({type:'stop'});}catch{}
@@ -55,7 +59,7 @@ class AlexRealtimePcmBridge {
     this.#set('idle',reason);
     return this.snapshot();
   }
-  async start({language='zh'}={}){
+  async start({language='zh',autoStopOnSilence=false}={}){
     if(!['zh','en'].includes(language))throw Error('INVALID_AUDIO_LANGUAGE');
     if(!this.mediaDevices?.getUserMedia)throw Error('BROWSER_MICROPHONE_UNSUPPORTED');
     this.interrupt('start-live-transcription');
@@ -114,6 +118,22 @@ class AlexRealtimePcmBridge {
       await ctx.resume?.();
       if(epoch!==this.#epoch)throw Error('AUDIO_REQUEST_CANCELLED');
       this.#set('recording','正在传输 PCM16/24k 音频帧；识别预览不会自动发送。');
+      if(autoStopOnSilence){
+        try{
+          const vad=this.monitorFactory({
+            onEnd:({voiceDetected})=>{
+              if(epoch!==this.#epoch||this.#phase!=='recording')return;
+              if(voiceDetected)void this.stop();
+              else{
+                this.interrupt('no-speech-detected');
+                this.#set('error','没有检测到语音；已停止实时音频会话。');
+              }
+            }
+          });
+          this.#vad=vad;
+          void vad.start(stream).catch(()=>{});
+        }catch{/* Optional VAD is best-effort; manual stop still works. */}
+      }
       this.#poller=setInterval(()=>void this.#poll(epoch,id),400);
       this.#timer=setTimeout(()=>{
         if(epoch===this.#epoch&&this.#phase==='recording')
