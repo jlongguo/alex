@@ -104,3 +104,21 @@ test('R16 cancel clears all session-held sentence receipts and pending audio',as
  assert.throws(()=>mgr.status(OWNER,s.id),/UNKNOWN_SPEECH_SESSION/);
  assert.equal(mgr.metrics(OWNER).acknowledgedSamples,0);
 });
+
+test('R16 rejects skipped first sentence and does not debit learner quota',async()=>{
+ const receipt=new SentencePlaybackReceipts({sentenceCount:3});
+ assert.throws(()=>receipt.delivered(1,2400,1),
+  /INVALID_SENTENCE_RECEIPT_DELIVERY/);
+ assert.throws(()=>receipt.acknowledge(1,2400,1),
+  /INVALID_SENTENCE_RECEIPT_ACK/);
+ const provider={open:async()=>({async read(){return {
+  done:false,pcm:Buffer.alloc(4800),samples:2400,sentenceIndex:1
+ };},async close(){}})};
+ const manager=new StreamingSpeechSessions({provider,makeId:()=>id});
+ const session=await manager.start(OWNER,{text:'a',segments:['a','b']});
+ await assert.rejects(manager.next(OWNER,session.id,0),
+  /SPEECH_INVALID_SENTENCE_INDEX/);
+ assert.equal(manager.deliveryBudget(OWNER).deliveredSamples,0);
+ assert.equal(manager.metrics(OWNER).deliveredSamples,0);
+ assert.equal(manager.activeCount(),0);
+});
