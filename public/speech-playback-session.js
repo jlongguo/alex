@@ -6,7 +6,7 @@
 class AlexStreamingSpeechBridge {
  #epoch=0;#phase='idle';#session=null;#ctx=null;
  #sources=new Set();#poller=null;#controller=null;#fetching=false;
- #seq=0;#nextTime=0;#drained=false;#pendingAck=0;
+ #seq=0;#nextTime=0;#drained=false;#pendingAck=0;#voiceTurn=null;
  #firstAudioAt=null;#starves=0;#playedSamples=0;
  constructor({fetchFn=fetch,
    contextFactory=()=>new (globalThis.AudioContext||globalThis.webkitAudioContext)(),
@@ -24,6 +24,13 @@ class AlexStreamingSpeechBridge {
   this.#phase=phase;
   this.onStatus({phase,message,...this.snapshot()});
  }
+ #cancelVoiceTurn(id){
+  if(!id)return;
+  void this.fetchFn('/api/voice/turn/cancel',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({id})
+  }).catch(()=>{});
+ }
  #cancelRemote(id){
   if(!id)return;
   void this.fetchFn('/api/audio/playback/cancel',{
@@ -32,7 +39,7 @@ class AlexStreamingSpeechBridge {
   }).catch(()=>{});
  }
  interrupt(reason='user-barge-in'){
-  const id=this.#session;
+  const id=this.#session,turn=this.#voiceTurn;
   this.#epoch++;
   this.#controller?.abort();this.#controller=null;
   if(this.#poller!==null){this.clearScheduler(this.#poller);this.#poller=null;}
@@ -43,14 +50,23 @@ class AlexStreamingSpeechBridge {
   }
   this.#sources.clear();
   try{void this.#ctx?.close?.();}catch{}
-  this.#ctx=null;this.#session=null;this.#fetching=false;
+  this.#ctx=null;this.#session=null;this.#voiceTurn=null;this.#fetching=false;
   this.#seq=0;this.#nextTime=0;this.#drained=false;
   this.#pendingAck=0;this.#firstAudioAt=null;
   this.#starves=0;this.#playedSamples=0;
   this.#cancelRemote(id);
+  this.#cancelVoiceTurn(turn);
   this.#set('idle',reason);
  }
  async play(text,{language='zh'}={}){
+  return this.#runPlayback({text,language});
+ }
+ async playVoiceTurn({conversationId,text,language='zh',onCommitted=()=>{}}={}){
+  if(typeof conversationId!=='string'||!/^[0-9a-f-]{36}$/.test(conversationId)
+    ||typeof onCommitted!=='function')throw Error('INVALID_VOICE_TURN_INPUT');
+  return this.#runPlayback({conversationId,text,language,onCommitted});
+ }
+ async #runPlayback({conversationId=null,text,language='zh',onCommitted=()=>{}}={}){
   if(typeof text!=='string'||!text.trim()||text.length>500)
    throw Error('INVALID_AUDIO_TEXT');
   if(!['zh','en'].includes(language))
@@ -67,22 +83,32 @@ class AlexStreamingSpeechBridge {
    this.#ctx=ctx;
    await ctx.resume(); // must be part of a user-initiated browser gesture
    if(epoch!==this.#epoch)throw Error('AUDIO_REQUEST_CANCELLED');
-   const response=await this.fetchFn('/api/audio/playback/start',{
+   const response=await this.fetchFn(
+    conversationId?'/api/voice/turn/start':'/api/audio/playback/start',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({text:text.trim()}),signal:controller.signal
+    body:JSON.stringify(conversationId
+      ?{conversationId,text:text.trim()}:{text:text.trim()}),
+    signal:controller.signal
    });
    if(!response.ok){
     const detail=await response.json().catch(()=>({}));
     throw Error(detail.error??'SPEECH_PLAYBACK_START_FAILED');
    }
-   const session=(await response.json()).session;
+   const payload=await response.json();
+   const session=conversationId?payload.speechSession:payload.session;
+   const voiceTurnId=conversationId?payload.turn?.id:null;
+   if(conversationId&&typeof voiceTurnId!=='string')
+    throw Error('VOICE_TURN_INVALID_RESPONSE');
    if(typeof session?.id!=='string'||session.format!=='pcm16-mono-24khz'
      ||session.sampleRate!==24000||session.maxUnacknowledged!==3)
     throw Error('SPEECH_PLAYBACK_INVALID_SESSION');
    id=session.id;
    if(epoch!==this.#epoch){
-    this.#cancelRemote(id);throw Error('AUDIO_REQUEST_CANCELLED');
+    this.#cancelRemote(id);this.#cancelVoiceTurn(voiceTurnId);
+    throw Error('AUDIO_REQUEST_CANCELLED');
    }
+   this.#voiceTurn=voiceTurnId;
+   if(voiceTurnId)onCommitted(payload);
    this.#session=id;this.#seq=0;this.#drained=false;
    this.#nextTime=ctx.currentTime;
    this.#set('buffering','准备接收流式 PCM16 音频，最多预缓冲两片。');
@@ -197,7 +223,9 @@ class AlexStreamingSpeechBridge {
     this.#sources.size||this.#pendingAck)return;
   if(this.#poller!==null){this.clearScheduler(this.#poller);this.#poller=null;}
   try{void this.#ctx?.close?.();}catch{}
-  this.#ctx=null;this.#session=null;this.#controller=null;
+  const turn=this.#voiceTurn;
+  this.#ctx=null;this.#session=null;this.#voiceTurn=null;this.#controller=null;
+  this.#cancelVoiceTurn(turn);
   this.#set('complete','流式语音已播放完毕（仅按客户端播放事件统计）。');
  }
 }
