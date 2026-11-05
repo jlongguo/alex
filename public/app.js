@@ -147,6 +147,7 @@ function applySession(session){
   cloudAudioBridge.interrupt('identity-changed');
   streamingAudioBridge.interrupt('identity-changed');
   realtimePcmBridge.interrupt('identity-changed');
+  streamingSpeechBridge.interrupt('identity-changed');
   audioCapabilities={inputAllowed:false,outputAllowed:false,provider:'disabled'};
   companionPrivacy={...deniedVoice};voiceBridge.setConsent(companionPrivacy);
   privacyPollAt=0;
@@ -664,6 +665,49 @@ $('companion-mode').addEventListener('change',()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null;
+const streamingSpeechBridge=new globalThis.AlexStreamingSpeechBridge({
+ onStatus:({phase,message,playedMsClaimed,underruns})=>{
+  const mapped={requesting:'thinking',buffering:'thinking',
+    playing:'speaking',complete:'idle',error:'error',idle:'idle'}[phase];
+  if(mapped&&$('companion-runtime').dataset.state!==mapped)
+    companionState(mapped);
+  $('companion-playback-status').textContent=(message??'音频播放状态')+
+    ' · 播放事件估计 '+playedMsClaimed+' ms · 缓冲空档 '+underruns;
+  $('companion-barge-in').disabled=!['buffering','playing'].includes(phase);
+  $('companion-stream-speak').textContent=
+    ['buffering','playing'].includes(phase)
+    ?'停止流式朗读':'流式朗读最后回复（实验）';
+  if(['buffering','playing'].includes(phase))
+    $('companion-audio-cancel').disabled=false;
+ }
+});
+let speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+async function refreshSpeechStreamCapabilities(){
+ const identity=companionActor;
+ if(!authorizedActor){
+  streamingSpeechBridge.interrupt('not-authenticated');
+  speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+  $('companion-stream-speak').disabled=true;
+  $('companion-barge-in').disabled=true;return;
+ }
+ try{
+  const response=await fetch('/api/audio/playback/capabilities',{cache:'no-store'});
+  if(!response.ok)throw Error('SPEECH_POLICY_UNAVAILABLE');
+  const next=await response.json();
+  if(identity!==companionActor)return;
+  if(!next.outputAllowed&&streamingSpeechBridge.snapshot().playing)
+    streamingSpeechBridge.interrupt('parent-revoked');
+  speechStreamCapabilities=next;
+  $('companion-stream-speak').disabled=!next.outputAllowed||
+    !(globalThis.AudioContext||globalThis.webkitAudioContext);
+ }catch{
+  if(identity!==companionActor)return;
+  streamingSpeechBridge.interrupt('policy-unavailable');
+  speechStreamCapabilities={outputAllowed:false,provider:'disabled'};
+  $('companion-stream-speak').disabled=true;
+  $('companion-barge-in').disabled=true;
+ }
+}
 const realtimePcmBridge=new globalThis.AlexRealtimePcmBridge({
  onPartial:({text})=>{
   // Never auto-send intermediate transcript to chat or an Agent tool.
@@ -710,6 +754,8 @@ async function refreshRealtimeCapabilities(){
   if(identity!==companionActor)return;
   realtimeCapabilities={inputAllowed:false,provider:'disabled'};
   realtimePcmBridge.interrupt('policy-unavailable');
+  streamingSpeechBridge.interrupt('policy-unavailable');
+  $('companion-stream-speak').disabled=true;
   $('companion-realtime-record').disabled=true;
  }
 }
@@ -757,6 +803,8 @@ async function refreshAudioCapabilities(){
   cloudAudioBridge.interrupt('not-authenticated');
   streamingAudioBridge.interrupt('not-authenticated');
   realtimePcmBridge.interrupt('not-authenticated');
+  streamingSpeechBridge.interrupt('not-authenticated');
+  $('companion-stream-speak').disabled=true;
   $('companion-realtime-record').disabled=true;
   $('companion-stream-record').disabled=true;
   $('companion-cloud-record').disabled=true;$('companion-cloud-speak').disabled=true;return;
@@ -773,6 +821,7 @@ async function refreshAudioCapabilities(){
   if(!next.inputAllowed&&streamingAudioBridge.snapshot().state!=='idle')
     streamingAudioBridge.interrupt('parent-revoked');
   await refreshRealtimeCapabilities();
+  await refreshSpeechStreamCapabilities();
   audioCapabilities=next;
   $('companion-stream-record').disabled=!next.inputAllowed||
     !(navigator.mediaDevices?.getUserMedia&&globalThis.MediaRecorder);
@@ -881,6 +930,7 @@ function showCompanion(session) {
 function stopCompanionSpeech(){
  voiceBridge.stopSpeaking();
  cloudAudioBridge.interrupt('stop-speech');
+ streamingSpeechBridge.interrupt('stop-speech');
 }
 function speakCompanion(text,mode){
  if(!$('companion-read-aloud').checked)return;
@@ -891,6 +941,7 @@ function speakCompanion(text,mode){
   cloudAudioBridge.interrupt('browser-speech-start');
   streamingAudioBridge.interrupt('browser-speech-start');
   realtimePcmBridge.interrupt('browser-speech-start');
+  streamingSpeechBridge.interrupt('browser-speech-start');
   voiceBridge.speak(text,{lang:mode==='english'?'en-US':'zh-CN',
     rate:mode==='english'?.85:1});
  }catch(err){companionNotice(err.message,true);companionState('error');}
@@ -1069,6 +1120,7 @@ $('companion-form').addEventListener('submit',async e=>{
  voiceBridge.interrupt('chat-submit');cloudAudioBridge.interrupt('chat-submit');
  streamingAudioBridge.interrupt('chat-submit');
  realtimePcmBridge.interrupt('chat-submit');
+ streamingSpeechBridge.interrupt('chat-submit');
  companionState('thinking');
  const controller=new AbortController();companionAbort=controller;
  try{
@@ -1241,12 +1293,14 @@ window.addEventListener('pagehide',()=>{
  cloudAudioBridge.interrupt('pagehide');
  streamingAudioBridge.interrupt('pagehide');
  realtimePcmBridge.interrupt('pagehide');
+ streamingSpeechBridge.interrupt('pagehide');
 });
 document.addEventListener('visibilitychange',()=>{
  if(document.hidden){
   voiceBridge.interrupt('page-hidden');cloudAudioBridge.interrupt('page-hidden');
   streamingAudioBridge.interrupt('page-hidden');
   realtimePcmBridge.interrupt('page-hidden');
+  streamingSpeechBridge.interrupt('page-hidden');
  }
  else void refreshCompanionPrivacy(true);
 });
