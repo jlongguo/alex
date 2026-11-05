@@ -374,6 +374,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         manualInputRequired:true,provisionalSpeech:false,
         textBeforeSpeech:true,duplex:false});return;
     }
+    if(req.method==='GET'&&action==='metrics'){
+      send(res,200,{ok:true,scope:'self',
+        telemetry:voiceTurns?.metrics(principal)??null,
+        audioStored:false,transcriptStoredByTelemetry:false,
+        playbackProof:'client-claimed-only'});return;
+    }
     if(req.method==='POST'&&action==='cancel'){
       const input=await body(req);
       send(res,200,{ok:true,...(voiceTurns?.cancel(principal,input.id)
@@ -384,14 +390,20 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       audioAllowed(principal,'tts');
       const input=await body(req);
       const cancel=new AbortController();
+      let ownTurnId=null;
       const disconnect=()=>{if(!res.writableEnded){
-        cancel.abort();voiceTurns.cancel(principal);
+        cancel.abort();
+        if(ownTurnId)voiceTurns.cancel(principal,ownTurnId);
       }};
       res.on('close',disconnect);
       try{
         // The existing conversation manager does its own model/text policy checks.
         const result=await voiceTurns.run(principal,{
-          conversationId:input.conversationId,text:input.text});
+          conversationId:input.conversationId,text:input.text,
+          onCreated:id=>{
+            ownTurnId=id;
+            if(cancel.signal.aborted)voiceTurns.cancel(principal,id);
+          }});
         if(cancel.signal.aborted||res.destroyed){
           voiceTurns.cancel(principal,result.turn.id);return;
         }
