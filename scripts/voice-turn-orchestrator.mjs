@@ -80,9 +80,11 @@ export class VoiceTurnOrchestrator {
      signal:t.controller.signal,onDelta:()=>{} // Only committed text may be spoken.
     }));
    const result=await abortable(modelPending,t.controller.signal);
-   this.#check(t);
+   // The companion manager has already committed its reply when it resolves.
+   // A revocation immediately afterward must not relabel it as uncommitted.
    t.committed=true;
    t.modelCommittedAt=this.now();
+   this.#check(t);
    this.telemetry.record(principal,'modelCommitMs',
     Math.max(0,t.modelCommittedAt-t.startedAt));
    this.#check(t);
