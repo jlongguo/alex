@@ -42,7 +42,7 @@ class AlexStreamingSpeechPlayer {
     if(sampleRate!==24000||!(pcm instanceof Uint8Array)||pcm.length<2
       ||pcm.length>9600||pcm.length%2)throw Error('SPEECH_INVALID_PCM');
     const ctx=this.#ctx,at=Math.max(ctx.currentTime,this.#nextAt);
-    if(at-ctx.currentTime>1.5)throw Error('SPEECH_PLAYBACK_BACKPRESSURE');
+    if(at-ctx.currentTime>1.500001)throw Error('SPEECH_PLAYBACK_BACKPRESSURE');
     const samples=pcm.length/2,buffer=ctx.createBuffer(1,samples,24000);
     const floats=buffer.getChannelData(0);
     const view=new DataView(pcm.buffer,pcm.byteOffset,pcm.byteLength);
