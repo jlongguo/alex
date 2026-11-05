@@ -1,19 +1,31 @@
 // R11 explicit reviewed-text -> companion reply -> streamed speech session.
 // ASR input is NOT auto-submitted. No speech before committed text reply.
 import {randomUUID} from 'node:crypto';
+import {VoiceTurnTelemetry} from './voice-turn-telemetry.mjs';
 const MAX_ACTIVE=4, MAX_MS=45000;
 const isPrincipal=x=>typeof x==='string'&&x.length>0&&x.length<=100;
 const isId=x=>typeof x==='string'&&/^[0-9a-f-]{36}$/.test(x);
-const stages=['thinking','opening-speech','ready','cancelled','failed'];
+// Resolve cancellation promptly even for a provider that ignores AbortSignal.
+async function abortable(promise,signal){
+ if(signal.aborted)throw Error('VOICE_TURN_CANCELLED');
+ let onAbort;
+ const abort=new Promise((_,reject)=>{
+  onAbort=()=>reject(Error('VOICE_TURN_CANCELLED'));
+  signal.addEventListener('abort',onAbort,{once:true});
+ });
+ try{return await Promise.race([promise,abort]);}
+ finally{signal.removeEventListener('abort',onAbort);}
+}
 export class VoiceTurnOrchestrator {
  #active=new Map();#byId=new Map();
  constructor({conversations,speech,authorize=()=>{},now=()=>Date.now(),
-   makeId=randomUUID,maxActive=MAX_ACTIVE}={}){
+   makeId=randomUUID,maxActive=MAX_ACTIVE,
+   telemetry=new VoiceTurnTelemetry()}={}){
   if(typeof conversations?.streamTurn!=='function'||typeof conversations?.get!=='function'
     ||typeof speech?.start!=='function'||typeof speech?.cancel!=='function'
     ||typeof authorize!=='function'||!Number.isSafeInteger(maxActive)
     ||maxActive<1||maxActive>32)throw Error('INVALID_VOICE_TURN_CONFIG');
-  Object.assign(this,{conversations,speech,authorize,now,makeId,maxActive});
+  Object.assign(this,{conversations,speech,authorize,now,makeId,maxActive,telemetry});
  }
  #owned(principal,id){
   if(!isId(id))throw Error('INVALID_VOICE_TURN_ID');
@@ -54,29 +66,46 @@ export class VoiceTurnOrchestrator {
   const id=this.makeId();
   if(!isId(id)||this.#byId.has(id))throw Error('INVALID_VOICE_TURN_ID');
   const t={id,principal,conversationId,phase:'thinking',startedAt:this.now(),
-   controller:new AbortController(),speechId:null,committed:false};
+   controller:new AbortController(),speechId:null,committed:false,
+   modelCommittedAt:null};
   this.#active.set(principal,id);this.#byId.set(id,t);
   const timeout=setTimeout(()=>t.controller.abort(),MAX_MS);
   timeout.unref?.();
   try{
    this.#check(t);
-   const result=await this.conversations.streamTurn(principal,conversationId,text,{
-    signal:t.controller.signal,onDelta:()=>{} // Provisional model tokens never reach TTS.
-   });
+   const modelPending=Promise.resolve().then(()=>
+    this.conversations.streamTurn(principal,conversationId,text,{
+     signal:t.controller.signal,onDelta:()=>{} // Only committed text may be spoken.
+    }));
+   const result=await abortable(modelPending,t.controller.signal);
+   this.#check(t);
    t.committed=true;
+   t.modelCommittedAt=this.now();
+   this.telemetry.record(principal,'modelCommitMs',
+    Math.max(0,t.modelCommittedAt-t.startedAt));
    this.#check(t);
    const spoken=result.assistant?.text;
    if(typeof spoken!=='string'||!spoken.trim())throw Error('VOICE_TURN_EMPTY_REPLY');
    // Long textual replies remain in chat; output audio uses explicit bounded excerpt.
    t.phase='opening-speech';
-   const start=await this.speech.start(principal,{text:spoken.slice(0,500)});
-   t.speechId=start.id;
-   if(t.controller.signal.aborted||this.#byId.get(id)!==t){
-    this.speech.cancel(principal,start.id);
+   const speechPending=Promise.resolve().then(()=>
+    this.speech.start(principal,{text:spoken.slice(0,500)}));
+   // A cancelled request cannot strand a late-opened upstream TTS session.
+   // Handle its eventual resolution even when the deadline already won.
+   speechPending.then(start=>{
+    if(t.controller.signal.aborted||this.#byId.get(id)!==t)
+     this.speech.cancel(principal,start?.id);
+   },()=>{});
+   const start=await abortable(speechPending,t.controller.signal);
+   if(t.controller.signal.aborted||this.#byId.get(id)!==t)
     throw Error('VOICE_TURN_CANCELLED');
-   }
+   t.speechId=start.id;
    this.#check(t);
    t.phase='ready';
+   this.telemetry.record(principal,'speechOpenMs',
+    Math.max(0,this.now()-t.modelCommittedAt));
+   this.telemetry.record(principal,'readyMs',
+    Math.max(0,this.now()-t.startedAt));
    return {turn:this.#snapshot(t),speechSession:start,
     assistant:result.assistant,session:result.session,
     speechTextTruncated:spoken.length>500};
@@ -85,6 +114,9 @@ export class VoiceTurnOrchestrator {
      ||error?.message==='VOICE_TURN_CANCELLED'
      ||error?.message==='COMPANION_TURN_CANCELLED';
    t.phase=cancelled?'cancelled':'failed';
+   if(this.#byId.get(id)===t&&!cancelled)
+    this.telemetry.record(principal,'failureMs',
+     Math.max(0,this.now()-t.startedAt));
    this.#release(t);
    if(cancelled)throw Error('VOICE_TURN_CANCELLED');
    throw error;
@@ -100,6 +132,8 @@ export class VoiceTurnOrchestrator {
   const t=this.#byId.get(id);
   if(!t||t.principal!==principal)return {cancelled:false};
   const status=this.#snapshot(t);
+  this.telemetry.record(principal,'cancelMs',
+   Math.max(0,this.now()-t.startedAt));
   this.#release(t);
   return {cancelled:true,textCommitted:status.textCommitted,
    speechSessionId:status.speechSessionId};
@@ -109,7 +143,11 @@ export class VoiceTurnOrchestrator {
    if(t.principal==='child'||t.principal.startsWith('learner:'))
     this.cancel(t.principal,t.id);
  }
- erasePrincipal(principal){return this.cancel(principal).cancelled;}
+ erasePrincipal(principal){
+  const result=this.cancel(principal).cancelled;
+  this.telemetry.erasePrincipal(principal);
+  return result;
+ }
  eraseScope(scope){
   if(!['all','parent','child'].includes(scope))throw Error('INVALID_VOICE_ERASE_SCOPE');
   let count=0;
@@ -118,7 +156,9 @@ export class VoiceTurnOrchestrator {
    if(scope==='all'||(scope==='child'&&child)||(scope==='parent'&&!child))
     count+=Number(this.cancel(t.principal,t.id).cancelled);
   }
+  this.telemetry.eraseScope(scope);
   return count;
  }
+ metrics(principal){return this.telemetry.snapshot(principal);}
  activeCount(){return this.sweep();}
 }
