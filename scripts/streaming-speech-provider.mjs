@@ -77,7 +77,19 @@ export class StreamingPcmSpeechProvider {
    try{
     while(partial.length<SPEECH_PCM_CHUNK_BYTES&&!complete){
      if(linked.aborted)throw Error('AUDIO_REQUEST_CANCELLED');
-     const {done,value}=await reader.read();
+     // A stalled vendor stream can leave reader.read() pending even after
+     // a fetch signal aborts (especially with mocked/adapted streams).
+     // Race the read with cancellation so a barge-in is always observed.
+     let onAbort;
+     const aborted=new Promise((_,reject)=>{
+      onAbort=()=>reject(Error('AUDIO_REQUEST_CANCELLED'));
+      if(linked.aborted)onAbort();
+      else linked.addEventListener('abort',onAbort,{once:true});
+     });
+     let result;
+     try{result=await Promise.race([reader.read(),aborted]);}
+     finally{linked.removeEventListener('abort',onAbort);}
+     const {done,value}=result;
      if(done){complete=true;break;}
      if(!(value instanceof Uint8Array)||!value.byteLength)continue;
      if(value.byteLength>128*1024||
