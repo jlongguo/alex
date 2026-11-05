@@ -1022,6 +1022,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     '/audio-vad.js':'audio-vad.js',
     '/audio-stream-session.js':'audio-stream-session.js',
     '/realtime-pcm-session.js':'realtime-pcm-session.js',
+    '/speech-playback-session.js':'speech-playback-session.js',
     '/pcm-capture-processor.js':'pcm-capture-processor.js'};
   if(req.method!=='GET'||!(pathname in assets)){send(res,404,{ok:false,error:'NOT_FOUND'});return;}
   const file=assets[pathname];
