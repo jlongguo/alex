@@ -111,6 +111,9 @@ test('R9 barge-in stops all scheduled audio immediately and sends per-session ca
  assert.equal(h.manager.activeCount(),1);
  h.completeSource(0);
  await until(()=>h.manager.metrics('learner:A').acknowledgedSamples===2400);
+ // Server ACK can resolve before the browser consumes the JSON reply:
+ // the client only updates its own played-samples tally afterward.
+ await until(()=>h.bridge.snapshot().playedMsClaimed===100);
  const before=h.bridge.snapshot();
  assert.equal(before.playedMsClaimed,100);
  h.bridge.interrupt('microphone-user-barge-in');
