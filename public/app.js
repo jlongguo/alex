@@ -698,6 +698,22 @@ async function refreshSpeechStreamCapabilities(){
   if(!next.outputAllowed&&streamingSpeechBridge.snapshot().playing)
     streamingSpeechBridge.interrupt('parent-revoked');
   speechStreamCapabilities=next;
+  try{
+    const usage=await fetch('/api/audio/playback/metrics',{cache:'no-store'});
+    if(!usage.ok)throw Error('SPEECH_BUDGET_UNAVAILABLE');
+    const data=await usage.json();
+    if(identity!==companionActor)return;
+    const quota=data.deliveryBudget;
+    $('companion-speech-budget').textContent=quota
+      ?'本日 Alex 已下发语音 '+(quota.deliveredMs/1000).toFixed(1)+
+       ' 秒；剩余 '+(quota.remainingMs/1000).toFixed(1)+
+       ' 秒（UTC 日额度，仅本地内存，不代表供应商计费）。'
+      :'语音额度：未启用流式语音供应商。';
+    if(quota&&quota.remainingSamples===0)next.outputAllowed=false;
+  }catch{
+    if(identity!==companionActor)return;
+    $('companion-speech-budget').textContent='语音额度暂无法查询；不代表免费或无限额。';
+  }
   $('companion-stream-speak').disabled=!next.outputAllowed||
     !(globalThis.AudioContext||globalThis.webkitAudioContext);
  }catch{
