@@ -96,10 +96,13 @@ export class VoiceTurnOrchestrator {
    const segmenter=new SpeechSentenceSegmenter();
    segmenter.push(spoken);
    const committedSegments=segmenter.commit();
-   const spokenExcerpt=committedSegments[0]??spoken.slice(0,500);
+   // Cap upstream spending and buffered providers to four committed
+   // sentences. The old single-sentence path remains valid.
+   const selectedSegments=committedSegments.slice(0,4);
+   const spokenExcerpt=selectedSegments[0]??spoken.slice(0,500);
    t.phase='opening-speech';
    const speechPending=Promise.resolve().then(()=>
-    this.speech.start(principal,{text:spokenExcerpt}));
+    this.speech.start(principal,{text:spokenExcerpt,segments:selectedSegments}));
    // A cancelled request cannot strand a late-opened upstream TTS session.
    // Handle its eventual resolution even when the deadline already won.
    speechPending.then(start=>{
@@ -118,8 +121,9 @@ export class VoiceTurnOrchestrator {
     Math.max(0,this.now()-t.startedAt));
    return {turn:this.#snapshot(t),speechSession:start,
     assistant:result.assistant,session:result.session,
-    speechTextTruncated:spoken.length>spokenExcerpt.length,
-    speechSegmentCount:committedSegments.length};
+    speechTextTruncated:committedSegments.length>selectedSegments.length,
+    speechSegmentCount:committedSegments.length,
+    speechSegmentsSelected:selectedSegments.length};
   }catch(error){
    const cancelled=t.controller.signal.aborted
      ||error?.message==='VOICE_TURN_CANCELLED'
