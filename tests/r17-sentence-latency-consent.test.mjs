@@ -57,12 +57,14 @@ test('R17 authorization revoked during a pending provider read fails closed with
  const next=mgr.next(A,s.id,0);
  await until(()=>typeof resolveRead==='function');
  allow=false;
- resolveRead({done:false,pcm:Buffer.alloc(4800),samples:2400});
+ const rejectedPcm=Buffer.alloc(4800,0x55);
+ resolveRead({done:false,pcm:rejectedPcm,samples:2400});
  await assert.rejects(next,/CHILD_CLOUD_AUDIO_DISABLED/);
  assert.equal(mgr.deliveryBudget(A).deliveredSamples,0);
  assert.equal(mgr.metrics(A).deliveredSamples,0);
  assert.equal(mgr.latencyMetrics(A).sentenceFirstDeliveryMs.count,0);
  assert.equal(mgr.activeCount(),0);
+ assert.equal(rejectedPcm.every(byte=>byte===0),true);
  assert.equal(closed,1);
 });
 test('R17 revocation between two sentences prevents next provider read and preserves first ACK',async()=>{
@@ -87,8 +89,8 @@ test('R17 revocation between two sentences prevents next provider read and prese
  assert.equal(mgr.deliveryBudget(A).deliveredSamples,2400);
  assert.equal(mgr.metrics(A).acknowledgedSamples,2400);
  assert.equal(mgr.latencyMetrics(A).sentenceHandoffMs.count,0);
- mgr.cancel(A,s.id);
  assert.equal(mgr.activeCount(),0);
+ assert.equal(mgr.cancel(A,s.id).cancelled,false);
 });
 test('R17 cancelled streams never fabricate a sentence transition or completion',async()=>{
  const provider={open:async()=>({read:async()=>({
