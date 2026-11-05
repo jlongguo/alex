@@ -39,7 +39,7 @@ export class VoiceTurnOrchestrator {
   this.#byId.delete(t.id);
   if(this.#active.get(t.principal)===t.id)this.#active.delete(t.principal);
   t.controller.abort();
-  if(cancelSpeech)this.speech.cancel(t.principal,t.speechId);
+  if(cancelSpeech&&t.speechId)this.speech.cancel(t.principal,t.speechId);
  }
  async run(principal,{conversationId,text}={}){
   if(!isPrincipal(principal)||!isId(conversationId)
