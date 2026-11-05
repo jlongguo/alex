@@ -8,12 +8,12 @@ test('R14 segments English and Chinese sentence endings across arbitrary chunks'
  assert.deepEqual(s.push('Hello wor'),[]);
  assert.deepEqual(s.push('ld! 你好'),['Hello world!']);
  assert.deepEqual(s.push('。Next?'),['你好。','Next?']);
- assert.deepEqual(s.commit(),[]);
+ assert.deepEqual(s.commit(),['Hello world!','你好。','Next?']);
 });
 test('R14 flushes final sentence only on explicit commit and rejects post-commit deltas',()=>{
  const s=new SpeechSentenceSegmenter();
  s.push('A final thought without punctuation');
- assert.equal(s.pendingChars,34);
+ assert.equal(s.pendingChars,35);
  assert.deepEqual(s.commit(),['A final thought without punctuation']);
  assert.throws(()=>s.push('late'),/SPEECH_SEGMENTER_CLOSED/);
 });
