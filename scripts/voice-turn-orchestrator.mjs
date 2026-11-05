@@ -2,6 +2,7 @@
 // ASR input is NOT auto-submitted. No speech before committed text reply.
 import {randomUUID} from 'node:crypto';
 import {VoiceTurnTelemetry} from './voice-turn-telemetry.mjs';
+import {SpeechSentenceSegmenter} from './speech-sentence-segmenter.mjs';
 const MAX_ACTIVE=4, MAX_MS=45000;
 const isPrincipal=x=>typeof x==='string'&&x.length>0&&x.length<=100;
 const isId=x=>typeof x==='string'&&/^[0-9a-f-]{36}$/.test(x);
@@ -90,10 +91,15 @@ export class VoiceTurnOrchestrator {
    this.#check(t);
    const spoken=result.assistant?.text;
    if(typeof spoken!=='string'||!spoken.trim())throw Error('VOICE_TURN_EMPTY_REPLY');
-   // Long textual replies remain in chat; output audio uses explicit bounded excerpt.
+   // Only committed assistant text enters the sentence segmenter. Never
+   // speak a provisional delta or cut the spoken excerpt mid-sentence.
+   const segmenter=new SpeechSentenceSegmenter();
+   segmenter.push(spoken);
+   const committedSegments=segmenter.commit();
+   const spokenExcerpt=committedSegments[0]??spoken.slice(0,500);
    t.phase='opening-speech';
    const speechPending=Promise.resolve().then(()=>
-    this.speech.start(principal,{text:spoken.slice(0,500)}));
+    this.speech.start(principal,{text:spokenExcerpt}));
    // A cancelled request cannot strand a late-opened upstream TTS session.
    // Handle its eventual resolution even when the deadline already won.
    speechPending.then(start=>{
@@ -112,7 +118,8 @@ export class VoiceTurnOrchestrator {
     Math.max(0,this.now()-t.startedAt));
    return {turn:this.#snapshot(t),speechSession:start,
     assistant:result.assistant,session:result.session,
-    speechTextTruncated:spoken.length>500};
+    speechTextTruncated:spoken.length>spokenExcerpt.length,
+    speechSegmentCount:committedSegments.length};
   }catch(error){
    const cancelled=t.controller.signal.aborted
      ||error?.message==='VOICE_TURN_CANCELLED'
