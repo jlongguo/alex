@@ -143,11 +143,16 @@ export class StreamingSpeechSessions {
    }
    // Count only bytes accepted into the authenticated downlink. Checking
    // after provider.read() also protects against a partial final block.
-   this.budget.consume(principal,block.samples);
    const segmentIndex=block.sentenceIndex??0;
    if(!Number.isSafeInteger(segmentIndex)||segmentIndex<0
      ||segmentIndex>=session.receipts.snapshot().sentenceCount)
     throw Error('SPEECH_INVALID_SENTENCE_INDEX');
+   // Invalid sentence metadata must not charge a learner's delivered-audio
+   // allowance. Validate the transition before accounting any samples.
+   const previous=session.receipts.snapshot().deliveredSentenceIndex;
+   if(segmentIndex<previous||segmentIndex>previous+1)
+    throw Error('SPEECH_INVALID_SENTENCE_INDEX');
+   this.budget.consume(principal,block.samples);
    session.receipts.delivered(segmentIndex,block.samples,this.now());
    session.seq++;
    session.outstanding.set(seq,{samples:block.samples,segmentIndex});
