@@ -92,6 +92,8 @@ test('R19 localhost authenticated PCM quota survives server restart and erasure'
   for(let seq=0;seq<5;seq++){
    const chunk=await next(server.base,child,first.data.session.id,seq);
    assert.equal(chunk.status,200);assert.equal(chunk.bytes,4800);
+   assert.equal((await post(server.base,'/api/audio/playback/ack',{
+    id:first.data.session.id,seq},child)).status,200);
   }
   assert.equal((await get(server.base,'/api/audio/playback/metrics',child))
    .data.deliveryBudget.deliveredSamples,12000);
@@ -109,8 +111,11 @@ test('R19 localhost authenticated PCM quota survives server restart and erasure'
   const second=await post(server.base,'/api/audio/playback/start',{
    text:'Second time'},nextChild);
   assert.equal(second.status,200);
-  for(let seq=0;seq<5;seq++)
+  for(let seq=0;seq<5;seq++){
    assert.equal((await next(server.base,nextChild,second.data.session.id,seq)).status,200);
+   assert.equal((await post(server.base,'/api/audio/playback/ack',{
+    id:second.data.session.id,seq},nextChild)).status,200);
+  }
   const exhausted=await next(server.base,nextChild,second.data.session.id,5);
   assert.equal(exhausted.status,429);
   assert.equal((await get(server.base,'/api/audio/playback/metrics',nextChild))
