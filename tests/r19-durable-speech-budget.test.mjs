@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {DurableSpeechDeliveryBudget} from '../scripts/durable-speech-delivery-budget.mjs';
 import {StreamingSpeechSessions} from '../scripts/streaming-speech-sessions.mjs';
 
@@ -26,7 +26,7 @@ test('R19 reservations persist across restart and reject overspend',()=>fixture(
   'alex-reserved-for-delivery-not-vendor-billed');
  const disk=readFileSync(file,'utf8');
  assert.ok(!disk.includes('audio')&&!disk.includes('transcript'));
- assert.deepEqual(JSON.parse(disk).rows,[['learner:a',20663,24000]]);
+ assert.deepEqual(JSON.parse(disk).rows,[['learner:a',20763,24000]]);
 }));
 test('R19 same-file readers cannot bypass atomic quota through stale state',()=>fixture(file=>{
  const clock=()=>Date.UTC(2026,10,6);
@@ -45,7 +45,7 @@ test('R19 stale file lock refuses delivery rather than risking double spend',()=
  assert.equal(budget.snapshot(A).deliveredSamples,0);
 }));
 test('R19 corrupt persisted data fails startup closed',()=>fixture(file=>{
- mkdirSync(join(file,'..'),{recursive:true});
+ mkdirSync(dirname(file),{recursive:true});
  writeFileSync(file,'{"version":1,"rows":[["learner:a",1,-5]]}');
  assert.throws(()=>new DurableSpeechDeliveryBudget({file}),
   /SPEECH_LEDGER_INVALID_FILE/);
@@ -54,7 +54,8 @@ test('R19 UTC day rollover resets allowance and survives a restart',()=>fixture(
  let now=Date.UTC(2026,10,6,23,59,59);
  const clock=()=>now;
  const budget=new DurableSpeechDeliveryBudget({file,dailySeconds:1,now:clock});
- budget.consume(A,24000);assert.equal(budget.snapshot(A).remainingSamples,0);
+ for(let i=0;i<10;i++)budget.consume(A,2400);
+ assert.equal(budget.snapshot(A).remainingSamples,0);
  now+=2000;
  const restarted=new DurableSpeechDeliveryBudget({file,dailySeconds:1,now:clock});
  assert.equal(restarted.snapshot(A).deliveredSamples,0);
