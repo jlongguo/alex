@@ -497,16 +497,34 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const principal=principalFor(req);
     audioAllowed(principal,'tts');
     if(!speechPlayback)throw Error('AUDIO_PROVIDER_NOT_CONFIGURED');
-    res.on('close',()=>{if(!res.writableEnded)speechPlayback.cancel(principal);});
-    const params=await body(req);
-    const started=await speechPlayback.start(principal,{text:params.text});
-    try{audioAllowed(principal,'tts');}
-    catch(error){speechPlayback.cancel(principal,started.id);throw error;}
-    if(res.destroyed){speechPlayback.cancel(principal,started.id);return;}
-    send(res,200,{ok:true,session:started});
-    await audit.record({actor:auth.current(req).actor,
-      learnerId:auth.current(req).learnerId,
-      action:'audio.playback.start',outcome:'allowed'});return;
+    // Never cancel the learner's *current* session on an old HTTP close:
+    // only the session created by this request can be terminated.
+    let ownSessionId=null,disconnected=false;
+    const onDisconnect=()=>{
+      if(!res.writableEnded){
+        disconnected=true;
+        if(ownSessionId)speechPlayback.cancel(principal,ownSessionId);
+      }
+    };
+    res.on('close',onDisconnect);
+    try{
+      const params=await body(req);
+      if(disconnected||res.destroyed)return;
+      const started=await speechPlayback.start(principal,{text:params.text});
+      ownSessionId=started.id;
+      if(disconnected||res.destroyed){
+        speechPlayback.cancel(principal,ownSessionId);return;
+      }
+      try{audioAllowed(principal,'tts');}
+      catch(error){speechPlayback.cancel(principal,ownSessionId);throw error;}
+      if(disconnected||res.destroyed){
+        speechPlayback.cancel(principal,ownSessionId);return;
+      }
+      send(res,200,{ok:true,session:started});
+      await audit.record({actor:auth.current(req).actor,
+        learnerId:auth.current(req).learnerId,
+        action:'audio.playback.start',outcome:'allowed'});return;
+    }finally{res.off('close',onDisconnect);}
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/next'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
