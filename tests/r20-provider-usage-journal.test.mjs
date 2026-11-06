@@ -12,8 +12,9 @@ async function fixture(fn){
 }
 const uuid=()=> '11111111-1111-4111-8111-111111111111';
 test('R20 journal reconstructs provider bytes, outcomes and inflight after restart',()=>fixture(file=>{
- let now=1000;const clock=()=>now;
- const journal=new ProviderUsageJournal({file,now:clock,makeId:uuid});
+ let now=1000,n=0;const clock=()=>now;
+ const journal=new ProviderUsageJournal({file,now:clock,
+  makeId:()=> '11111111-1111-4111-8111-11111111111'+(++n)});
  const id=journal.begin({provider:'compatible-pcm-stream',model:'voice-v1'});
  now++;journal.frame(id,4800);now++;
  journal.begin({provider:'compatible-pcm-stream',model:'voice-v1'});
@@ -81,6 +82,16 @@ test('R20 provider open failures are journaled without exposing provider error t
  const raw=readFileSync(file,'utf8');
  assert.ok(!raw.includes('private provider response secret'));
  assert.ok(!raw.includes('private input'));
+}));
+test('R20 invalid transitions are rejected before corrupting the append-only file',()=>fixture(file=>{
+ const j=new ProviderUsageJournal({file,makeId:uuid});
+ assert.throws(()=>j.frame(uuid(),4800),/PROVIDER_USAGE_JOURNAL_INVALID/);
+ const id=j.begin({provider:'p',model:'m'});
+ j.finish(id,'completed');
+ const before=readFileSync(file,'utf8');
+ assert.throws(()=>j.frame(id,4800),/PROVIDER_USAGE_JOURNAL_INVALID/);
+ assert.equal(readFileSync(file,'utf8'),before);
+ assert.equal(new ProviderUsageJournal({file}).summary().completed,1);
 }));
 test('R20 invalid frame sizes are rejected before append',()=>fixture(file=>{
  const j=new ProviderUsageJournal({file,makeId:uuid});
