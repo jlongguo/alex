@@ -1,7 +1,7 @@
 // R20 append-only supplier-request usage journal.
 // Deliberately excludes text, audio, credentials and learner identifiers.
 // This measures provider response PCM, NOT a supplier invoice or charge.
-import {appendFileSync,readFileSync,openSync,closeSync,fsyncSync,mkdirSync} from 'node:fs';
+import {appendFileSync,readFileSync,openSync,closeSync,fsyncSync,mkdirSync,statSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 
@@ -65,8 +65,13 @@ export class ProviderUsageJournal{
   }
   if(this.#requests.size>=MAX_EVENTS)throw Error('PROVIDER_USAGE_JOURNAL_FULL');
   mkdirSync(dirname(this.file),{recursive:true,mode:0o700});
+  const line=JSON.stringify(event)+'\n';
+  let size=0;try{size=statSync(this.file).size;}catch(error){
+   if(error?.code!=='ENOENT')throw Error('PROVIDER_USAGE_JOURNAL_WRITE_FAILED');
+  }
+  if(size+Buffer.byteLength(line)>MAX_FILE)throw Error('PROVIDER_USAGE_JOURNAL_FULL');
   try{
-   appendFileSync(this.file,JSON.stringify(event)+'\n',{encoding:'utf8',mode:0o600,flag:'a'});
+   appendFileSync(this.file,line,{encoding:'utf8',mode:0o600,flag:'a'});
    const fd=openSync(this.file,'r');try{fsyncSync(fd);}finally{closeSync(fd);}
   }catch{throw Error('PROVIDER_USAGE_JOURNAL_WRITE_FAILED');}
   this.#apply(event);
@@ -137,8 +142,8 @@ export class MeteredStreamingSpeechProvider{
    throw Error('INVALID_PROVIDER_SOURCE');
   }
   let closed=false;
-  const finish=(outcome,error)=>{if(closed)return false;closed=true;
-   return this.journal.finish(id,outcome,error);};
+  const finish=(outcome,error)=>{if(closed)return false;
+   const result=this.journal.finish(id,outcome,error);closed=true;return result;};
   return {
    format:source.format,
    read:async()=>{
