@@ -173,7 +173,13 @@ export class StreamingSpeechSessions {
    const previous=session.receipts.snapshot().deliveredSentenceIndex;
    if(segmentIndex<previous||segmentIndex>previous+1)
     throw Error('SPEECH_INVALID_SENTENCE_INDEX');
-   this.budget.consume(principal,block.samples);
+   try{this.budget.consume(principal,block.samples);}
+   catch(error){
+    // A failed durable reservation or exhausted quota cannot release the
+    // supplier PCM frame to a downstream browser.
+    block.pcm.fill(0);
+    throw error;
+   }
    const observedAt=this.now();
    session.receipts.delivered(segmentIndex,block.samples,observedAt);
    if(segmentIndex!==session.lastDeliveredSentenceIndex){
