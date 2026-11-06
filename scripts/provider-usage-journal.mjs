@@ -44,19 +44,25 @@ export class ProviderUsageJournal{
  #apply(e){
   let row=this.#requests.get(e.id);
   if(e.event==='open'){
-   if(row)throw Error('PROVIDER_USAGE_JOURNAL_INVALID');
    row={id:e.id,provider:e.provider,model:e.model,startedAt:e.at,
-    finishedAt:null,outcome:'inflight',responseBytes:0,frames:0,errorCode:null};
+    lastAt:e.at,finishedAt:null,outcome:'inflight',responseBytes:0,
+    frames:0,errorCode:null};
    this.#requests.set(e.id,row);return;
   }
-  if(!row||row.finishedAt!==null)throw Error('PROVIDER_USAGE_JOURNAL_INVALID');
-  if(e.event==='frame'){
-   row.responseBytes+=e.bytes;row.frames++;return;
-  }
+  if(!row||row.finishedAt!==null||e.at<row.lastAt)
+   throw Error('PROVIDER_USAGE_JOURNAL_INVALID');
+  row.lastAt=e.at;
+  if(e.event==='frame'){row.responseBytes+=e.bytes;row.frames++;return;}
   row.finishedAt=e.at;row.outcome=e.outcome;row.errorCode=e.errorCode;
  }
  #append(event){
   if(!validEvent(event))throw Error('INVALID_PROVIDER_USAGE_EVENT');
+  const current=this.#requests.get(event.id);
+  if(event.event==='open'){
+   if(current)throw Error('PROVIDER_USAGE_JOURNAL_INVALID');
+  }else if(!current||current.finishedAt!==null||event.at<current.lastAt){
+   throw Error('PROVIDER_USAGE_JOURNAL_INVALID');
+  }
   if(this.#requests.size>=MAX_EVENTS)throw Error('PROVIDER_USAGE_JOURNAL_FULL');
   mkdirSync(dirname(this.file),{recursive:true,mode:0o700});
   try{
