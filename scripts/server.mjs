@@ -29,6 +29,7 @@ import {StreamingSpeechSessions} from './streaming-speech-sessions.mjs';
 import {SegmentedPcmSpeechProvider} from './segmented-pcm-speech-provider.mjs';
 import {VoiceTurnOrchestrator} from './voice-turn-orchestrator.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
+import {DurableSpeechDeliveryBudget} from './durable-speech-delivery-budget.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -81,9 +82,14 @@ const speechStreamProvider=speechStreamMode==='compatible'
 // This is a local delivered-audio allowance, NOT a cloud invoice ceiling.
 const speechDeliveryDailySeconds=Number(
   process.env.ALEX_SPEECH_DAILY_DELIVERY_SECONDS??120);
-const speechDeliveryBudget=new SpeechDeliveryBudget({
-  dailySeconds:speechDeliveryDailySeconds
-});
+// Explicit opt-in: current deployments keep the R10 memory-only behavior.
+// The durable ledger is a synchronous fail-closed single-process file store.
+const speechDeliveryLedgerFile=process.env.ALEX_SPEECH_DELIVERY_LEDGER_FILE;
+const speechDeliveryBudget=speechDeliveryLedgerFile
+ ?new DurableSpeechDeliveryBudget({
+   file:speechDeliveryLedgerFile,dailySeconds:speechDeliveryDailySeconds
+  })
+ :new SpeechDeliveryBudget({dailySeconds:speechDeliveryDailySeconds});
 const speechPlayback=speechStreamProvider
  ?new StreamingSpeechSessions({provider:new SegmentedPcmSpeechProvider({provider:speechStreamProvider}),
    budget:speechDeliveryBudget,
@@ -180,7 +186,7 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
   'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
   'SPEECH_PROVIDER_PCM_TOO_LARGE'].includes(message)?409:
-  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
+  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
@@ -489,7 +495,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       maxUnacknowledged:3,requiresExplicitPlay:true,
       playbackProof:'client-claimed',audioNotPersisted:true,
       deliveryBudgetSeconds:speechDeliveryDailySeconds,
-      deliveryBudgetKind:'alex-delivered-not-vendor-billed',
+      deliveryBudgetKind:speechDeliveryLedgerFile
+       ?'alex-reserved-for-delivery-not-vendor-billed'
+       :'alex-delivered-not-vendor-billed',
+      deliveryBudgetPersistence:speechDeliveryLedgerFile?'single-process-file':'memory-only',
       duplex:false});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/start'){
