@@ -98,6 +98,8 @@ export class DurableSpeechDeliveryBudget{
  }
  check(principal,samples=1){
   if(!validSamples(samples))throw Error('INVALID_SPEECH_BUDGET_SAMPLES');
+  // Readers also refresh state; writes still re-check under the lock.
+  this.#entries=this.#load();
   if(this.#value(principal)+samples>this.limit)
    throw Error('SPEECH_DAILY_DELIVERY_LIMIT');
   return true;
@@ -114,6 +116,7 @@ export class DurableSpeechDeliveryBudget{
   });
  }
  snapshot(principal){
+  this.#entries=this.#load();
   const reservedSamples=this.#value(principal),day=this.#today();
   return Object.freeze({
    dayUtc:new Date(day*DAY_MS).toISOString().slice(0,10),
