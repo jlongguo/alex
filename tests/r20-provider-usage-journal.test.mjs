@@ -5,9 +5,9 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ProviderUsageJournal,MeteredStreamingSpeechProvider} from '../scripts/provider-usage-journal.mjs';
 
-function fixture(fn){
+async function fixture(fn){
  const dir=mkdtempSync(join(tmpdir(),'alex-r20-usage-'));
- try{return fn(join(dir,'nested','usage.jsonl'),dir);}
+ try{return await fn(join(dir,'nested','usage.jsonl'),dir);}
  finally{rmSync(dir,{recursive:true,force:true});}
 }
 const uuid=()=> '11111111-1111-4111-8111-111111111111';
