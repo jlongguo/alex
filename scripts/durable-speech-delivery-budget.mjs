@@ -2,7 +2,7 @@
 // This is NOT supplier billing. Persist BEFORE returning PCM; failed writes
 // deny delivery. A canceled HTTP write may leave a conservative reservation.
 import {readFileSync,openSync,closeSync,writeSync,fsyncSync,renameSync,
- mkdirSync,unlinkSync} from 'node:fs';
+ mkdirSync,unlinkSync,rmdirSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {PCM_SAMPLES_PER_SECOND} from './speech-delivery-budget.mjs';
@@ -32,12 +32,32 @@ export class DurableSpeechDeliveryBudget{
    throw Error('INVALID_SPEECH_LEDGER_CONFIG');
   this.file=resolve(file);this.dailySeconds=dailySeconds;
   this.limit=dailySeconds*PCM_SAMPLES_PER_SECOND;this.now=now;
+  this.#entries=this.#load();
+ }
+ #load(){
   try{
    const raw=readFileSync(this.file,'utf8');
    if(raw.length>1_000_000)throw Error('SPEECH_LEDGER_INVALID_FILE');
-   this.#entries=validateState(JSON.parse(raw),this.limit);
+   return validateState(JSON.parse(raw),this.limit);
   }catch(error){
-   if(error?.code!=='ENOENT')throw Error('SPEECH_LEDGER_INVALID_FILE');
+   if(error?.code==='ENOENT')return new Map();
+   throw Error('SPEECH_LEDGER_INVALID_FILE');
+  }
+ }
+ #locked(work){
+  mkdirSync(dirname(this.file),{recursive:true,mode:0o700});
+  const path=this.file+'.lock';
+  try{mkdirSync(path,{mode:0o700});}
+  catch{throw Error('SPEECH_LEDGER_BUSY');}
+  try{
+   // Lock + reload prevents stale processes from overwriting one another.
+   this.#entries=this.#load();
+   return work();
+  }finally{
+   try{rmdirSync(path);}catch{
+    // A broken lock must fail closed; do not silently unlink unknown state.
+    throw Error('SPEECH_LEDGER_LOCK_RELEASE_FAILED');
+   }
   }
  }
  #today(){
@@ -83,12 +103,15 @@ export class DurableSpeechDeliveryBudget{
   return true;
  }
  consume(principal,samples){
-  this.check(principal,samples);
-  const day=this.#today();
-  const next=new Map(this.#entries);
-  next.set(principal,{day,reservedSamples:this.#value(principal)+samples});
-  this.#save(next);
-  return this.snapshot(principal);
+  if(!validSamples(samples))throw Error('INVALID_SPEECH_BUDGET_SAMPLES');
+  return this.#locked(()=>{
+   this.check(principal,samples);
+   const day=this.#today();
+   const next=new Map(this.#entries);
+   next.set(principal,{day,reservedSamples:this.#value(principal)+samples});
+   this.#save(next);
+   return this.snapshot(principal);
+  });
  }
  snapshot(principal){
   const reservedSamples=this.#value(principal),day=this.#today();
@@ -105,26 +128,32 @@ export class DurableSpeechDeliveryBudget{
  }
  erasePrincipal(principal){
   this.#principal(principal);
-  if(!this.#entries.has(principal))return false;
-  const next=new Map(this.#entries);next.delete(principal);
-  this.#save(next);return true;
+  return this.#locked(()=>{
+   if(!this.#entries.has(principal))return false;
+   const next=new Map(this.#entries);next.delete(principal);
+   this.#save(next);return true;
+  });
  }
  eraseScope(scope){
   if(!['parent','child','all'].includes(scope))
    throw Error('INVALID_AUDIO_ERASE_SCOPE');
-  const next=new Map(this.#entries);let removed=0;
-  for(const key of next.keys()){
-   const child=key==='child'||key.startsWith('learner:');
-   if(scope==='all'||(scope==='child'&&child)
-      ||(scope==='parent'&&!child)){next.delete(key);removed++;}
-  }
-  if(removed)this.#save(next);
-  return removed;
+  return this.#locked(()=>{
+   const next=new Map(this.#entries);let removed=0;
+   for(const key of next.keys()){
+    const child=key==='child'||key.startsWith('learner:');
+    if(scope==='all'||(scope==='child'&&child)
+       ||(scope==='parent'&&!child)){next.delete(key);removed++;}
+   }
+   if(removed)this.#save(next);
+   return removed;
+  });
  }
  sweep(){
-  const day=this.#today(),next=new Map(this.#entries);
-  for(const [key,value] of next)if(value.day!==day)next.delete(key);
-  if(next.size!==this.#entries.size)this.#save(next);
-  return next.size;
+  return this.#locked(()=>{
+   const day=this.#today(),next=new Map(this.#entries);
+   for(const [key,value] of next)if(value.day!==day)next.delete(key);
+   if(next.size!==this.#entries.size)this.#save(next);
+   return next.size;
+  });
  }
 }
