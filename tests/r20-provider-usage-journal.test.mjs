@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ProviderUsageJournal,MeteredStreamingSpeechProvider} from '../scripts/provider-usage-journal.mjs';
 
 async function fixture(fn){
  const dir=mkdtempSync(join(tmpdir(),'alex-r20-usage-'));
+ mkdirSync(join(dir,'nested'),{recursive:true});
  try{return await fn(join(dir,'nested','usage.jsonl'),dir);}
  finally{rmSync(dir,{recursive:true,force:true});}
 }
