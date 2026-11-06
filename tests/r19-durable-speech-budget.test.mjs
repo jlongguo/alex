@@ -32,8 +32,8 @@ test('R19 same-file readers cannot bypass atomic quota through stale state',()=>
  const clock=()=>Date.UTC(2026,10,6);
  const first=new DurableSpeechDeliveryBudget({file,dailySeconds:1,now:clock});
  const second=new DurableSpeechDeliveryBudget({file,dailySeconds:1,now:clock});
- first.consume(A,14400);
- second.consume(A,9600); // must reload under lock
+ for(let i=0;i<6;i++)first.consume(A,2400);
+ for(let i=0;i<4;i++)second.consume(A,2400); // must reload under lock
  assert.throws(()=>first.consume(A,2400),/SPEECH_DAILY_DELIVERY_LIMIT/);
  assert.equal(new DurableSpeechDeliveryBudget({file,dailySeconds:1,now:clock})
   .snapshot(A).deliveredSamples,24000);
