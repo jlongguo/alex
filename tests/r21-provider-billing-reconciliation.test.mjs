@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,rmSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync,mkdirSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ProviderBillingStatementStore,ProviderBillingReconciler} from '../scripts/provider-billing-reconciliation.mjs';
@@ -90,7 +90,6 @@ test('R21 reconciliation scopes usage to provider model and statement period',()
  assert.equal(report.items[0].localQuantity,200);
 }));
 test('R21 store refuses corrupt history instead of silently dropping statements',()=>fixture(file=>{
- const {writeFileSync}=await import('node:fs');
  writeFileSync(file,'not-json\n');
  assert.throws(()=>new ProviderBillingStatementStore({file}),
   /PROVIDER_BILLING_STORE_INVALID/);
