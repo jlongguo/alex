@@ -222,7 +222,13 @@
             <div class="panel-header"><div><div class="eyebrow">SUPPLIER / COST CONTROL</div><h2>语音供应商用量与账单</h2></div><button type="button" class="secondary-btn" id="provider-billing-refresh">刷新数据</button></div>
             <p class="helper">查看上游返回音频、导入供应商官方用量账单并进行可比单位核对。PCM 字节不等于账单金额；不支持的计费单位会明确标记为未核对。</p>
             <p id="provider-billing-status" class="helper" role="status" aria-live="polite">读取供应商用量数据…</p>
+            <div class="provider-billing-filters">
+              <label>开始日期 <input id="provider-billing-from" type="date" /></label>
+              <label>结束日期 <input id="provider-billing-to" type="date" /></label>
+              <label>供应商（可选） <input id="provider-billing-provider" type="text" maxlength="80" placeholder="全部供应商" /></label>
+            </div>
             <div id="provider-billing-summary" class="provider-billing-summary" aria-live="polite"></div>
+            <div id="provider-billing-cost-summary" class="provider-billing-cost-summary" aria-live="polite"></div>
             <h3>导入供应商账单（标准化 JSON）</h3>
             <p class="helper">请先将供应商官方账单转换为标准格式。金额使用该币种的最小货币单位，不在此处推算汇率或单价。</p>
             <form id="provider-billing-import-form">
