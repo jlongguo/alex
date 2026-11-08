@@ -476,7 +476,10 @@ async function refreshProviderBilling(force=false){
    '<div class="event-row"><span class="event-kind">'+esc(statement.currency)+'</span>'+
    '<span class="event-message">'+esc(statement.provider)+' · '+esc(statement.statementId)+
    ' · '+statement.items.length+' 项 · '+esc(statement.periodStart)+' — '+
-   esc(statement.periodEnd)+'</span></div>'
+   esc(statement.periodEnd)+'</span><small>'+(statement.provenance?
+    '来源：'+esc(statement.provenance.source)+' · 导入：'+esc(statement.provenance.importedAt)+
+    ' · SHA-256：'+esc(statement.provenance.sourceDigest.slice(0,12))+'…':'旧账单，无来源摘要')+
+   '</small></div>'
   ).join('')||'<p class="helper">尚未导入账单。</p>';
  }catch(error){
   $('provider-billing-status').textContent=error.message;

@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -648,7 +649,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(req.method==='POST'&&pathname==='/api/audio/provider-billing/statements'){
       if(!providerBillingStore)throw Error('PROVIDER_BILLING_NOT_CONFIGURED');
       const params=await body(req,1024*1024);
-      const result=providerBillingStore.importStatement(params.statement??params);
+      const statement=params.statement??params;
+      const result=providerBillingStore.importStatement(statement,{provenance:{
+        source:'json',importedAt:new Date().toISOString(),
+        sourceDigest:createHash('sha256').update(JSON.stringify(statement)).digest('hex'),
+        mappingDigest:null
+      }});
       send(res,result.duplicate?200:201,{ok:true,...result});return;
     }
     if(req.method==='GET'&&pathname==='/api/audio/provider-billing/statements'){

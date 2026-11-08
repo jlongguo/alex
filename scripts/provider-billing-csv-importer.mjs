@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 // R23 bounded RFC4180-style CSV adapter for one normalized supplier statement.
 // Column mappings are explicit; vendor semantics are never inferred from header names.
 const MAX_CSV_CHARS=1024*1024,MAX_ROWS=5001,MAX_COLUMNS=64,MAX_FIELD=4096;
@@ -90,7 +91,12 @@ export class ProviderBillingCsvImporter{
    periodStart:first.periodStart,periodEnd:first.periodEnd,
    items:rows.map(row=>({model:row.model,metric:row.metric,
     quantity:row.quantity,amountMinor:row.amountMinor}))};
-  const result=this.store.importStatement(statement);
+  const result=this.store.importStatement(statement,{provenance:{
+   source:'csv',importedAt:new Date().toISOString(),
+   sourceDigest:createHash('sha256').update(csv).digest('hex'),
+   mappingDigest:createHash('sha256').update(JSON.stringify(
+    FIELDS.map(field=>[field,mapping[field]]))).digest('hex')
+  }});
   return {...result,rowsImported:rows.length,
    source:'normalized-csv-mapping',rawCsvPersisted:false};
  }
