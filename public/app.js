@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 let state=null,lastTask=null,busy=false,refreshInFlight=false;
 let companionActor=null,companionSessionId=null,companionBusy=false,companionProvider='offline';
 let curriculum=[],currentLearningPlans=[];
+let lastProviderBillingPoll=0,providerBillingBusy=false;
 const deniedVoice={voiceInputAllowed:false,voiceOutputAllowed:false,cloudTextAllowed:false};
 let companionPrivacy={...deniedVoice};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -431,6 +432,56 @@ $('proposal-list').addEventListener('click',async event=>{
 
 // Family and privacy controls. Private writes require server-validated parent session.
 let lastFamilyPoll=0,lastAuditPoll=0,familyBusy=false;
+async function refreshProviderBilling(force=false){
+ if(authorizedActor!=='parent'||providerBillingBusy)return;
+ if(!force&&Date.now()-lastProviderBillingPoll<10000)return;
+ lastProviderBillingPoll=Date.now();
+ try{
+  const responses=await Promise.all([
+   fetch('/api/audio/provider-usage',{cache:'no-store'}),
+   fetch('/api/audio/provider-billing/statements',{cache:'no-store'}),
+   fetch('/api/audio/provider-billing/reconciliation',{cache:'no-store'})
+  ]);
+  if(responses.some(response=>!response.ok))
+   throw new Error('无法读取供应商用量或账单；请确认本地家长登录及服务端配置。');
+  const usageData=await responses[0].json();
+  const statementData=await responses[1].json();
+  const reconciliationData=await responses[2].json();
+  const usage=usageData.usage;
+  $('provider-billing-status').textContent=
+   '供应商用量账本：'+(usageData.configured?'已启用':'未配置')+
+   '；账单存储：'+(statementData.configured?'已启用':'未配置')+
+   '；自动对账：'+(reconciliationData.configured?'可用':'等待两套账本配置');
+  $('provider-billing-summary').innerHTML=usage?[
+   ['上游请求',usage.requests],['已完成',usage.completed],
+   ['失败／取消',usage.failed+' / '+usage.cancelled],
+   ['供应商返回 PCM',usage.responseBytes.toLocaleString()+' bytes'],
+   ['PCM 采样数',usage.responseSamples.toLocaleString()],
+   ['未完成请求',usage.inflight]
+  ].map(([label,value])=>'<div class="provider-usage-tile"><small>'+esc(label)+'</small><strong>'+esc(value)+'</strong></div>').join('')
+   :'<p class="helper">尚未启用上游供应商用量账本，配置 ALEX_SPEECH_PROVIDER_USAGE_FILE 后可记录 TTS 请求。</p>';
+  $('provider-billing-reports').innerHTML=(reconciliationData.reports??[]).map(report=>{
+   const items=report.items.map(item=>'<div class="provider-billing-line"><span>'+
+    esc(item.model)+' · '+esc(item.metric)+'</span><strong>'+
+    (item.status==='comparable'?'可比':'未核对')+'</strong><small>供应商：'+
+    esc(item.quantity)+' · 本地：'+(item.localQuantity===null?'—':esc(item.localQuantity))+
+    ' · 差值：'+(item.variance===null?'—':esc(item.variance))+' · 金额：'+
+    esc(item.amountMinor)+' '+esc(report.currency)+' 最小单位</small>'+
+    (item.reason?'<small>'+esc(item.reason)+'</small>':'')+'</div>').join('');
+   return '<div class="provider-billing-report"><strong>'+esc(report.provider)+' · '+
+    esc(report.statementId)+'</strong><small>'+esc(report.periodStart)+' 至 '+
+    esc(report.periodEnd)+'</small>'+items+'<small>'+esc(report.note)+'</small></div>';
+  }).join('')||'<p class="helper">暂无可对账账单。导入供应商官方用量数据后将在这里显示。</p>';
+  $('provider-billing-statements').innerHTML=(statementData.statements??[]).map(statement=>
+   '<div class="event-row"><span class="event-kind">'+esc(statement.currency)+'</span>'+
+   '<span class="event-message">'+esc(statement.provider)+' · '+esc(statement.statementId)+
+   ' · '+statement.items.length+' 项 · '+esc(statement.periodStart)+' — '+
+   esc(statement.periodEnd)+'</span></div>'
+  ).join('')||'<p class="helper">尚未导入账单。</p>';
+ }catch(error){
+  $('provider-billing-status').textContent=error.message;
+ }
+}
 async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
@@ -490,8 +541,30 @@ async function refreshFamily(){
   }).join('')||'<p class="helper">尚未给任何学习者设置独立 PIN。</p>';
   $('profile-list').innerHTML=profiles.map(p=>`<div class="skill-item"><div class="skill-icon">♧</div><div class="skill-info"><strong>${esc(p.nickname)}</strong><small>${esc(p.ageBand)} · ${esc(p.interests.join('、')||'无兴趣标签')}</small></div><button type="button" data-remove-profile="${esc(p.id)}">删除档案</button></div>`).join('')||'<p class="helper">尚无学习者档案。</p>';
   $('memory-list').innerHTML=memories.slice(-40).reverse().map(m=>`<div class="event-row"><span class="event-time">${esc(m.scope)}</span><span class="event-kind">记忆</span><span class="event-message" title="${esc(m.text)}">${esc(m.text)}</span><button type="button" data-remove-memory="${esc(m.id)}">删除</button></div>`).join('')||'<p class="helper">没有已保存的长期记忆。</p>';
+  await refreshProviderBilling();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
+$('provider-billing-refresh').addEventListener('click',()=>void refreshProviderBilling(true));
+$('provider-billing-import-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||providerBillingBusy)return;
+ providerBillingBusy=true;
+ try{
+  let statement;
+  try{statement=JSON.parse($('provider-billing-json').value);}
+  catch{throw new Error('账单内容不是有效 JSON');}
+  if(!statement||typeof statement!=='object'||Array.isArray(statement))
+   throw new Error('账单必须是 JSON 对象');
+  const result=await api('/api/audio/provider-billing/statements',statement);
+  $('provider-billing-json').value='';
+  notify(result.duplicate?'该账单已导入，无需重复处理':'供应商账单已导入');
+  lastProviderBillingPoll=0;
+  await refreshProviderBilling(true);
+ }catch(error){
+  $('provider-billing-status').textContent=error.message;
+  notify(error.message,true);
+ }finally{providerBillingBusy=false;}
+});
 async function refreshAudit(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastAuditPoll<1800)return;lastAuditPoll=Date.now();
