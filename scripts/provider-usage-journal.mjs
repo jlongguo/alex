@@ -100,6 +100,20 @@ export class ProviderUsageJournal{
    errorCode:outcome==='failed'?safeCode(errorCode):null});
   return true;
  }
+ usageForPeriod({provider,model,from,to}={}){
+  if(typeof provider!=='string'||typeof model!=='string'
+   ||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<=from)
+   throw Error('INVALID_PROVIDER_USAGE_PERIOD');
+  const result={requests:0,responseBytes:0,frames:0,completed:0,cancelled:0,failed:0,inflight:0};
+  for(const row of this.#requests.values()){
+   if(row.provider!==provider||row.model!==model
+    ||row.startedAt<from||row.startedAt>=to)continue;
+   result.requests++;result.responseBytes+=row.responseBytes;
+   result.frames+=row.frames;result[row.outcome]++;
+  }
+  result.responseSamples=result.responseBytes/2;
+  return result;
+ }
  summary(){
   const result={requests:0,completed:0,cancelled:0,failed:0,inflight:0,
    responseBytes:0,responseSamples:0,frames:0,providers:[]};
