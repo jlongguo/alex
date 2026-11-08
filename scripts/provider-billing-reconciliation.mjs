@@ -17,6 +17,17 @@ const parseTime=value=>{
  return n;
 };
 const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function validateProvenance(value){
+ if(value===undefined||value===null)return null;
+ if(!value||!['json','csv'].includes(value.source)
+  ||parseTime(value.importedAt)===null
+  ||!/^[a-f0-9]{64}$/.test(value.sourceDigest??'')
+  ||(value.mappingDigest!==null&&value.mappingDigest!==undefined
+    &&!/^[a-f0-9]{64}$/.test(value.mappingDigest)))
+  throw Error('INVALID_PROVIDER_BILLING_PROVENANCE');
+ return {source:value.source,importedAt:new Date(parseTime(value.importedAt)).toISOString(),
+  sourceDigest:value.sourceDigest,mappingDigest:value.mappingDigest??null};
+}
 function normalize(input){
  if(!input||input.schemaVersion!==1||!validText(input.statementId,160)
   ||!validText(input.provider,80)||! /^[A-Z]{3}$/.test(input.currency??'')
@@ -58,11 +69,16 @@ export class ProviderBillingStatementStore{
    if(normalized.fingerprint!==stored.fingerprint
     ||this.#statements.has(normalized.statementId))
     throw Error('PROVIDER_BILLING_STORE_INVALID');
-   this.#statements.set(normalized.statementId,normalized);
+   let provenance;
+   try{provenance=validateProvenance(stored.provenance);}
+   catch{throw Error('PROVIDER_BILLING_STORE_INVALID');}
+   this.#statements.set(normalized.statementId,
+    provenance?{...normalized,provenance}:normalized);
   }
  }
- importStatement(input){
-  const statement=normalize(input),existing=this.#statements.get(statement.statementId);
+ importStatement(input,{provenance:sourceProvenance}={}){
+  const statement=normalize(input),provenance=validateProvenance(sourceProvenance);
+  const existing=this.#statements.get(statement.statementId);
   if(existing){
    if(existing.fingerprint!==statement.fingerprint)
     throw Error('PROVIDER_BILLING_STATEMENT_ID_CONFLICT');
@@ -79,7 +95,7 @@ export class ProviderBillingStatementStore{
    appendFileSync(this.file,line,{encoding:'utf8',mode:0o600,flag:'a'});
    const fd=openSync(this.file,'r');try{fsyncSync(fd);}finally{closeSync(fd);}
   }catch{throw Error('PROVIDER_BILLING_STORE_WRITE_FAILED');}
-  this.#statements.set(statement.statementId,statement);
+  this.#statements.set(statement.statementId,record);
   return {imported:true,duplicate:false,statementId:statement.statementId};
  }
  list(){return [...this.#statements.values()].map(({fingerprint,...s})=>s);}
