@@ -57,6 +57,7 @@ test('R21 rejects invalid currency, period, unsupported metric and unsafe amount
 }));
 test('R21 reconciliation compares only dimensions measured by R20',()=>fixture(async(file,usageFile)=>{
  const usage=new ProviderUsageJournal({file:usageFile,
+  now:()=>Date.parse('2026-11-01T12:00:00Z'),
   makeId:(()=>{let n=0;return()=> '11111111-1111-4111-8111-11111111111'+(++n);})()});
  const id=usage.begin({provider:'compatible-pcm-stream',model:'voice-v1'});
  usage.frame(id,4800);usage.finish(id,'completed');
