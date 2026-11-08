@@ -433,7 +433,7 @@ $('proposal-list').addEventListener('click',async event=>{
 // Family and privacy controls. Private writes require server-validated parent session.
 let lastFamilyPoll=0,lastAuditPoll=0,familyBusy=false;
 async function refreshProviderBilling(force=false){
- if(authorizedActor!=='parent'||providerBillingBusy)return;
+ if(authorizedActor!=='parent')return;
  if(!force&&Date.now()-lastProviderBillingPoll<10000)return;
  lastProviderBillingPoll=Date.now();
  try{
