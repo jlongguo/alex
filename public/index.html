@@ -229,6 +229,14 @@
               <textarea id="provider-billing-json" rows="7" maxlength="1000000" spellcheck="false" placeholder='{"schemaVersion":1,"statementId":"invoice-id","provider":"provider-name","currency":"USD","periodStart":"2026-11-01T00:00:00Z","periodEnd":"2026-11-02T00:00:00Z","items":[{"model":"voice-model","metric":"pcm_bytes","quantity":9600,"amountMinor":12}]}' aria-label="供应商账单标准化 JSON" required></textarea>
               <button type="submit">导入账单</button>
             </form>
+            <h3>导入供应商 CSV（显式列映射）</h3>
+            <p class="helper">粘贴官方 CSV 内容，并指定 CSV 表头对应的标准字段。一次导入一个账单周期；不会保存原始 CSV。</p>
+            <form id="provider-billing-csv-form">
+              <textarea id="provider-billing-csv" rows="6" maxlength="1000000" spellcheck="false" placeholder="id,vendor,ccy,start,end,model,metric,qty,amount" aria-label="供应商 CSV 内容" required></textarea>
+              <label for="provider-billing-csv-mapping">列映射 JSON</label>
+              <textarea id="provider-billing-csv-mapping" rows="5" spellcheck="false" aria-label="CSV 列映射">{"statementId":"id","provider":"vendor","currency":"ccy","periodStart":"start","periodEnd":"end","model":"model","metric":"metric","quantity":"qty","amountMinor":"amount"}</textarea>
+              <button type="submit">导入 CSV</button>
+            </form>
             <h3>账单对账结果</h3>
             <div id="provider-billing-reports" class="event-list" aria-live="polite"></div>
             <h3>已导入账单</h3>

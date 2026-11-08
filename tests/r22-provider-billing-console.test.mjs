@@ -14,13 +14,15 @@ test('R22 supplier billing controls live inside the parent-private family worksp
  assert.ok(start>=0&&end>start);
  for(const id of ['provider-billing-refresh','provider-billing-status',
   'provider-billing-summary','provider-billing-import-form',
-  'provider-billing-json','provider-billing-reports','provider-billing-statements'])
+  'provider-billing-json','provider-billing-reports','provider-billing-statements',
+  'provider-billing-csv-form','provider-billing-csv','provider-billing-csv-mapping'])
   assert.ok(family.includes('id="'+id+'"'),id);
 });
 test('R22 console fetches parent-only provider and statement endpoints without exposing credentials',()=>{
  assert.match(app,/fetch\('\/api\/audio\/provider-usage'/);
  assert.match(app,/fetch\('\/api\/audio\/provider-billing\/statements'/);
  assert.match(app,/fetch\('\/api\/audio\/provider-billing\/reconciliation'/);
+ assert.match(app,/api\('\/api\/audio\/provider-billing\/csv'/);
  assert.match(app,/authorizedActor!=='parent'/);
  assert.match(app,/JSON\.parse\(\$\('provider-billing-json'\)\.value\)/);
  assert.ok(!app.includes('ALEX_SPEECH_STREAM_API_KEY'));

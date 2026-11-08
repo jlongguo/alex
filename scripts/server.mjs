@@ -32,6 +32,7 @@ import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 import {DurableSpeechDeliveryBudget} from './durable-speech-delivery-budget.mjs';
 import {ProviderUsageJournal,MeteredStreamingSpeechProvider} from './provider-usage-journal.mjs';
 import {ProviderBillingStatementStore,ProviderBillingReconciler} from './provider-billing-reconciliation.mjs';
+import {ProviderBillingCsvImporter} from './provider-billing-csv-importer.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -95,6 +96,8 @@ const providerBillingStore=providerBillingFile
 const providerBillingReconciler=providerBillingStore&&providerUsageJournal
  ?new ProviderBillingReconciler({statements:providerBillingStore,
    journal:providerUsageJournal}):null;
+const providerBillingCsvImporter=providerBillingStore
+ ?new ProviderBillingCsvImporter({store:providerBillingStore}):null;
 const meteredSpeechStreamProvider=providerUsageJournal&&speechStreamProvider
  ?new MeteredStreamingSpeechProvider({provider:speechStreamProvider,
    journal:providerUsageJournal}):speechStreamProvider;
@@ -204,7 +207,7 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SPEECH_PROVIDER_PCM_TOO_LARGE','PROVIDER_BILLING_STATEMENT_ID_CONFLICT'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
-  'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
+  'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -636,6 +639,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   if(pathname.startsWith('/api/audio/provider-billing/')){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    if(req.method==='POST'&&pathname==='/api/audio/provider-billing/csv'){
+      if(!providerBillingCsvImporter)throw Error('PROVIDER_BILLING_NOT_CONFIGURED');
+      const params=await body(req,1100000);
+      const result=providerBillingCsvImporter.importCsv(params);
+      send(res,result.duplicate?200:201,{ok:true,...result});return;
+    }
     if(req.method==='POST'&&pathname==='/api/audio/provider-billing/statements'){
       if(!providerBillingStore)throw Error('PROVIDER_BILLING_NOT_CONFIGURED');
       const params=await body(req,1024*1024);
