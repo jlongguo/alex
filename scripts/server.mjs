@@ -649,7 +649,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(req.method==='GET'&&pathname==='/api/audio/provider-billing/reconciliation'){
       send(res,200,{ok:true,configured:!!providerBillingReconciler,
         reports:providerBillingReconciler?.report()??[],
-        note:'Only request_count and pcm_bytes are currently comparable with R20. Other billing units remain explicitly unverified.'});return;
+        note:'Only pcm_bytes is currently comparable with R20. Request counts and other billing units remain explicitly unverified until supplier billing semantics are established.'});return;
     }
     send(res,404,{ok:false,error:'NOT_FOUND'});return;
   }
