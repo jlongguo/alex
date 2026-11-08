@@ -89,6 +89,6 @@ test('R21 provider billing import and reconciliation endpoints enforce parent ro
    cookie:child})).status,403);
   assert.equal((await request(server.base,'/api/audio/provider-billing/reconciliation',{
    cookie:child})).status,403);
-  assert.equal((await request(server.base,'/api/audio/provider-billing/statements')).status,403);
+  assert.equal((await request(server.base,'/api/audio/provider-billing/statements')).status,401);
  }finally{await stop(server);await rm(dir,{recursive:true,force:true});}
 });
