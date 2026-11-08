@@ -30,6 +30,7 @@ import {SegmentedPcmSpeechProvider} from './segmented-pcm-speech-provider.mjs';
 import {VoiceTurnOrchestrator} from './voice-turn-orchestrator.mjs';
 import {SpeechDeliveryBudget} from './speech-delivery-budget.mjs';
 import {DurableSpeechDeliveryBudget} from './durable-speech-delivery-budget.mjs';
+import {ProviderUsageJournal,MeteredStreamingSpeechProvider} from './provider-usage-journal.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
@@ -82,6 +83,14 @@ const speechStreamProvider=speechStreamMode==='compatible'
 // This is a local delivered-audio allowance, NOT a cloud invoice ceiling.
 const speechDeliveryDailySeconds=Number(
   process.env.ALEX_SPEECH_DAILY_DELIVERY_SECONDS??120);
+// Supplier response usage is an independent, opt-in operational journal.
+// It stores request IDs, model, byte counts and outcome; never text/audio/keys.
+const providerUsageFile=process.env.ALEX_SPEECH_PROVIDER_USAGE_FILE;
+const providerUsageJournal=providerUsageFile
+ ?new ProviderUsageJournal({file:providerUsageFile}):null;
+const meteredSpeechStreamProvider=providerUsageJournal&&speechStreamProvider
+ ?new MeteredStreamingSpeechProvider({provider:speechStreamProvider,
+   journal:providerUsageJournal}):speechStreamProvider;
 // Explicit opt-in: current deployments keep the R10 memory-only behavior.
 // The durable ledger is a synchronous fail-closed single-process file store.
 const speechDeliveryLedgerFile=process.env.ALEX_SPEECH_DELIVERY_LEDGER_FILE;
@@ -91,7 +100,7 @@ const speechDeliveryBudget=speechDeliveryLedgerFile
   })
  :new SpeechDeliveryBudget({dailySeconds:speechDeliveryDailySeconds});
 const speechPlayback=speechStreamProvider
- ?new StreamingSpeechSessions({provider:new SegmentedPcmSpeechProvider({provider:speechStreamProvider}),
+ ?new StreamingSpeechSessions({provider:new SegmentedPcmSpeechProvider({provider:meteredSpeechStreamProvider}),
    budget:speechDeliveryBudget,
    authorizeDelivery:principal=>audioAllowed(principal,'tts')}):null;
 const learningPlans=new LearningPlans(
@@ -186,7 +195,7 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
   'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
   'SPEECH_PROVIDER_PCM_TOO_LARGE'].includes(message)?409:
-  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
+  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
@@ -499,6 +508,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
        ?'alex-reserved-for-delivery-not-vendor-billed'
        :'alex-delivered-not-vendor-billed',
       deliveryBudgetPersistence:speechDeliveryLedgerFile?'single-process-file':'memory-only',
+      providerUsageJournal:!!providerUsageJournal,
       duplex:false});return;
   }
   if(req.method==='POST' && pathname==='/api/audio/playback/start'){
@@ -608,6 +618,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       deliveryBudget:speechPlayback?.deliveryBudget(principal)??null,
       rawAudioStored:false,textStored:false,
       playbackProof:'client-claimed'});return;
+  }
+  if(req.method==='GET' && pathname==='/api/audio/provider-usage'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,usage:providerUsageJournal?.summary()??null,
+      configured:!!providerUsageJournal,
+      note:'Provider response PCM is not an invoice; learner content and credentials are not recorded.'});return;
   }
   if(req.method==='GET' && pathname==='/api/audio/realtime/capabilities'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
