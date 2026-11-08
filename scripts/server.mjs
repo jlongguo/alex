@@ -662,8 +662,25 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         statements:providerBillingStore?.list()??[]});return;
     }
     if(req.method==='GET'&&pathname==='/api/audio/provider-billing/reconciliation'){
+      const url=new URL(req.url,`http://${incomingHost}`);
+      const fromText=url.searchParams.get('from'),toText=url.searchParams.get('to');
+      if((fromText===null)!==(toText===null))
+        throw Error('INVALID_PROVIDER_BILLING_REPORT_WINDOW');
+      const parseWindow=value=>{
+        const timestamp=Date.parse(value);
+        if(!Number.isSafeInteger(timestamp)||new Date(timestamp).toISOString()!==value)
+          throw Error('INVALID_PROVIDER_BILLING_REPORT_WINDOW');
+        return timestamp;
+      };
+      const options=fromText===null?{}:{
+        from:parseWindow(fromText),to:parseWindow(toText),
+        ...(url.searchParams.has('provider')?{provider:url.searchParams.get('provider')}: {})
+      };
+      if(fromText===null&&url.searchParams.has('provider'))
+        options.provider=url.searchParams.get('provider');
       send(res,200,{ok:true,configured:!!providerBillingReconciler,
-        reports:providerBillingReconciler?.report()??[],
+        reports:providerBillingReconciler?.report(options)??[],
+        summary:providerBillingReconciler?.summary(options)??null,
         note:'Only pcm_bytes is currently comparable with R20. Request counts and other billing units remain explicitly unverified until supplier billing semantics are established.'});return;
     }
     send(res,404,{ok:false,error:'NOT_FOUND'});return;
