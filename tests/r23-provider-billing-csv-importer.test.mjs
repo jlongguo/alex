@@ -31,6 +31,15 @@ test('R23 mapped CSV imports multiple line items into one normalized statement',
  assert.equal(store.list()[0].items[0].quantity,9600);
  assert.equal(PROVIDER_BILLING_CSV_FIELDS.length,9);
 }));
+test('R23 parser handles quoted commas and escaped quotes in supplier fields',()=>fixture(file=>{
+ const store=new ProviderBillingStatementStore({file});
+ const importer=new ProviderBillingCsvImporter({store});
+ const quoted=csv.replaceAll('invoice-1,tts-vendor','"invoice,1","tts ""vendor"""');
+ const result=importer.importCsv({csv:quoted,mapping});
+ assert.equal(result.imported,true);
+ assert.equal(store.list()[0].statementId,'invoice,1');
+ assert.equal(store.list()[0].provider,'tts "vendor"');
+}));
 test('R23 CSV re-import is idempotent and never persists raw source content',()=>fixture(file=>{
  const store=new ProviderBillingStatementStore({file});
  const importer=new ProviderBillingCsvImporter({store});
