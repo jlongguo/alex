@@ -34,7 +34,7 @@ function parseCsv(source){
   else if(ch==='\n')pushRow();
   else if(ch==='\r'){if(input[i+1]==='\n')i++;pushRow();}
   else field+=ch;
-  if(field.length>MAX_FIELD||row.length>=MAX_COLUMNS)
+  if(field.length>MAX_FIELD||row.length>MAX_COLUMNS)
    throw Error('PROVIDER_BILLING_CSV_FIELD_LIMIT');
  }
  if(quoted)throw Error('INVALID_PROVIDER_BILLING_CSV');
@@ -65,9 +65,13 @@ export class ProviderBillingCsvImporter{
    if(index<0)throw Error('INVALID_PROVIDER_BILLING_CSV_MAPPING');
    indices[field]=index;
   }
+  if(new Set(Object.values(mapping)).size!==FIELDS.length)
+   throw Error('INVALID_PROVIDER_BILLING_CSV_MAPPING');
   const rows=parsed.rows.map(values=>{
    const value=field=>values[indices[field]].trim();
-   const quantity=Number(value('quantity')),amountMinor=Number(value('amountMinor'));
+   const rawQuantity=value('quantity'),rawAmount=value('amountMinor');
+   if(!rawQuantity||!rawAmount)throw Error('INVALID_PROVIDER_BILLING_CSV_VALUE');
+   const quantity=Number(rawQuantity),amountMinor=Number(rawAmount);
    if(!Number.isFinite(quantity)||!Number.isSafeInteger(amountMinor))
     throw Error('INVALID_PROVIDER_BILLING_CSV_VALUE');
    return {statementId:value('statementId'),provider:value('provider'),
