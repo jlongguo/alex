@@ -29,6 +29,8 @@ test('R22 console fetches parent-only provider and statement endpoints without e
 });
 test('R22 dynamic supplier content is escaped and responsive styles are present',()=>{
  assert.ok(app.includes('esc(statement.provider)'));
+ assert.ok(app.includes('esc(statement.provenance.source)'));
+ assert.ok(app.includes('statement.provenance.sourceDigest.slice(0,12)'));
  assert.ok(app.includes('esc(item.model)'));
  assert.ok(css.includes('.provider-billing-summary'));
  assert.ok(css.includes('@media(max-width:760px)'));
