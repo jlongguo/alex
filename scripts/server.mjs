@@ -202,7 +202,7 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
   'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
   'SPEECH_PROVIDER_PCM_TOO_LARGE'].includes(message)?409:
-  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
+  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_/.test(message)?400:500;
 function asyncWrap(fn) {
@@ -214,10 +214,10 @@ function asyncWrap(fn) {
     }
   };
 }
-async function body(req) {
+async function body(req,maxBytes=8192) {
   if(req.headers['content-type']?.split(';')[0]?.trim() !== 'application/json') throw new Error('INVALID_CONTENT_TYPE');
   let raw='';
-  for await (const chunk of req) { raw+=chunk; if(raw.length>8192) throw new Error('INVALID_BODY_TOO_LARGE'); }
+  for await (const chunk of req) { raw+=chunk; if(raw.length>maxBytes) throw new Error('INVALID_BODY_TOO_LARGE'); }
   try {const data=JSON.parse(raw); if(!data || Array.isArray(data) || typeof data!=='object') throw new Error();return data;}
   catch {throw new Error('INVALID_JSON');}
 }
@@ -638,7 +638,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     if(req.method==='POST'&&pathname==='/api/audio/provider-billing/statements'){
       if(!providerBillingStore)throw Error('PROVIDER_BILLING_NOT_CONFIGURED');
-      const params=await body(req);
+      const params=await body(req,1024*1024);
       const result=providerBillingStore.importStatement(params.statement??params);
       send(res,result.duplicate?200:201,{ok:true,...result});return;
     }
