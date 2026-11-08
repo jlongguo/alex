@@ -93,13 +93,14 @@ export class ProviderBillingReconciler{
   return this.statements.list().map(statement=>{
    const from=Date.parse(statement.periodStart),to=Date.parse(statement.periodEnd);
    const items=statement.items.map(item=>{
-    if(!['request_count','pcm_bytes'].includes(item.metric))
+    if(item.metric!=='pcm_bytes')
      return {...item,status:'not_comparable',localQuantity:null,
-      variance:null,reason:'R20 does not measure this billing unit'};
+      variance:null,reason:item.metric==='request_count'
+       ?'R20 counts request attempts; supplier billable-request semantics are not established'
+       :'R20 does not measure this billing unit'};
     const local=this.journal.usageForPeriod({provider:statement.provider,
      model:item.model,from,to});
-    const localQuantity=item.metric==='request_count'
-     ?local.requests:local.responseBytes;
+    const localQuantity=local.responseBytes;
     return {...item,status:'comparable',localQuantity,
      variance:localQuantity-item.quantity,
      localOutcomeCounts:{completed:local.completed,cancelled:local.cancelled,
