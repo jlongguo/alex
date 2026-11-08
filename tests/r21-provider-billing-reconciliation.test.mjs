@@ -48,6 +48,9 @@ test('R21 rejects invalid currency, period, unsupported metric and unsafe amount
   {model:'voice-v1',metric:'usd',quantity:1,amountMinor:1}
  ]})),/INVALID_PROVIDER_BILLING_ITEM/);
  assert.throws(()=>store.importStatement(statement({items:[
+  {model:'voice-v1',metric:'pcm_bytes',quantity:1.5,amountMinor:1}
+ ]})),/INVALID_PROVIDER_BILLING_ITEM/);
+ assert.throws(()=>store.importStatement(statement({items:[
   {model:'voice-v1',metric:'request_count',quantity:1,amountMinor:Number.MAX_SAFE_INTEGER+1}
  ]})),/INVALID_PROVIDER_BILLING_ITEM/);
  assert.equal(store.list().length,0);
