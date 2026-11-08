@@ -70,7 +70,8 @@ export class ProviderBillingCsvImporter{
   const rows=parsed.rows.map(values=>{
    const value=field=>values[indices[field]].trim();
    const rawQuantity=value('quantity'),rawAmount=value('amountMinor');
-   if(!rawQuantity||!rawAmount)throw Error('INVALID_PROVIDER_BILLING_CSV_VALUE');
+   if(!/^\\d+(?:\\.\\d+)?$/.test(rawQuantity)
+    ||!/^\\d+$/.test(rawAmount))throw Error('INVALID_PROVIDER_BILLING_CSV_VALUE');
    const quantity=Number(rawQuantity),amountMinor=Number(rawAmount);
    if(!Number.isFinite(quantity)||!Number.isSafeInteger(amountMinor))
     throw Error('INVALID_PROVIDER_BILLING_CSV_VALUE');
