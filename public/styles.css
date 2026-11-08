@@ -85,3 +85,23 @@ body [data-nav-view].hidden,body [data-nav-view].hidden[data-nav-view]{display:n
 .companion-message[data-preview="true"] { border:1px dashed rgba(90,146,197,.6); opacity:.83; }
 #companion-cancel:not(:disabled) { border-color:rgba(194,73,74,.65); }
 @media(prefers-reduced-motion:reduce) {.companion-avatar { transition:none; }}
+
+
+/* R22 parent supplier usage and billing console */
+.provider-billing-panel{margin-bottom:18px}
+.provider-billing-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 22px}
+.provider-usage-tile{min-width:0;padding:14px;border:1px solid #e5ebf0;border-radius:11px;background:#f8fafc}
+.provider-usage-tile small{display:block;color:#8191a2;font-size:10px;margin-bottom:7px}
+.provider-usage-tile strong{display:block;color:#1b334a;font-size:18px;overflow-wrap:anywhere}
+.provider-billing-panel textarea{display:block;width:100%;min-height:150px;resize:vertical;padding:12px;border:1px solid #dce4eb;border-radius:10px;background:#fbfcfe;color:#24384c;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+.provider-billing-panel form button{margin-top:10px;padding:10px 16px;border:0;border-radius:9px;background:#1d8f7b;color:#fff;font-weight:700}
+.provider-billing-panel h3{margin:22px 0 8px;font-size:13px;color:#344b61}
+.provider-billing-report{padding:13px 0;border-bottom:1px solid #e8edf2}
+.provider-billing-report>strong,.provider-billing-report>small{display:block}
+.provider-billing-report>strong{font-size:12px;color:#2a4056}
+.provider-billing-report>small{font-size:10px;color:#8a99a8;margin-top:5px;line-height:1.6}
+.provider-billing-line{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:5px 12px;padding:9px 0;border-bottom:1px dashed #edf0f3}
+.provider-billing-line>span{font-size:11px;font-weight:650;color:#536a7e}
+.provider-billing-line>strong{font-size:10px;color:#168568}
+.provider-billing-line>small{grid-column:1/-1;font-size:10px;color:#8494a4;overflow-wrap:anywhere;line-height:1.5}
+@media(max-width:760px){.provider-billing-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.provider-billing-panel{padding:15px}.provider-billing-panel .panel-header{align-items:flex-start}}
