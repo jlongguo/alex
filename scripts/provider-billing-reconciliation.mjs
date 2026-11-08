@@ -26,6 +26,7 @@ function normalize(input){
   if(!item||!validText(item.model)||!METRICS.has(item.metric)
    ||typeof item.quantity!=='number'||!Number.isFinite(item.quantity)
    ||item.quantity<0||item.quantity>1e15
+   ||(['request_count','pcm_bytes'].includes(item.metric)&&!Number.isSafeInteger(item.quantity))
    ||!Number.isSafeInteger(item.amountMinor)||item.amountMinor<0)
    throw Error('INVALID_PROVIDER_BILLING_ITEM');
   return {model:item.model,metric:item.metric,quantity:item.quantity,
