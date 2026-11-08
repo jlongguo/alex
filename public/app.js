@@ -437,10 +437,25 @@ async function refreshProviderBilling(force=false){
  if(!force&&Date.now()-lastProviderBillingPoll<10000)return;
  lastProviderBillingPoll=Date.now();
  try{
+  const query=new URLSearchParams();
+  const from=$('provider-billing-from').value,to=$('provider-billing-to').value;
+  if(!!from!==!!to)throw new Error('请选择完整的开始日期和结束日期');
+  if(from){
+   const fromDate=new Date(from+'T00:00:00.000Z');
+   const toDate=new Date(to+'T00:00:00.000Z');
+   if(!Number.isFinite(fromDate.getTime())||!Number.isFinite(toDate.getTime())
+    ||toDate<fromDate)throw new Error('账单筛选日期范围无效');
+   toDate.setUTCDate(toDate.getUTCDate()+1);
+   query.set('from',fromDate.toISOString());query.set('to',toDate.toISOString());
+  }
+  const provider=$('provider-billing-provider').value.trim();
+  if(provider)query.set('provider',provider);
+  const reconciliationUrl='/api/audio/provider-billing/reconciliation'+
+   (query.size?'?'+query.toString():'');
   const responses=await Promise.all([
    fetch('/api/audio/provider-usage',{cache:'no-store'}),
    fetch('/api/audio/provider-billing/statements',{cache:'no-store'}),
-   fetch('/api/audio/provider-billing/reconciliation',{cache:'no-store'})
+   fetch(reconciliationUrl,{cache:'no-store'})
   ]);
   if(responses.some(response=>!response.ok))
    throw new Error('无法读取供应商用量或账单；请确认本地家长登录及服务端配置。');
@@ -460,6 +475,21 @@ async function refreshProviderBilling(force=false){
    ['未完成请求',usage.inflight]
   ].map(([label,value])=>'<div class="provider-usage-tile"><small>'+esc(label)+'</small><strong>'+esc(value)+'</strong></div>').join('')
    :'<p class="helper">尚未启用上游供应商用量账本，配置 ALEX_SPEECH_PROVIDER_USAGE_FILE 后可记录 TTS 请求。</p>';
+  const summary=reconciliationData.summary;
+  $('provider-billing-cost-summary').innerHTML=summary?
+   '<h3>按币种汇总（不换汇）</h3>'+
+   (summary.currencyTotals??[]).map(total=>'<div class="provider-usage-tile"><small>'+
+    esc(total.currency)+' · '+total.statementIds.length+' 张账单</small><strong>'+
+    esc(total.amountMinor)+' 最小货币单位</strong></div>').join('')+
+   '<h3>供应商／模型／计费单位</h3>'+
+   (summary.groups??[]).map(group=>'<div class="provider-billing-line"><span>'+
+    esc(group.provider)+' · '+esc(group.model)+' · '+esc(group.metric)+
+    '</span><strong>'+esc(group.currency)+' '+esc(group.amountMinor)+' 最小单位</strong><small>'+
+    '账单用量：'+esc(group.billedQuantity)+' · 本地用量：'+
+    (group.localQuantity===null?'未核对':esc(group.localQuantity))+
+    ' · 差值：'+(group.variance===null?'—':esc(group.variance))+
+    ' · '+(group.status==='comparable'?'可比':'未核对')+'</small></div>').join('')
+   :'<p class="helper">当前未启用自动对账。</p>';
   $('provider-billing-reports').innerHTML=(reconciliationData.reports??[]).map(report=>{
    const items=report.items.map(item=>'<div class="provider-billing-line"><span>'+
     esc(item.model)+' · '+esc(item.metric)+'</span><strong>'+
@@ -548,6 +578,8 @@ async function refreshFamily(){
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
 $('provider-billing-refresh').addEventListener('click',()=>void refreshProviderBilling(true));
+for(const id of ['provider-billing-from','provider-billing-to','provider-billing-provider'])
+ $(id).addEventListener('change',()=>void refreshProviderBilling(true));
 $('provider-billing-import-form').addEventListener('submit',async event=>{
  event.preventDefault();
  if(authorizedActor!=='parent'||providerBillingBusy)return;
