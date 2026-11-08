@@ -86,7 +86,8 @@ export class ProviderBillingStatementStore{
   }
   if(this.#statements.size>=MAX_STATEMENTS)throw Error('PROVIDER_BILLING_STORE_FULL');
   mkdirSync(dirname(this.file),{recursive:true,mode:0o700});
-  const line=JSON.stringify(statement)+'\n';
+  const record=provenance?{...statement,provenance}:statement;
+  const line=JSON.stringify(record)+'\n';
   let size=0;try{size=statSync(this.file).size;}catch(error){
    if(error?.code!=='ENOENT')throw Error('PROVIDER_BILLING_STORE_WRITE_FAILED');
   }
