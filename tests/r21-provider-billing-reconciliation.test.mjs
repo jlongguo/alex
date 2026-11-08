@@ -71,8 +71,9 @@ test('R21 reconciliation compares only dimensions measured by R20',()=>fixture(a
  assert.equal(report.items[0].status,'comparable');
  assert.equal(report.items[0].localQuantity,4800);
  assert.equal(report.items[0].variance,-1200);
- assert.equal(report.items[1].localQuantity,1);
- assert.equal(report.items[1].variance,-1);
+ assert.equal(report.items[1].status,'not_comparable');
+ assert.equal(report.items[1].localQuantity,null);
+ assert.match(report.items[1].reason,/billable-request semantics/);
  assert.equal(report.items[2].status,'not_comparable');
  assert.equal(report.items[2].variance,null);
  assert.match(report.note,/not a monetary credit/);
