@@ -565,6 +565,28 @@ $('provider-billing-import-form').addEventListener('submit',async event=>{
   notify(error.message,true);
  }finally{providerBillingBusy=false;}
 });
+$('provider-billing-csv-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||providerBillingBusy)return;
+ providerBillingBusy=true;
+ try{
+  let mapping;
+  try{mapping=JSON.parse($('provider-billing-csv-mapping').value);}
+  catch{throw new Error('CSV 列映射不是有效 JSON');}
+  if(!mapping||typeof mapping!=='object'||Array.isArray(mapping))
+   throw new Error('CSV 列映射必须是 JSON 对象');
+  const result=await api('/api/audio/provider-billing/csv',{
+   csv:$('provider-billing-csv').value,mapping
+  });
+  $('provider-billing-csv').value='';
+  notify(result.duplicate?'该 CSV 对应账单已导入':'CSV 账单已导入，共 '+result.rowsImported+' 行');
+  lastProviderBillingPoll=0;
+  await refreshProviderBilling(true);
+ }catch(error){
+  $('provider-billing-status').textContent=error.message;
+  notify(error.message,true);
+ }finally{providerBillingBusy=false;}
+});
 async function refreshAudit(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastAuditPoll<1800)return;lastAuditPoll=Date.now();
