@@ -44,6 +44,8 @@ test('R21 rejects invalid currency, period, unsupported metric and unsafe amount
   /INVALID_PROVIDER_BILLING_STATEMENT/);
  assert.throws(()=>store.importStatement(statement({periodEnd:'2026-10-01T00:00:00Z'})),
   /INVALID_PROVIDER_BILLING_PERIOD/);
+ assert.throws(()=>store.importStatement(statement({periodStart:'2026-02-30T00:00:00Z'})),
+  /INVALID_PROVIDER_BILLING_PERIOD/);
  assert.throws(()=>store.importStatement(statement({items:[
   {model:'voice-v1',metric:'usd',quantity:1,amountMinor:1}
  ]})),/INVALID_PROVIDER_BILLING_ITEM/);
