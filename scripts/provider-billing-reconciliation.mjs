@@ -12,7 +12,9 @@ const validText=(v,max=120)=>typeof v==='string'&&v.length>0&&v.length<=max
 const parseTime=value=>{
  if(typeof value!=='string'||!/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z)$/.test(value))
   return null;
- const n=Date.parse(value);return Number.isSafeInteger(n)?n:null;
+ const n=Date.parse(value);
+ if(!Number.isSafeInteger(n)||new Date(n).toISOString().slice(0,19)!==value.slice(0,19))return null;
+ return n;
 };
 const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function normalize(input){
