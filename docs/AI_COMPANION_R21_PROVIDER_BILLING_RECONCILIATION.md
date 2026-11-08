@@ -44,7 +44,7 @@ The billing statement store can also be enabled independently for statement rete
 
 Amounts are integer minor currency units (for USD, cents). The statement must provide its actual currency and UTC billing period. Quantities are not converted between units. Supported metric labels are `request_count`, `pcm_bytes`, `audio_seconds`, `characters`, `input_tokens`, and `output_tokens`.
 
-Only `request_count` and `pcm_bytes` can currently be compared with R20. Other metrics are retained but explicitly returned as `not_comparable`. The importer does not guess a vendor's units, infer a rate, or manufacture a cost from PCM bytes.
+Only `pcm_bytes` is currently compared with R20. `request_count` is deliberately marked `not_comparable`: R20 records local request attempts, while the supplier's billable-request definition is not established. Other metrics are also explicitly returned as `not_comparable`. The importer does not guess a vendor's units, infer a rate, or manufacture a cost from PCM bytes.
 
 ## Parent-only local endpoints
 
@@ -60,7 +60,7 @@ All endpoints require local authentication and the parent role. The statement im
 - Currency, period, model, metric, quantity and integer minor-unit amount are validated before append.
 - Unrecognized input properties are discarded; raw uploads, credentials, learner IDs, transcripts and audio are not retained.
 - Statement files are append-only and bounded. Corrupt history fails closed at startup.
-- Matching is limited to exact provider/model and statement start-time window for local request records. R20 currently has no vendor request ID linkage. Therefore this is an aggregate quantity comparison, not transaction-level proof.
+- PCM byte comparison is limited to exact provider/model and statement start-time window for local request records. R20 currently has no vendor request ID linkage. Therefore this is an aggregate quantity comparison, not transaction-level proof.
 - A variance is a difference in the same unit only. It is not a monetary credit, proof of overbilling, or evidence of a vendor error.
 - Vendor-specific API/CSV adapters, signature verification, invoice tax/discount treatment, timezone-specific exports, and automatic reconciliation remain future work pending a named supplier and its official schema.
 
