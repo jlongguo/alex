@@ -54,6 +54,9 @@ test('R23 rejects blank numeric values and repeated column mappings',()=>fixture
  const blank=csv.replace(',9600,12',',,12');
  assert.throws(()=>importer.importCsv({csv:blank,mapping}),
   /INVALID_PROVIDER_BILLING_CSV_VALUE/);
+ const hex=csv.replace(',9600,12',',0x2580,12');
+ assert.throws(()=>importer.importCsv({csv:hex,mapping}),
+  /INVALID_PROVIDER_BILLING_CSV_VALUE/);
  assert.throws(()=>importer.importCsv({csv,mapping:{...mapping,model:'metric'}}),
   /INVALID_PROVIDER_BILLING_CSV_MAPPING/);
 }));
