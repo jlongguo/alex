@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {DeviceRegistry} from '../scripts/device-registry.mjs';
 import {DeviceGateway} from '../scripts/device-gateway.mjs';
+import {SIM_MAP_VERSION,initialPose} from '../scripts/navigation-simulator.mjs';
 const rid=()=> 'r26_'+randomUUID().replaceAll('-','');
 async function fixture({freshMs=1000,timeoutMs=5000}={}){
  const dir=await mkdtemp(join(tmpdir(),'alex-r26-feedback-'));
@@ -82,7 +83,7 @@ test('R26 stale navigation telemetry cannot change pose or progress',async()=>{
   t.advance(1200);
   const result=await t.gateway.telemetry(t.device.deviceId,t.device.token,{
    jobId:job.id,sequence:1,phase:'planning',progress:0,
-   pose:{x:1,y:1,heading:0},mapVersion:1});
+   pose:initialPose(),mapVersion:SIM_MAP_VERSION});
   assert.equal(result.message,'TASK_FEEDBACK_EXPIRED');
   const saved=t.gateway.list().find(x=>x.id===job.id);
   assert.equal(saved.status,'stopped');assert.equal(saved.telemetry,undefined);
