@@ -238,13 +238,13 @@ export class DeviceGateway {
   }
   async disconnect(deviceId){
     return this.#exclusive(async()=>{
-      const now=new Date(this.clock()).toISOString();let changed=false;
-      for(const job of this.jobs.filter(j=>j.deviceId===deviceId&&!terminal.has(j.status))){job.status='stopped';job.reason='Device revoked';job.updatedAt=now;changed=true;}
-      if(changed){
-        for(const job of this.jobs.filter(j=>j.deviceId===deviceId&&j.reason==='Device revoked'))
-          this.#record('job.stopped',job);
-        await this.save();
+      const now=new Date(this.clock()).toISOString();
+      const changed=this.jobs.filter(j=>j.deviceId===deviceId&&!terminal.has(j.status));
+      for(const job of changed){
+        job.status='stopped';job.reason='Device revoked';job.updatedAt=now;
+        this.#record('job.stopped',job);
       }
+      if(changed.length)await this.save();
       this.#notify(deviceId,{type:'device.revoked'});
       for(const connection of this.listeners.get(deviceId)??[])try{connection.end();}catch{}
       this.listeners.delete(deviceId);
