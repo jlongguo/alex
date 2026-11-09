@@ -48,7 +48,8 @@ async function fixture(){
 }
 test('R30 two approved devices independently execute Plan and Workflow with separate traces',async()=>{
  const f=await fixture();try{
-  const [a,b]=await Promise.all([f.device('desk terminal'),f.device('story terminal')]);
+  // Pairing is intentionally one-at-a-time; execution can be concurrent.
+  const a=await f.device('desk terminal'),b=await f.device('story terminal');
   const [plan,workflow]=await Promise.all([
    f.plans.start('parent',{templateId:'learn.at.desk',deviceId:a.deviceId,requestId:rid()}),
    f.workflows.start('parent',{recipe:'story.corner',deviceId:b.deviceId,requestId:rid()})
