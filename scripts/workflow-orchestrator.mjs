@@ -45,7 +45,15 @@ export class WorkflowOrchestrator {
     const required=WORKFLOW_RECIPES[recipe]?.required;
     if(!required)throw new Error('INVALID_WORKFLOW_RECIPE');
     if(selected!==undefined&&!safeId(selected))throw new Error('INVALID_DEVICE_ID');
-    const available=this.registry.list().filter(d=>!d.revoked&&(!selected||d.id===selected)&&this.gateway.online(d.id)&&!this.busyDevice(d.id)&&required.every(c=>(d.capabilities??[]).includes(c))&&!this.workflows.some(w=>w.deviceId===d.id&&activeStates.has(w.status)));
+    // Reserve each virtual device across direct gateway jobs, workflows and
+    // plans. A pending direct task must not be mixed with a new recipe.
+    const busyJobs=new Set(this.gateway.list()
+      .filter(job=>['queued','running'].includes(job.status))
+      .map(job=>job.deviceId));
+    const available=this.registry.list().filter(d=>!d.revoked&&(!selected||d.id===selected)&&this.gateway.online(d.id)
+      &&!busyJobs.has(d.id)&&!this.busyDevice(d.id)
+      &&required.every(c=>(d.capabilities??[]).includes(c))
+      &&!this.workflows.some(w=>w.deviceId===d.id&&activeStates.has(w.status)));
     available.sort((a,b)=>a.id.localeCompare(b.id));
     return available[0]?.id??null;
   }

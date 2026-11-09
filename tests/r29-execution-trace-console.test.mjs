@@ -15,6 +15,14 @@ test('R29 read-only execution trace explorer is in Agent/Task Center',()=>{
   assert.ok(panel.includes('id="'+id+'"'),id);
  assert.ok(panel.includes('data-nav-view="tasks"'));
 });
+test('R30 parent console supports read-only load-more with stable cursor and deduplication',()=>{
+ assert.ok(html.includes('id="execution-trace-more"'));
+ assert.ok(app.includes("loadMoreExecutionTraces"));
+ assert.ok(app.includes("encodeURIComponent(executionTraceCursor)"));
+ assert.ok(app.includes("new Set(executionTraceRecords.map(r=>r.id))"));
+ assert.ok(app.includes("page.nextCursor"));
+ assert.ok(app.includes("executionTraceBusy"));
+});
 test('R29 console uses parent-only read endpoints and escapes trace details',()=>{
  assert.ok(app.includes("if(authorizedActor!=='parent')return;"));
  assert.ok(app.includes("fetch('/api/executions?limit=25'"));

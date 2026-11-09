@@ -32,14 +32,50 @@ export class ExecutionTraceProjector{
     updatedAt:w.updatedAt,reason:w.reason??null,record:w}))
   ];
  }
- list({limit=25,kind,deviceId}={}){
+ #sorted({limit=25,kind,deviceId}={}){
   if(!validLimit(limit)||kind!==undefined&&!['plan','workflow'].includes(kind)
    ||deviceId!==undefined&&!(typeof deviceId==='string'&&/^dev-[0-9a-f-]{36}$/.test(deviceId)))
    throw Error('INVALID_EXECUTION_TRACE_FILTER');
   return this.#roots().filter(r=>(!kind||r.kind===kind)
    &&(!deviceId||r.deviceId===deviceId))
    .sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt)
-     ||a.id.localeCompare(b.id)).slice(0,limit).map(({record,...meta})=>copy(meta));
+     ||a.id.localeCompare(b.id));
+ }
+ list(options={}){
+  return this.#sorted(options).slice(0,options.limit??25)
+   .map(({record,...meta})=>copy(meta));
+ }
+ // Keyset pagination is stable under newly inserted executions. Cursor
+ // carries only the last (createdAt, ID) key plus bound filter scope.
+ page({limit=25,kind,deviceId,cursor}={}){
+  const roots=this.#sorted({limit,kind,deviceId});
+  let key=null;
+  if(cursor!==undefined){
+   if(typeof cursor!=='string'||cursor.length>350||! /^[A-Za-z0-9_-]{12,350}$/.test(cursor))
+    throw Error('INVALID_EXECUTION_TRACE_CURSOR');
+   let decoded;
+   try{decoded=JSON.parse(Buffer.from(cursor,'base64url').toString('utf8'));}
+   catch{throw Error('INVALID_EXECUTION_TRACE_CURSOR');}
+   if(!decoded||decoded.v!==1||!validId(decoded.id)
+    ||typeof decoded.at!=='string'||!Number.isFinite(Date.parse(decoded.at))
+    ||decoded.kind!==(kind??null)||decoded.deviceId!==(deviceId??null)
+    ||Object.keys(decoded).sort().join(',')!=='at,deviceId,id,kind,v'
+    ||Buffer.from(JSON.stringify(decoded)).toString('base64url')!==cursor)
+    throw Error('INVALID_EXECUTION_TRACE_CURSOR');
+   key={at:Date.parse(decoded.at),id:decoded.id};
+  }
+  const remaining=key?roots.filter(r=>{
+   const at=Date.parse(r.createdAt);
+   return at<key.at||(at===key.at&&r.id.localeCompare(key.id)>0);
+  }):roots;
+  const page=remaining.slice(0,limit);
+  const hasMore=remaining.length>limit;
+  const last=page.at(-1);
+  return {executions:page.map(({record,...meta})=>copy(meta)),
+   hasMore,nextCursor:hasMore?Buffer.from(JSON.stringify({
+    v:1,at:last.createdAt,id:last.id,kind:kind??null,
+    deviceId:deviceId??null
+   })).toString('base64url'):null};
  }
  get(id){
   if(!validId(id))throw Error('INVALID_EXECUTION_TRACE_ID');
