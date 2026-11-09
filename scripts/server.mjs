@@ -141,6 +141,10 @@ const skillPackages=new SkillPackageRegistry({
  file:process.env.ALEX_SKILL_PACKAGES_FILE??resolve(appDir,'.local','skill-packages.json'),
  authorizePackage:manifest=>skillPackageTrust.assertTrusted(manifest)
 });
+const skillTransactions=new SkillPackageTransactions({
+ file:process.env.ALEX_SKILL_TRANSACTIONS_FILE??resolve(appDir,'.local','skill-transactions.json'),
+ registry:skillPackages,trust:skillPackageTrust
+});
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
 if(!['rules','compatible'].includes(process.env.ALEX_PLAN_PROVIDER??'rules'))throw new Error('INVALID_PLAN_PROVIDER');
@@ -205,6 +209,10 @@ await learnerPrivacy.load();
 await skillGovernance.load();
 await skillPackageTrust.load();
 await skillPackages.load();
+await skillTransactions.load();
+const skillRecoveryAtStartup=await skillTransactions.recover('parent');
+if(skillRecoveryAtStartup.pending)
+ console.warn('SKILL_TRANSACTIONS_REQUIRE_REVIEW',skillRecoveryAtStartup.pending);
 await learningPlans.load();
 await gateway.load();
 await workflows.load();
@@ -241,11 +249,14 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SKILL_REVIEW_CONFLICT','SKILL_PACKAGE_EXISTS',
   'SKILL_VERSION_NOT_NEWER','SKILL_ATTESTATION_EXISTS',
   'PUBLISHER_ALREADY_EXISTS','SKILL_ROLLBACK_NOT_OLDER',
-  'SKILL_ROLLBACK_REQUIRES_REVIEW'].includes(message)?409:
+  'SKILL_ROLLBACK_REQUIRES_REVIEW','SKILL_TRANSACTION_PENDING_RECOVERY',
+  'SKILL_TRANSACTION_ALREADY_INSTALLED','SKILL_TRANSACTION_IDEMPOTENCY_CONFLICT',
+  'SKILL_TRANSACTION_EVIDENCE_DRIFT','SKILL_TRANSACTION_REQUIRES_REVIEW',
+  'SKILL_TRANSACTION_NOT_COMMITTED'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED','SKILL_NOT_APPROVED',
-  'SKILL_NOT_INSTALLED','SKILL_PACKAGE_HISTORY_FULL','SKILL_ATTESTATION_REQUIRED',
+  'SKILL_NOT_INSTALLED','SKILL_TRANSACTION_LIMIT','SKILL_PACKAGE_HISTORY_FULL','SKILL_ATTESTATION_REQUIRED',
   'PUBLISHER_NOT_ACTIVE','INVALID_SKILL_SIGNATURE'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
@@ -1085,6 +1096,17 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
   }
+  if(req.method==='GET' && pathname==='/api/skills/transactions'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const records=skillTransactions.list('parent').records.map(r=>({
+      operationId:r.intent.operationId,phase:r.phase,id:r.intent.id,version:r.intent.version,
+      expectedCurrentVersion:r.intent.expectedCurrentVersion,
+      publisherId:r.intent.publisherId,manifestSha256:r.intent.manifestSha256,
+      artifactSha256:r.intent.artifactSha256,seq:r.seq,hash:r.hash
+    }));
+    send(res,200,{ok:true,records,executable:false});return;
+  }
   if(req.method==='GET' && pathname==='/api/skills/reconciliation'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -1164,6 +1186,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         else if(action==='review')result={ok:true,...await skillPackages.review(actor,data)};
         else if(action==='install')result={ok:true,...await skillPackages.install(actor,data)};
         else if(action==='preview')result={ok:true,preview:skillPackages.preview(actor,data)};
+        else if(action==='apply')result={ok:true,...await skillTransactions.apply(actor,data)};
+        else if(action==='recover')result={ok:true,...await skillTransactions.recover(actor)};
         else if(action==='rollback')result={ok:true,...await skillPackages.rollback(actor,data)};
         else if(action==='uninstall')result={ok:true,...await skillPackages.uninstall(actor,data)};
         else if(action==='reference')result={ok:true,...await skillPackages.setReference(actor,data)};
