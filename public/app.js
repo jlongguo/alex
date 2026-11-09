@@ -642,6 +642,82 @@ $('skill-governance-list').addEventListener('click',async event=>{
  }catch(error){notify(error.message,true);}
  finally{skillGovernanceBusy=false;await refreshSkillGovernance();}
 });
+// R33: parent-managed declarative packages. Not executable Skill plugins.
+let skillPackagesBusy=false;
+async function refreshSkillPackages(){
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ try{
+  const [packagesResponse,usageResponse]=await Promise.all([
+   fetch('/api/skills/packages',{cache:'no-store'}),
+   fetch('/api/skills/usage',{cache:'no-store'})
+  ]);
+  if(!packagesResponse.ok||!usageResponse.ok)throw Error('需要家长授权查看技能包与引用审计');
+  const registry=await packagesResponse.json(),usage=await usageResponse.json();
+  const installed=new Map(registry.installed.map(i=>[i.id,i.version]));
+  const references=new Map();
+  for(const row of [...usage.runtime,...usage.explicit])
+   references.set(row.skillId,(references.get(row.skillId)||0)+1);
+  $('skill-packages-list').innerHTML=registry.packages.map(item=>{
+   const m=item.manifest,version=installed.get(m.id),installedHere=version===m.version;
+   const controls=item.status==='pending'
+    ?'<button type="button" data-package-action="approve" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">批准</button>'+
+     '<button type="button" data-package-action="revoke" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">拒绝</button>'
+    :item.status==='approved'
+     ?(installedHere
+       ?'<button type="button" data-package-action="uninstall" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">卸载元数据</button>'
+       :'<button type="button" data-package-action="install" data-package-current="'+esc(version??'')+'" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">安装元数据</button>')+
+      '<button type="button" data-package-action="revoke" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">撤销审核</button>'
+     :'';
+   return '<div class="event-row"><span class="event-kind">'+esc(item.status)+'</span>'+
+    '<span class="event-message"><strong>'+esc(m.name)+'</strong> · '+esc(m.id)+' @ '+esc(m.version)+
+    '<small>权限：'+esc(m.permissions.join(', ')||'无')+' · 角色：'+
+    esc(m.allowedActors.join(', '))+' · 依赖：'+esc(m.dependencies.map(x=>x.id+'@'+x.version).join(', ')||'无')+
+    ' · '+(installedHere?'已安装元数据':'未安装')+' · 关联项 '+(references.get(m.id)||0)+'</small></span>'+controls+'</div>';
+  }).join('')||'<p class="helper">尚无提交的技能包。</p>';
+  const renderReference=row=>'<div class="event-row"><span class="event-kind">'+esc(row.kind)+'</span>'+
+    '<span class="event-message">'+esc(row.skillId)+' @ '+esc(row.version??'未指定')+
+    '<small>'+esc(row.resourceId)+' · '+esc(row.source)+' · '+
+    esc(row.status??'无运行状态')+' · '+esc(row.provenance)+'</small></span></div>';
+  $('skill-usage-list').innerHTML=[...usage.runtime,...usage.explicit].map(renderReference).join('')||
+   '<p class="helper">暂无引用。</p>';
+  $('skill-usage-notice').textContent='运行关系 '+usage.runtime.length+
+   ' 项；家长手工登记 '+usage.explicit.length+' 项。模板声明或任务引用不代表实际执行。';
+  $('skill-packages-notice').textContent='共 '+registry.packages.length+
+   ' 个版本；'+registry.installed.length+' 个元数据安装。不会加载第三方代码。';
+ }catch(error){$('skill-packages-notice').textContent=error.message;}
+}
+$('skill-packages-refresh').addEventListener('click',()=>void refreshSkillPackages());
+$('skill-package-submit-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ let manifest;
+ try{manifest=JSON.parse($('skill-package-manifest').value);}
+ catch{notify('Manifest 必须是有效 JSON',true);return;}
+ skillPackagesBusy=true;
+ try{
+  await api('/api/skills/packages',{action:'submit',manifest});
+  $('skill-package-manifest').value='';
+  notify('已提交技能包元数据，等待家长单独审批');
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillPackages();}
+});
+$('skill-packages-list').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-package-action]');
+ if(!button||authorizedActor!=='parent'||skillPackagesBusy)return;
+ const action=button.dataset.packageAction,id=button.dataset.packageId,version=button.dataset.packageVersion;
+ if(!['approve','revoke','install','uninstall'].includes(action))return;
+ if((action==='revoke'||action==='uninstall')&&!window.confirm('确认修改 '+id+' @ '+version+' 的安装/审批状态？'))return;
+ skillPackagesBusy=true;
+ try{
+  let payload={action,id,version};
+  if(action==='approve'||action==='revoke')payload={action:'review',id,version,decision:action};
+  if(action==='install')payload.expectedCurrentVersion=button.dataset.packageCurrent||null;
+  if(action==='uninstall')payload={action,id,expectedVersion:version};
+  await api('/api/skills/packages',payload);
+  notify('技能包元数据操作完成：'+id+' @ '+version);
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillPackages();}
+});
 async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
@@ -703,6 +779,7 @@ async function refreshFamily(){
   $('memory-list').innerHTML=memories.slice(-40).reverse().map(m=>`<div class="event-row"><span class="event-time">${esc(m.scope)}</span><span class="event-kind">记忆</span><span class="event-message" title="${esc(m.text)}">${esc(m.text)}</span><button type="button" data-remove-memory="${esc(m.id)}">删除</button></div>`).join('')||'<p class="helper">没有已保存的长期记忆。</p>';
   await refreshProviderBilling();
   await refreshSkillGovernance();
+  await refreshSkillPackages();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
 $('provider-billing-refresh').addEventListener('click',()=>void refreshProviderBilling(true));
