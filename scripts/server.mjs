@@ -976,6 +976,10 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       }
       const kind=params.get('kind')??undefined;
       const deviceId=params.get('deviceId')??undefined;
+      if(kind!==undefined&&!['plan','workflow'].includes(kind)
+       ||deviceId!==undefined&&!/^dev-[0-9a-f-]{36}$/.test(deviceId)){
+        send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_FILTER'});return;
+      }
       send(res,200,{ok:true,executions:executionTraces.list({
         limit:Number(limit),kind,deviceId
       }),simulationOnly:true});return;
