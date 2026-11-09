@@ -79,6 +79,8 @@ test('R35 explicit rollback honors exact CAS version and preserves journal linea
   await r.install('parent',{id:'family.alpha',version:'1.1.0'});
   await assert.rejects(r.install('parent',{id:'family.alpha',version:'1.0.0',
    expectedCurrentVersion:'1.1.0'}),/SKILL_ROLLBACK_REQUIRES_REVIEW/);
+  await assert.rejects(r.install('parent',{id:'family.alpha',version:'1.0.0',
+   expectedCurrentVersion:'1.1.0',operation:'rollback'}),/SKILL_ROLLBACK_REQUIRES_REVIEW/);
   const prior=r.list('parent').history.length;
   await r.rollback('parent',{id:'family.alpha',version:'1.0.0',expectedCurrentVersion:'1.1.0'});
   assert.equal(r.list('parent').installed[0].version,'1.0.0');
