@@ -962,6 +962,17 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     send(res,200,{workflows:workflows.list(),recipes:WORKFLOW_RECIPES});return;
   }
+  if(req.method==='GET' && pathname==='/api/gateway/events'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const query=new URL(req.url,`http://${incomingHost}`).searchParams;
+    const after=query.get('after')??'0',limit=query.get('limit')??'100';
+    if(!/^\\d{1,15}$/.test(after)||!/^\\d{1,3}$/.test(limit)
+     ||Number(limit)<1||Number(limit)>500){
+      send(res,400,{ok:false,error:'INVALID_GATEWAY_EVENT_CURSOR'});return;
+    }
+    send(res,200,{ok:true,...gateway.getEvents(Number(after),{limit:Number(limit)})});return;
+  }
   if(req.method==='GET' && pathname==='/api/gateway/navigation-map'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
