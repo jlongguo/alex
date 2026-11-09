@@ -56,12 +56,12 @@ export class SkillRegistry {
     const semver=(v:string)=>/^\d+\.\d+\.\d+$/.test(v)?v.split('.').map(Number):null;
     const oldVersion=semver(previous.manifest.version);
     const nextVersion=semver(incoming.version);
-    if(!nextVersion||!oldVersion
-      ||nextVersion.every((v,i)=>v===oldVersion[i])
-      ||nextVersion[0]<oldVersion[0]
-      ||nextVersion[0]===oldVersion[0]&&nextVersion[1]<oldVersion[1]
-      ||nextVersion[0]===oldVersion[0]&&nextVersion[1]===oldVersion[1]
-        &&nextVersion[2]<=oldVersion[2])
+    if(!nextVersion||!oldVersion)throw new Error('SKILL_VERSION_NOT_NEWER');
+    const [nextMajor=0,nextMinor=0,nextPatch=0]=nextVersion;
+    const [oldMajor=0,oldMinor=0,oldPatch=0]=oldVersion;
+    if(nextMajor<oldMajor
+      ||nextMajor===oldMajor&&nextMinor<oldMinor
+      ||nextMajor===oldMajor&&nextMinor===oldMinor&&nextPatch<=oldPatch)
       throw new Error('SKILL_VERSION_NOT_NEWER');
     if(typeof plugin.execute!=='function')throw new Error('INVALID_SKILL_MANIFEST');
     // Validate the full manifest through the existing registration path.
