@@ -45,8 +45,8 @@ test('R28 durable gateway events connect dispatched jobs, result and presentatio
   assert.deepEqual(result.events.map(e=>e.seq),[1,2,3,4]);
   assert.ok(result.events.every(e=>e.jobId===job.id&&e.deviceId===t.d.deviceId));
   const persisted=await readFile(t.file,'utf8');
-  assert.ok(!persisted.includes('Sensitive child speech')===false,
-   'existing gateway task persistence intentionally includes virtual audio text');
+  assert.ok(persisted.includes('Sensitive child speech'),
+   'legacy task snapshot still stores virtual audio text; event history does not');
   const eventsJson=JSON.stringify(JSON.parse(persisted).events);
   assert.ok(!eventsJson.includes('Sensitive child speech'));
   assert.ok(!eventsJson.includes('params'));
