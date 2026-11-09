@@ -18,7 +18,7 @@ export function canonicalJson(v){
 }
 export const manifestDigest=manifest=>digest(Buffer.from(canonicalJson(manifest)));
 export const signedPayload=(manifestSha256,artifactSha256)=>
- Buffer.from('alex.skill.attestation.v1\\n'+manifestSha256+'\\n'+artifactSha256,'utf8');
+ Buffer.from('alex.skill.attestation.v1\n'+manifestSha256+'\n'+artifactSha256,'utf8');
 const strictBase64=value=>{
  if(typeof value!=='string'||!value||value.length>90000||
   !/^[a-zA-Z0-9+/]+={0,2}$/.test(value)||value.length%4!==0)
