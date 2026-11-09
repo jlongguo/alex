@@ -644,6 +644,67 @@ $('skill-governance-list').addEventListener('click',async event=>{
 });
 // R33: parent-managed declarative packages. Not executable Skill plugins.
 let skillPackagesBusy=false;
+// R34: trust UI handles public keys and offline signatures only; never private keys.
+let skillTrustBusy=false;
+async function refreshSkillTrust(){
+ if(authorizedActor!=='parent'||skillTrustBusy)return;
+ try{
+  const response=await fetch('/api/skills/trust',{cache:'no-store'});
+  if(!response.ok)throw Error('签名证明管理需要本地家长授权');
+  const state=await response.json();
+  $('skill-trust-publishers').innerHTML=state.publishers.map(p=>
+   '<div class="event-row"><span class="event-kind">'+esc(p.revoked?'已撤销':'可信')+'</span>'+
+   '<span class="event-message"><strong>'+esc(p.id)+'</strong> · SHA256:'+esc(p.fingerprint.slice(0,16))+
+   '…</span>'+(p.revoked?'':'<button type="button" data-revoke-publisher="'+esc(p.id)+'">撤销信任</button>')+'</div>'
+  ).join('')||'<p class="helper">暂无可信发布者。</p>';
+  $('skill-trust-events').innerHTML=state.events.slice(-30).reverse().map(e=>
+   '<div class="event-row"><span class="event-kind">'+esc(e.action)+'</span>'+
+   '<span class="event-message">'+esc(e.target)+' · '+esc(e.at)+
+   '<small>链摘要 '+esc(e.hash.slice(0,16))+'…</small></span></div>'
+  ).join('')||'<p class="helper">暂无信任变更事件。</p>';
+  $('skill-trust-notice').textContent='发布者 '+state.publishers.length+
+   ' 个；已验证版本 '+state.attestations.length+
+   ' 个。签名证明不等于运行隔离或执行授权。';
+ }catch(error){$('skill-trust-notice').textContent=error.message;}
+}
+$('skill-publisher-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||skillTrustBusy)return;
+ skillTrustBusy=true;
+ try{
+  await api('/api/skills/trust',{action:'enroll',publisherId:$('skill-publisher-id').value.trim(),
+   publicKeyPem:$('skill-publisher-key').value});
+  $('skill-publisher-key').value='';
+  notify('已登记发布者的公开密钥；私钥始终保留在本地签名端');
+ }catch(error){notify(error.message,true);}
+ finally{skillTrustBusy=false;await refreshSkillTrust();}
+});
+$('skill-attestation-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||skillTrustBusy)return;
+ let doc;
+ try{doc=JSON.parse($('skill-attestation-json').value);}
+ catch{notify('签名证明必须是有效 JSON',true);return;}
+ skillTrustBusy=true;
+ try{
+  await api('/api/skills/trust',{action:'attest',...doc});
+  $('skill-attestation-json').value='';
+  notify('包内容 SHA-256 与发布者签名均已校验');
+ }catch(error){notify(error.message,true);}
+ finally{skillTrustBusy=false;await refreshSkillTrust();await refreshSkillPackages();}
+});
+$('skill-trust-publishers').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-revoke-publisher]');
+ if(!button||authorizedActor!=='parent'||skillTrustBusy)return;
+ const publisherId=button.dataset.revokePublisher;
+ if(!window.confirm('撤销 '+publisherId+' 的发布者信任？未来审批与安装将被阻止。'))return;
+ skillTrustBusy=true;
+ try{
+  await api('/api/skills/trust',{action:'revoke',publisherId});
+  notify('发布者已撤销：'+publisherId);
+ }catch(error){notify(error.message,true);}
+ finally{skillTrustBusy=false;await refreshSkillTrust();}
+});
 async function refreshSkillPackages(){
  if(authorizedActor!=='parent'||skillPackagesBusy)return;
  try{
@@ -780,6 +841,7 @@ async function refreshFamily(){
   await refreshProviderBilling();
   await refreshSkillGovernance();
   await refreshSkillPackages();
+  await refreshSkillTrust();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
 $('provider-billing-refresh').addEventListener('click',()=>void refreshProviderBilling(true));

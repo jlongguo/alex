@@ -5,6 +5,8 @@ import {once} from 'node:events';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
+import {generateKeyPairSync,sign,createHash} from 'node:crypto';
+import {manifestDigest,signedPayload} from '../scripts/skill-package-trust.mjs';
 const cwd=resolve(import.meta.dirname,'..');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function boot(env){
@@ -37,6 +39,7 @@ test('R33 parent package API denies child and anonymous, persists metadata witho
   AGENT_PROVIDER:'rules',ALEX_CHAT_PROVIDER:'offline',
   ALEX_AUDIO_PROVIDER:'disabled',ALEX_REALTIME_PROVIDER:'disabled',
   ALEX_SPEECH_STREAM_PROVIDER:'disabled',ALEX_SKILL_PACKAGES_FILE:join(dir,'packages.json'),
+  ALEX_SKILL_TRUST_FILE:join(dir,'trust.json'),
   ALEX_SKILL_GOVERNANCE_FILE:join(dir,'skills.json'),STATE_FILE:join(dir,'state.json'),
   AUDIT_FILE:join(dir,'audit.jsonl'),MEMORY_FILE:join(dir,'memory.json'),
   DEVICES_FILE:join(dir,'devices.json'),PROFILES_FILE:join(dir,'profiles.json'),
@@ -68,6 +71,23 @@ test('R33 parent package API denies child and anonymous, persists metadata witho
   const added=await req(server.base,'/api/skills/packages',parent,{action:'submit',manifest:m});
   assert.equal(added.status,200);assert.equal(added.data.status,'pending');
   assert.equal((await req(server.base,'/api/skills/packages',parent,{action:'install',id:m.id,version:m.version})).data.error,'SKILL_NOT_APPROVED');
+  // R34 provenance is mandatory in the server, even for legacy R32/R33 HTTP flows.
+  assert.equal((await req(server.base,'/api/skills/packages',parent,{
+   action:'review',id:m.id,version:m.version,decision:'approve'
+  })).status,403);
+  const keyPair=generateKeyPairSync('ed25519');
+  const publicKeyPem=keyPair.publicKey.export({type:'spki',format:'pem'}).toString();
+  const artifact=Buffer.from('R34 trusted metadata test fixture');
+  const artifactSha256=createHash('sha256').update(artifact).digest('hex');
+  const signature=sign(null,signedPayload(manifestDigest(m),artifactSha256),
+    keyPair.privateKey).toString('base64');
+  assert.equal((await req(server.base,'/api/skills/trust',parent,{
+   action:'enroll',publisherId:'family.publisher',publicKeyPem
+  })).status,200);
+  assert.equal((await req(server.base,'/api/skills/trust',parent,{
+   action:'attest',id:m.id,version:m.version,publisherId:'family.publisher',
+   artifactBase64:artifact.toString('base64'),signature
+  })).status,200);
   assert.equal((await req(server.base,'/api/skills/packages',parent,{action:'review',id:m.id,version:m.version,decision:'approve'})).status,200);
   assert.equal((await req(server.base,'/api/skills/packages',parent,{action:'install',id:m.id,version:m.version})).status,200);
   const list=await req(server.base,'/api/skills/packages',parent);
