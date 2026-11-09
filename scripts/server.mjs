@@ -17,6 +17,7 @@ import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
+import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
@@ -132,8 +133,12 @@ const skillGovernance=new SkillGovernance({
  file:process.env.ALEX_SKILL_GOVERNANCE_FILE??resolve(appDir,'.local','skill-governance.json'),
  registry:core.skills
 });
+const skillPackageTrust=new SkillPackageTrust({
+ file:process.env.ALEX_SKILL_TRUST_FILE??resolve(appDir,'.local','skill-trust.json')
+});
 const skillPackages=new SkillPackageRegistry({
- file:process.env.ALEX_SKILL_PACKAGES_FILE??resolve(appDir,'.local','skill-packages.json')
+ file:process.env.ALEX_SKILL_PACKAGES_FILE??resolve(appDir,'.local','skill-packages.json'),
+ authorizePackage:manifest=>skillPackageTrust.assertTrusted(manifest)
 });
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
@@ -197,6 +202,7 @@ await profiles.load();
 await learnerCredentials.load();
 await learnerPrivacy.load();
 await skillGovernance.load();
+await skillPackageTrust.load();
 await skillPackages.load();
 await learningPlans.load();
 await gateway.load();
@@ -232,11 +238,13 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SKILL_DEPENDENCY_MISSING','SKILL_DEPENDENCY_IN_USE',
   'SKILL_PERMISSION_EXPANSION_REQUIRES_UNINSTALL',
   'SKILL_REVIEW_CONFLICT','SKILL_PACKAGE_EXISTS',
-  'SKILL_VERSION_NOT_NEWER'].includes(message)?409:
+  'SKILL_VERSION_NOT_NEWER','SKILL_ATTESTATION_EXISTS',
+  'PUBLISHER_ALREADY_EXISTS'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED','SKILL_NOT_APPROVED',
-  'SKILL_NOT_INSTALLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
+  'SKILL_NOT_INSTALLED','SKILL_ATTESTATION_REQUIRED',
+  'PUBLISHER_NOT_ACTIVE','INVALID_SKILL_SIGNATURE'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -1083,6 +1091,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       packages:skillPackages.list('parent')
     })});return;
   }
+  if(req.method==='GET' && pathname==='/api/skills/trust'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const state=skillPackageTrust.list('parent');
+    send(res,200,{ok:true,publishers:state.publishers.map(({id,fingerprint,revoked})=>({id,fingerprint,revoked})),
+      attestations:state.attestations.map(({id,version,publisherId,manifestSha256,artifactSha256})=>({
+        id,version,publisherId,manifestSha256,artifactSha256
+      })),events:state.events});return;
+  }
   if(req.method==='GET' && pathname==='/api/skills/packages'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -1115,6 +1132,20 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(result.changed&&!result.skill.enabled){
           for(const principal of activeCompanionControllers.keys())abortCompanion(principal);
         }
+      }else if(pathname==='/api/skills/trust'){
+        if(auth.mode!=='local')throw Error('LOCAL_AUTH_REQUIRED');
+        if(actor!=='parent')throw Error('PARENT_REQUIRED');
+        if(data.action==='enroll')result={ok:true,...await skillPackageTrust.enroll(actor,data)};
+        else if(data.action==='revoke')result={ok:true,...await skillPackageTrust.revoke(actor,data)};
+        else if(data.action==='attest'){
+          const found=skillPackages.list('parent').packages.find(p=>
+            p.manifest.id===data.id&&p.manifest.version===data.version);
+          if(!found)throw Error('UNKNOWN_SKILL_PACKAGE');
+          result={ok:true,...await skillPackageTrust.attest(actor,{
+            manifest:found.manifest,artifactBase64:data.artifactBase64,
+            publisherId:data.publisherId,signature:data.signature
+          })};
+        }else throw Error('INVALID_SKILL_TRUST_ACTION');
       }else if(pathname==='/api/skills/packages'){
         if(auth.mode!=='local')throw Error('LOCAL_AUTH_REQUIRED');
         if(actor!=='parent')throw Error('PARENT_REQUIRED');
