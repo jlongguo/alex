@@ -97,36 +97,3 @@ test('R34 parent revocation, duplicate submissions and invalid publisher key are
   await assert.rejects(f.trust.revoke('parent',{publisherId:'family.publisher'}),/PUBLISHER_NOT_ACTIVE/);
  }finally{await f.close();}
 });
-,publisherId:'family.publisher',
-   signature:valid}),/INVALID_ARTIFACT_BASE64/);
-  assert.equal(f.trust.list('parent').attestations.length,0);
- }finally{await f.close();}
-});
-test('R34 fail closed on altered audit chain, unsigned state or publisher key replacement',async()=>{
- const f=await fixture();try{
-  const k=keys(),m=manifest();
-  await f.trust.enroll('parent',{publisherId:'family.publisher',publicKeyPem:pem(k.publicKey)});
-  await f.trust.attest('parent',{manifest:m,publisherId:'family.publisher',
-   artifactBase64:artifact.toString('base64'),signature:signature(k.privateKey,m)});
-  const file=join(f.dir,'trust.json');
-  const original=JSON.parse(await readFile(file,'utf8'));
-  const tampered=structuredClone(original);tampered.events[0].target='someone.else';
-  await writeFile(file,JSON.stringify(tampered));
-  await assert.rejects(new SkillPackageTrust({file}).load(),/INVALID_SKILL_TRUST_STATE/);
-  tampered.events=structuredClone(original.events);
-  tampered.publishers[0].publicKeyPem=pem(keys().publicKey);
-  await writeFile(file,JSON.stringify(tampered));
-  await assert.rejects(new SkillPackageTrust({file}).load(),/INVALID_SKILL_TRUST_STATE/);
- }finally{await f.close();}
-});
-test('R34 parent revocation, duplicate submissions and invalid publisher key are rejected',async()=>{
- const f=await fixture();try{
-  const k=keys();
-  assert.throws(()=>f.trust.enroll('child',{publisherId:'family.publisher',publicKeyPem:pem(k.publicKey)}),/PARENT_REQUIRED/);
-  assert.throws(()=>f.trust.enroll('parent',{publisherId:'family.publisher',publicKeyPem:'invalid'}),/INVALID_PUBLISHER_KEY/);
-  await f.trust.enroll('parent',{publisherId:'family.publisher',publicKeyPem:pem(k.publicKey)});
-  await assert.rejects(f.trust.enroll('parent',{publisherId:'family.publisher',publicKeyPem:pem(k.publicKey)}),/PUBLISHER_ALREADY_EXISTS/);
-  await f.trust.revoke('parent',{publisherId:'family.publisher'});
-  await assert.rejects(f.trust.revoke('parent',{publisherId:'family.publisher'}),/PUBLISHER_NOT_ACTIVE/);
- }finally{await f.close();}
-});
