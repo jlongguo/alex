@@ -967,7 +967,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     const query=new URL(req.url,`http://${incomingHost}`).searchParams;
     const after=query.get('after')??'0',limit=query.get('limit')??'100';
-    if(!/^\\d{1,15}$/.test(after)||!/^\\d{1,3}$/.test(limit)
+    if(!/^\d{1,15}$/.test(after)||!/^\d{1,3}$/.test(limit)
      ||Number(limit)<1||Number(limit)>500){
       send(res,400,{ok:false,error:'INVALID_GATEWAY_EVENT_CURSOR'});return;
     }
