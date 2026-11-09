@@ -33,13 +33,13 @@ test('R31 parent disables trusted skill durably and Plan/Skill invocation denies
 });
 test('R31 child and invalid manifests cannot modify durable permission',async()=>{
  const f=await fixture();try{
-  await assert.rejects(f.control.set('child',{id:'learning.english',
+  assert.throws(()=>f.control.set('child',{id:'learning.english',
    enabled:false,expectedVersion:'0.2.0'}),/PARENT_REQUIRED/);
   await assert.rejects(f.control.set('parent',{id:'learning.english',
    enabled:false,expectedVersion:'0.1.0'}),/SKILL_VERSION_REVIEW_REQUIRED/);
   await assert.rejects(f.control.set('parent',{id:'nonexistent.skill',
    enabled:false,expectedVersion:'1.0.0'}),/UNKNOWN_SKILL/);
-  await assert.rejects(f.control.set('parent',{id:'learning.english',
+  assert.throws(()=>f.control.set('parent',{id:'learning.english',
    enabled:'false',expectedVersion:'0.2.0'}),/INVALID_SKILL_GOVERNANCE_UPDATE/);
   assert.equal(f.core.skills.list().find(x=>x.id==='learning.english').enabled,true);
  }finally{await f.close();}
