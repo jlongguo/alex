@@ -38,11 +38,11 @@ test('R32 child and invalid manifests cannot register, approve or view packages'
  const f=await fixture();try{
   const r=f.registry;
   assert.throws(()=>r.list('child'),/PARENT_REQUIRED/);
-  await assert.rejects(r.submit('child',manifest()),/PARENT_REQUIRED/);
-  await assert.rejects(r.submit('parent',{...manifest(),execute:'process.exit(0)'}),/INVALID_SKILL_PACKAGE_MANIFEST/);
-  await assert.rejects(r.submit('parent',{...manifest(),inputSchema:{$ref:'https://example.org/manifest'}}),/INVALID_SKILL_PACKAGE_MANIFEST/);
+  assert.throws(()=>r.submit('child',manifest()),/PARENT_REQUIRED/);
+  assert.throws(()=>r.submit('parent',{...manifest(),execute:'process.exit(0)'}),/INVALID_SKILL_PACKAGE_MANIFEST/);
+  assert.throws(()=>r.submit('parent',{...manifest(),inputSchema:{$ref:'https://example.org/manifest'}}),/INVALID_SKILL_PACKAGE_MANIFEST/);
   await r.submit('parent',manifest());
-  await assert.rejects(r.review('child',{id:'family.learning',version:'1.0.0',decision:'approve'}),/PARENT_REQUIRED/);
+  assert.throws(()=>r.review('child',{id:'family.learning',version:'1.0.0',decision:'approve'}),/PARENT_REQUIRED/);
   await assert.rejects(r.submit('parent',manifest()),/SKILL_PACKAGE_EXISTS/);
  }finally{await f.close();}
 });
