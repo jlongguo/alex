@@ -170,6 +170,10 @@
           <button type="submit">下发模拟导航</button>
         </form>
         <div id="gateway-tasks" class="event-list" aria-live="polite"></div>
+        <div class="panel-header"><div><div class="eyebrow">DURABLE DEVICE EVENTS · R28</div><h3>设备执行事件（家长可见）</h3></div></div>
+        <p class="helper">只记录事件类型、设备、任务、关联请求与结果；不复制孩子的语音内容。事件按序列号排列，发生历史截断时会提示。</p>
+        <div id="gateway-events-notice" class="helper" role="status" aria-live="polite">正在读取设备事件…</div>
+        <div id="gateway-events" class="event-list" aria-live="polite"></div>
         <div class="helper" style="margin-top:10px">虚拟导航位置反馈（仅模拟坐标，不表示真实机器人位置）</div>
         <svg id="gateway-navigation-map" viewBox="0 0 600 340" role="img" aria-label="已配对虚拟机器人的模拟地图坐标" style="width:100%;max-height:255px;border:1px solid var(--border, #dde4ed);border-radius:12px;background:#f1f6fa"></svg>
       </section>
