@@ -155,19 +155,25 @@ export class ProviderBillingReconciler{
    const key=[report.provider,report.currency,item.model,item.metric].join('\u001f');
    const group=groups.get(key)??{provider:report.provider,currency:report.currency,
     model:item.model,metric:item.metric,amountMinor:0,billedQuantity:0,
-    localQuantity:0,variance:0,status:item.status};
+    localQuantity:0,variance:0,status:item.status,matchedItems:0};
    group.amountMinor+=item.amountMinor;group.billedQuantity+=item.quantity;
    if(!Number.isSafeInteger(group.amountMinor)||!Number.isFinite(group.billedQuantity))
     throw Error('PROVIDER_BILLING_AGGREGATE_OVERFLOW');
-   if(item.status==='comparable'){
-    group.localQuantity+=item.localQuantity;group.variance+=item.variance;
-   }else group.status='not_comparable';
+   // One provider response window can be present in multiple invoice rows
+   // or overlapping statements; do not count that local usage twice.
+   group.matchedItems++;
+   if(group.matchedItems>1||item.status!=='comparable')
+    group.status='not_comparable';
+   else{
+    group.localQuantity=item.localQuantity;group.variance=item.variance;
+   }
    groups.set(key,group);
   }
   return {statementCount:reports.length,
    currencyTotals:[...currencies.values()].map(x=>({...x,statementIds:[...x.statementIds]})),
-   groups:[...groups.values()].map(x=>x.status==='comparable'?x:{
-    ...x,localQuantity:null,variance:null
+   groups:[...groups.values()].map(({matchedItems,...x})=>x.status==='comparable'?x:{
+    ...x,localQuantity:null,variance:null,
+    reason:matchedItems>1?'Multiple invoice lines or overlapping statement windows cannot be disambiguated':'Vendor usage unit is not locally comparable'
    }),currencyConversion:'none'};
  }
 }
