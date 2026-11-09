@@ -91,8 +91,12 @@ test('R28 event cursor validates bounds and preserves replay-gap information',as
   await recovered.load();
   const result=recovered.getEvents(0,{limit:2});
   assert.equal(result.cursorExpired,true);
-  assert.equal(result.oldestSeq,301);
-  assert.deepEqual(result.events.map(x=>x.seq),[301,302]);
+  // Restart adds a fail-closed stop event for the queued job, advancing
+  // the 500-item ring by one. This is an expected safety transition.
+  assert.equal(result.oldestSeq,302);
+  assert.deepEqual(result.events.map(x=>x.seq),[302,303]);
+  assert.equal(result.latestSeq,801);
+  assert.equal(result.events[0].status,'running');
  }finally{await t.close();}
 });
 test('R28 rejects tampered event sequences or payload fields at startup',async()=>{
