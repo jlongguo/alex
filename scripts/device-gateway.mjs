@@ -45,7 +45,9 @@ export class DeviceGateway {
          ||typeof e.jobId!=='string'||!/^job-[0-9a-f-]{36}$/.test(e.jobId)
          ||typeof e.at!=='string'||!Number.isFinite(Date.parse(e.at))
          ||!['queued','running','succeeded','failed','stopped','cancelled'].includes(e.status)
-         ||Object.keys(e).sort().join(',')!=='at,deviceId,jobId,seq,status,type')
+         ||(e.requestId!==undefined&&!/^[a-zA-Z0-9_-]{8,100}$/.test(e.requestId))
+         ||!['at,deviceId,jobId,requestId,seq,status,type',
+           'at,deviceId,jobId,seq,status,type'].includes(Object.keys(e).sort().join(',')))
          throw Error('INVALID_GATEWAY_EVENTS');
         previous=e.seq;
       }
@@ -66,7 +68,7 @@ export class DeviceGateway {
   save(){return this.store.save({schemaVersion:1,jobs:this.jobs,eventSeq:this.eventSeq,events:this.events});}
   #record(type,job){
     const entry={seq:++this.eventSeq,type,deviceId:job.deviceId,jobId:job.id,
-      status:job.status,at:new Date(this.clock()).toISOString()};
+      requestId:job.requestId,status:job.status,at:new Date(this.clock()).toISOString()};
     this.events.push(entry);if(this.events.length>500)this.events.shift();
     return entry;
   }
