@@ -108,8 +108,19 @@ export class ProviderBillingReconciler{
    throw Error('INVALID_PROVIDER_BILLING_RECONCILER');
   this.statements=statements;this.journal=journal;
  }
- report(){
-  return this.statements.list().map(statement=>{
+ report({from,to,provider}={}){
+  if((from!==undefined||to!==undefined)
+   &&(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<=from))
+   throw Error('INVALID_PROVIDER_BILLING_REPORT_WINDOW');
+  if(provider!==undefined&&(typeof provider!=='string'||!provider||provider.length>80))
+   throw Error('INVALID_PROVIDER_BILLING_REPORT_FILTER');
+  return this.statements.list().filter(statement=>{
+   if(provider&&statement.provider!==provider)return false;
+   const start=Date.parse(statement.periodStart),end=Date.parse(statement.periodEnd);
+   if(from!==undefined&&end<=from)return false;
+   if(to!==undefined&&start>=to)return false;
+   return true;
+  }).map(statement=>{
    const from=Date.parse(statement.periodStart),to=Date.parse(statement.periodEnd);
    const items=statement.items.map(item=>{
     if(item.metric!=='pcm_bytes')
@@ -131,5 +142,38 @@ export class ProviderBillingReconciler{
     accountingBoundary:'local-telemetry-versus-vendor-statement',
     note:'Variance is a quantity difference only; it is not a monetary credit or proof of vendor billing error.'};
   });
+ }
+ summary(options={}){
+  const reports=this.report(options),currencies=new Map(),groups=new Map();
+  for(const report of reports)for(const item of report.items){
+   const currency=currencies.get(report.currency)??{currency:report.currency,
+    amountMinor:0,statementIds:new Set()};
+   currency.amountMinor+=item.amountMinor;
+   if(!Number.isSafeInteger(currency.amountMinor))
+    throw Error('PROVIDER_BILLING_AGGREGATE_OVERFLOW');
+   currency.statementIds.add(report.statementId);currencies.set(report.currency,currency);
+   const key=[report.provider,report.currency,item.model,item.metric].join('\u001f');
+   const group=groups.get(key)??{provider:report.provider,currency:report.currency,
+    model:item.model,metric:item.metric,amountMinor:0,billedQuantity:0,
+    localQuantity:0,variance:0,status:item.status,matchedItems:0};
+   group.amountMinor+=item.amountMinor;group.billedQuantity+=item.quantity;
+   if(!Number.isSafeInteger(group.amountMinor)||!Number.isFinite(group.billedQuantity))
+    throw Error('PROVIDER_BILLING_AGGREGATE_OVERFLOW');
+   // One provider response window can be present in multiple invoice rows
+   // or overlapping statements; do not count that local usage twice.
+   group.matchedItems++;
+   if(group.matchedItems>1||item.status!=='comparable')
+    group.status='not_comparable';
+   else{
+    group.localQuantity=item.localQuantity;group.variance=item.variance;
+   }
+   groups.set(key,group);
+  }
+  return {statementCount:reports.length,
+   currencyTotals:[...currencies.values()].map(x=>({...x,statementIds:[...x.statementIds]})),
+   groups:[...groups.values()].map(({matchedItems,...x})=>x.status==='comparable'?x:{
+    ...x,localQuantity:null,variance:null,
+    reason:matchedItems>1?'Multiple invoice lines or overlapping statement windows cannot be disambiguated':'Vendor usage unit is not locally comparable'
+   }),currencyConversion:'none'};
  }
 }

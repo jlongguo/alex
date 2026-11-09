@@ -21,11 +21,21 @@ test('R22 supplier billing controls live inside the parent-private family worksp
 test('R22 console fetches parent-only provider and statement endpoints without exposing credentials',()=>{
  assert.match(app,/fetch\('\/api\/audio\/provider-usage'/);
  assert.match(app,/fetch\('\/api\/audio\/provider-billing\/statements'/);
- assert.match(app,/fetch\('\/api\/audio\/provider-billing\/reconciliation'/);
+ assert.match(app,/fetch\(reconciliationUrl,/);
  assert.match(app,/api\('\/api\/audio\/provider-billing\/csv'/);
  assert.match(app,/authorizedActor!=='parent'/);
  assert.match(app,/JSON\.parse\(\$\('provider-billing-json'\)\.value\)/);
  assert.ok(!app.includes('ALEX_SPEECH_STREAM_API_KEY'));
+});
+test('R25 parent billing console wires UTC period/provider filters and separate currency totals',()=>{
+ for(const id of ['provider-billing-from','provider-billing-to','provider-billing-provider',
+  'provider-billing-cost-summary'])assert.ok(html.includes('id="'+id+'"'));
+ assert.ok(app.includes("new URLSearchParams()"));
+ assert.ok(app.includes("query.set('provider',provider)"));
+ assert.ok(app.includes("query.set('from',fromDate.toISOString())"));
+ assert.ok(app.includes("query.set('to',toDate.toISOString())"));
+ assert.ok(app.includes('summary.currencyTotals'));
+ assert.ok(css.includes('.provider-billing-filters'));
 });
 test('R22 dynamic supplier content is escaped and responsive styles are present',()=>{
  assert.ok(app.includes('esc(statement.provider)'));
