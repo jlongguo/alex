@@ -19,6 +19,7 @@ import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
 import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
+import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -1083,6 +1084,14 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
+  }
+  if(req.method==='GET' && pathname==='/api/skills/reconciliation'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const usage=projectSkillUsage({skills:core.skills,plans,workflows,learningPlans,
+      packages:skillPackages.list('parent')});
+    send(res,200,{ok:true,...reconcileSkillStores({registry:skillPackages.list('parent'),
+      trust:skillPackageTrust.list('parent'),usage})});return;
   }
   if(req.method==='GET' && pathname==='/api/skills/usage'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}

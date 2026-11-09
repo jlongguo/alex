@@ -267,6 +267,10 @@
             <p id="skill-packages-notice" class="helper" role="status" aria-live="polite">尚未加载技能包信息。</p>
             <p class="helper">升级前先预览新增/移除权限、依赖与引用影响；降级必须走显式回滚并接受家长确认。安装和回滚仍只改变元数据。</p>
             <div id="skill-package-impact" class="event-list" role="status" aria-live="polite"></div>
+            <div class="panel-header"><h3>R36 · 跨存储一致性检查（只读）</h3><button type="button" class="secondary-btn" id="skill-reconciliation-refresh">重新核对</button></div>
+            <p class="helper">核对发布者信任、已安装版本、依赖和运行时引用。发现异常时不会自动删除或重放任何任务。</p>
+            <p id="skill-reconciliation-status" class="helper" role="status" aria-live="polite">尚未检查。</p>
+            <div id="skill-reconciliation-findings" class="event-list" aria-live="polite"></div>
             <div id="skill-packages-list" class="event-list" aria-live="polite"></div>
             <h3>运行时技能引用（只读）</h3>
             <p id="skill-usage-notice" class="helper" role="status">尚未加载使用关系。</p>

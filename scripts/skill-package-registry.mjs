@@ -1,6 +1,7 @@
 // R32 metadata-only Skill package lifecycle. NEVER imports or executes package code.
 import {JsonStateStore} from './state-store.mjs';
 import {createHash} from 'node:crypto';
+import {analyzeSkillDependencies,requireSkillDependencyIntegrity} from './skill-dependency-graph.mjs';
 const idPattern=/^[a-z][a-z0-9.-]{2,79}$/;
 const versionPattern=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const allowedPermissions=new Set(['audio.input','audio.output','display.face','navigation.goto','navigation.dock']);
@@ -76,6 +77,10 @@ export class SkillPackageRegistry{
   if(actor!=='parent')fail('PARENT_REQUIRED');
   return this.#snapshot();
  }
+ dependencyGraph(actor){
+  if(actor!=='parent')fail('PARENT_REQUIRED');
+  return analyzeSkillDependencies(this.#snapshot());
+ }
  async load(){
   const saved=await this.store.load();
   if(!saved)return;
@@ -113,7 +118,21 @@ export class SkillPackageRegistry{
     !installed.has(r.skillId)||saved.installed.find(i=>i.id===r.skillId).version!==r.version)
     fail('INVALID_SKILL_PACKAGE_STATE');
   }
-  if(saved.schemaVersion===2)checkHistory(saved.history);
+  if(saved.schemaVersion===2){
+   checkHistory(saved.history);
+   // Detect torn, stale or tampered snapshots, not just a syntactically valid hash chain.
+   if(saved.history.length&&saved.history.at(-1).after!==checksum({
+     packages:saved.packages,installed:saved.installed,references:saved.references
+   }))fail('INVALID_SKILL_PACKAGE_HISTORY');
+  }
+  const refKeys=new Set();
+  for(const ref of saved.references){
+   const k=ref.kind+':'+ref.resourceId+':'+ref.skillId;
+   if(refKeys.has(k))fail('INVALID_SKILL_PACKAGE_STATE');
+   refKeys.add(k);
+  }
+  try{requireSkillDependencyIntegrity(saved);}
+  catch{fail('INVALID_SKILL_PACKAGE_STATE');}
   this.#state=structuredClone(saved.schemaVersion===1?
     {...saved,schemaVersion:2,history:[]}:saved);
  }
@@ -124,6 +143,7 @@ export class SkillPackageRegistry{
    const before=checksum({packages:next.packages,installed:next.installed,
     references:next.references});
    const value=fn(next);
+   requireSkillDependencyIntegrity(next);
    const after=checksum({packages:next.packages,installed:next.installed,
     references:next.references});
    if(next.history.length>=2000)fail('SKILL_PACKAGE_HISTORY_FULL');
@@ -194,6 +214,7 @@ export class SkillPackageRegistry{
   let trusted=false,trustError=null;
   try{this.authorizePackage(next,'preview');trusted=true;}
   catch(error){trustError=error instanceof Error?error.message:'SKILL_ATTESTATION_REQUIRED';}
+  const graph=analyzeSkillDependencies(state);
   const stale=(currentPin?.version??null)!==expectedCurrentVersion;
   const downgrade=!!currentPin&&compare(version,currentPin.version)<0;
   const blockers=[
@@ -209,7 +230,7 @@ export class SkillPackageRegistry{
   return structuredClone({id,version,currentVersion:currentPin?.version??null,
    status:candidate.status,change:!currentPin?'install':downgrade?'rollback':'upgrade',
    addedPermissions,removedPermissions,addedActors,removedActors,
-   missingDependencies,impactedReferences,dependentPins,blocked:blockers.length>0,
+   missingDependencies,impactedReferences,dependentPins,graph,blocked:blockers.length>0,
    blockers,executable:false});
  }
  rollback(actor,{id,version,expectedCurrentVersion}={}){

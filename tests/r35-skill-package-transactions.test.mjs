@@ -37,6 +37,30 @@ test('R35 atomic metadata journal stores ordered operations and recovers across 
   await assert.rejects(new SkillPackageRegistry({file:f.file}).load(),/INVALID_SKILL_PACKAGE_HISTORY/);
  }finally{await f.close();}
 });
+test('R36 detects tampered registry snapshot even when the history chain is unchanged',async()=>{
+ const f=await fixture();try{
+  await approve(f.reg,m('family.alpha','1.0.0'));
+  await f.reg.install('parent',{id:'family.alpha',version:'1.0.0'});
+  const forged=JSON.parse(await readFile(f.file,'utf8'));
+  forged.packages[0].manifest.description='modified without signed history';
+  await writeFile(f.file,JSON.stringify(forged));
+  await assert.rejects(new SkillPackageRegistry({file:f.file}).load(),
+   /INVALID_SKILL_PACKAGE_HISTORY/);
+ }finally{await f.close();}
+});
+test('R36 startup rejects duplicate references before accepting persisted family metadata',async()=>{
+ const f=await fixture();try{
+  await approve(f.reg,m('family.alpha','1.0.0'));
+  await f.reg.install('parent',{id:'family.alpha',version:'1.0.0'});
+  await f.reg.setReference('parent',{kind:'plan',resourceId:'p-1',
+   skillId:'family.alpha',version:'1.0.0',enabled:true});
+  const forged=JSON.parse(await readFile(f.file,'utf8'));
+  forged.references.push({...forged.references[0]});
+  await writeFile(f.file,JSON.stringify(forged));
+  await assert.rejects(new SkillPackageRegistry({file:f.file}).load(),
+   /INVALID_SKILL_PACKAGE_HISTORY|INVALID_SKILL_PACKAGE_STATE/);
+ }finally{await f.close();}
+});
 test('R35 legacy schema v1 migrates without losing installed metadata and writes v2',async()=>{
  const f=await fixture();try{
   const old={schemaVersion:1,packages:[{manifest:m('family.legacy','1.0.0'),status:'approved'}],
