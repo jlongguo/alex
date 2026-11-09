@@ -16,6 +16,7 @@ import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './work
 import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
+import {SkillPackageRegistry} from './skill-package-registry.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -130,6 +131,9 @@ const skillGovernance=new SkillGovernance({
  file:process.env.ALEX_SKILL_GOVERNANCE_FILE??resolve(appDir,'.local','skill-governance.json'),
  registry:core.skills
 });
+const skillPackages=new SkillPackageRegistry({
+ file:process.env.ALEX_SKILL_PACKAGES_FILE??resolve(appDir,'.local','skill-packages.json')
+});
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
 if(!['rules','compatible'].includes(process.env.ALEX_PLAN_PROVIDER??'rules'))throw new Error('INVALID_PLAN_PROVIDER');
@@ -192,6 +196,7 @@ await profiles.load();
 await learnerCredentials.load();
 await learnerPrivacy.load();
 await skillGovernance.load();
+await skillPackages.load();
 await learningPlans.load();
 await gateway.load();
 await workflows.load();
@@ -1063,6 +1068,11 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
   }
+  if(req.method==='GET' && pathname==='/api/skills/packages'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,...skillPackages.list('parent'),metadataOnly:true});return;
+  }
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
     send(res,200,{entries:memory.list(actor)});return;
@@ -1090,6 +1100,16 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(result.changed&&!result.skill.enabled){
           for(const principal of activeCompanionControllers.keys())abortCompanion(principal);
         }
+      }else if(pathname==='/api/skills/packages'){
+        if(auth.mode!=='local')throw Error('LOCAL_AUTH_REQUIRED');
+        if(actor!=='parent')throw Error('PARENT_REQUIRED');
+        const action=data.action;
+        if(action==='submit')result={ok:true,...await skillPackages.submit(actor,data.manifest)};
+        else if(action==='review')result={ok:true,...await skillPackages.review(actor,data)};
+        else if(action==='install')result={ok:true,...await skillPackages.install(actor,data)};
+        else if(action==='uninstall')result={ok:true,...await skillPackages.uninstall(actor,data)};
+        else if(action==='reference')result={ok:true,...await skillPackages.setReference(actor,data)};
+        else throw Error('INVALID_SKILL_PACKAGE_ACTION');
       }else if(pathname==='/api/learner/privacy'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,privacy:await learnerPrivacy.set(actor,data.profileId,data.preferences,
