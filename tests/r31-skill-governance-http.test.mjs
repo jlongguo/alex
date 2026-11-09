@@ -66,6 +66,10 @@ test('R31 parent-only Skill toggle persists across restart and rejects stale ver
    method:'POST',cookie:parent,data:payload});
   assert.equal(updated.status,200);assert.equal(updated.data.changed,true);
   assert.equal(updated.data.skill.enabled,false);
+  const blocked=await request(server.base,'/api/companion/open',{
+   method:'POST',cookie:parent,data:{mode:'story'}});
+  assert.equal(blocked.status,403);
+  assert.equal(blocked.data.error,'SKILL_DISABLED');
   assert.equal((await request(server.base,'/api/skills/governance',{
    method:'POST',cookie:parent,data:{...payload,expectedVersion:'0.1.0'}
   })).status,409);
