@@ -117,13 +117,11 @@ export class SkillPackageRegistry{
    if(!pkg)fail('UNKNOWN_SKILL_PACKAGE');
    if(decision==='approve'){
     if(pkg.status!=='pending')fail('SKILL_REVIEW_CONFLICT');
-    const prior=s.packages.filter(p=>p.manifest.id===id&&p.status==='approved');
-    for(const old of prior){
-     if(old.manifest.permissions.some(p=>!pkg.manifest.permissions.includes(p))||
-      old.manifest.allowedActors.some(a=>!pkg.manifest.allowedActors.includes(a))){}
-    }
     pkg.status='approved';
    }else{
+    if(s.installed.some(i=>s.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(i.id,i.version))
+       ?.manifest.dependencies.some(d=>key(d.id,d.version)===key(id,version))))
+      fail('SKILL_DEPENDENCY_IN_USE');
     pkg.status='revoked';
     // Revocation also removes installed package and its references.
     s.installed=s.installed.filter(i=>key(i.id,i.version)!==key(id,version));
