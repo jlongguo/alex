@@ -368,9 +368,56 @@ $('workflow-list').addEventListener('click',async event=>{
 });
 
 
+// R29 parent-visible read-only Plan / Skill / Virtual Gateway trace.
+let lastExecutionTracePoll=0,selectedExecutionTrace=null;
+async function refreshExecutionTraces(force=false){
+  if(authorizedActor!=='parent')return;
+  if(!force&&Date.now()-lastExecutionTracePoll<1800)return;
+  lastExecutionTracePoll=Date.now();
+  try{
+    const response=await fetch('/api/executions?limit=25',{cache:'no-store'});
+    if(!response.ok)throw new Error('执行追踪需要家长身份');
+    const list=(await response.json()).executions;
+    $('execution-trace-notice').textContent='已读取 '+list.length+' 项最近的模拟执行记录；仅展示历史，不会重新执行。';
+    $('execution-trace-list').innerHTML=list.map(record=>
+      '<div class="event-row"><span class="event-time">'+esc(record.status)+'</span>'+
+      '<span class="event-kind">'+esc(record.kind)+'</span><span class="event-message">'+
+      esc(record.id)+' · '+esc(record.deviceId)+'</span>'+
+      '<button type="button" data-execution-trace="'+esc(record.id)+'">查看步骤</button></div>'
+    ).join('')||'<p class="helper">尚无可追踪的受控计划或工作流。</p>';
+    if(selectedExecutionTrace&&list.some(r=>r.id===selectedExecutionTrace))
+      await openExecutionTrace(selectedExecutionTrace);
+    else if(!list.length)$('execution-trace-detail').textContent='';
+  }catch(error){$('execution-trace-notice').textContent=error.message;}
+}
+async function openExecutionTrace(id){
+  if(authorizedActor!=='parent'||! /^(plan|wf)-[0-9a-f-]{36}$/.test(id))return;
+  const response=await fetch('/api/executions/'+encodeURIComponent(id),{cache:'no-store'});
+  if(!response.ok){$('execution-trace-notice').textContent='执行追踪不可用';return;}
+  const trace=(await response.json()).trace;
+  selectedExecutionTrace=trace.id;
+  $('execution-trace-detail').innerHTML='<h3>执行明细：'+esc(trace.id)+'</h3>'+
+    (trace.retention.gatewayHistoryMayBeTruncated?
+     '<p class="helper">设备事件保留窗口已截断，不能认定旧事件完整。</p>':'')+
+    trace.steps.map(step=>
+      '<div class="event-row"><span class="event-time">'+esc(step.status)+'</span>'+
+      '<span class="event-kind">'+esc(step.stepId)+'</span><span class="event-message">'+
+      esc(step.kind)+' · '+esc(step.correlation)+
+      (step.skillId?' · Skill: '+esc(step.skillId):'')+
+      (step.job?' · Job: '+esc(step.job.jobId)+' ('+esc(step.job.status)+')':'')+
+      (step.dispatchRequestId?' · Request: '+esc(step.dispatchRequestId):'')+
+      ' · '+step.events.length+' 条设备事件</span></div>'
+    ).join('');
+}
+$('execution-trace-refresh').addEventListener('click',()=>void refreshExecutionTraces(true));
+$('execution-trace-list').addEventListener('click',e=>{
+  const button=e.target.closest('[data-execution-trace]');
+  if(button)void openExecutionTrace(button.dataset.executionTrace);
+});
 // v0.7 durable plan console. All state comes from authenticated server endpoints.
 let lastPlanPoll=0,planBusy=false;
 async function refreshPlans(){
+  void refreshExecutionTraces();
   if(authorizedActor!=='parent')return;
   if(Date.now()-lastPlanPoll<1400)return;lastPlanPoll=Date.now();
   try{

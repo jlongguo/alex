@@ -14,6 +14,7 @@ import {DeviceGateway} from './device-gateway.mjs';
 import {MAP} from '../dist/robot/map.js';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
 import {PlanOrchestrator} from './plan-orchestrator.mjs';
+import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -131,6 +132,7 @@ const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
   ?new CompatiblePlanProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL})
   :new RulePlanProvider();
 const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
+const executionTraces=new ExecutionTraceProjector({plans,workflows,gateway});
 // New companion text product lane. Never reuse the intent classifier as a
 // free-form chat engine; each provider is opt-in and completely tool-free.
 // Conversation APIs require verified local family auth (not insecure demo).
@@ -961,6 +963,34 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const actor=auth.actor(req);if(actor!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     send(res,200,{workflows:workflows.list(),recipes:WORKFLOW_RECIPES});return;
+  }
+  if(req.method==='GET' && (pathname==='/api/executions'
+    ||pathname.startsWith('/api/executions/'))){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    if(pathname==='/api/executions'){
+      const params=new URL(req.url,`http://${incomingHost}`).searchParams;
+      const limit=params.get('limit')??'25';
+      if(!/^\d{1,3}$/.test(limit)||Number(limit)<1||Number(limit)>100){
+        send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_FILTER'});return;
+      }
+      const kind=params.get('kind')??undefined;
+      const deviceId=params.get('deviceId')??undefined;
+      if(kind!==undefined&&!['plan','workflow'].includes(kind)
+       ||deviceId!==undefined&&!/^dev-[0-9a-f-]{36}$/.test(deviceId)){
+        send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_FILTER'});return;
+      }
+      send(res,200,{ok:true,executions:executionTraces.list({
+        limit:Number(limit),kind,deviceId
+      }),simulationOnly:true});return;
+    }
+    const id=pathname.slice('/api/executions/'.length);
+    if(!/^(plan|wf)-[0-9a-f-]{36}$/.test(id)){
+      send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_ID'});return;
+    }
+    const trace=executionTraces.get(id);
+    if(!trace){send(res,404,{ok:false,error:'UNKNOWN_EXECUTION_TRACE'});return;}
+    send(res,200,{ok:true,trace});return;
   }
   if(req.method==='GET' && pathname==='/api/gateway/events'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
