@@ -138,6 +138,13 @@ const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
   :new RulePlanProvider();
 const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
 const executionTraces=new ExecutionTraceProjector({plans,workflows,gateway});
+const companionSkillId={english:'learning.english',story:'story.interactive',quiz:'quiz.science'};
+function requireEnabledCompanionSkill(mode){
+  const id=companionSkillId[mode];
+  if(id&&core.skills.list().find(s=>s.id===id)?.enabled!==true)
+    throw Error('SKILL_DISABLED');
+}
+
 // New companion text product lane. Never reuse the intent classifier as a
 // free-form chat engine; each provider is opt-in and completely tool-free.
 // Conversation APIs require verified local family auth (not insecure demo).
@@ -217,7 +224,7 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SKILL_VERSION_REVIEW_REQUIRED'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
-  'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
+  'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -463,7 +470,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const input=await body(req);
     // Validate ownership before sending SSE headers; no other-role
     // transcript, even session metadata, may leak through error events.
-    conversations.get(actor,input.id);
+    const ownedSession=conversations.get(actor,input.id);
+    requireEnabledCompanionSkill(ownedSession.mode);
     const cancel=new AbortController();
     const forget=trackCompanion(actor,cancel);
     res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
@@ -1079,6 +1087,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:true,...await skillGovernance.set(actor,{
           id:data.id,enabled:data.enabled,expectedVersion:data.expectedVersion
         })};
+        if(result.changed&&!result.skill.enabled){
+          for(const principal of activeCompanionControllers.keys())abortCompanion(principal);
+        }
       }else if(pathname==='/api/learner/privacy'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,privacy:await learnerPrivacy.set(actor,data.profileId,data.preferences,
@@ -1114,10 +1125,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:await learningPlans.remove(actor,data.id)};
       }else if(pathname==='/api/companion/open'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        requireEnabledCompanionSkill(data.mode);
         result={ok:true,session:await conversations.open(principalFor(req),data.mode,{lessonId:data.lessonId})};
       }else if(pathname==='/api/companion/turn'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         const principal=principalFor(req),controller=new AbortController();
+        requireEnabledCompanionSkill(conversations.get(principal,data.id).mode);
         const forget=trackCompanion(principal,controller);
         try{
           result={ok:true,...await conversations.turn(principal,data.id,data.text,
