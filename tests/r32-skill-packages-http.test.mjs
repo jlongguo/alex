@@ -86,6 +86,18 @@ test('R32 parent package API denies child and anonymous, persists metadata witho
   const list=await req(server.base,'/api/skills/packages',parent);
   assert.equal(list.status,200);assert.equal(list.data.metadataOnly,true);
   assert.equal(list.data.installed[0].version,'1.0.0');
+  const preview=await req(server.base,'/api/skills/packages',parent,{
+   action:'preview',id:m.id,version:m.version,expectedCurrentVersion:m.version
+  });
+  assert.equal(preview.status,200);
+  assert.equal(preview.data.preview.executable,false);
+  assert.equal(preview.data.preview.currentVersion,m.version);
+  assert.equal(preview.data.preview.blocked,false);
+  const blocked=await req(server.base,'/api/skills/packages',child,{
+   action:'preview',id:m.id,version:m.version,expectedCurrentVersion:m.version
+  });
+  assert.equal(blocked.status,403);
+  assert.equal((await req(server.base,'/api/skills/packages',parent)).data.history.length,3);
   assert.equal((await req(server.base,'/api/skills',parent)).data.skills.some(s=>s.id==='family.demo'),false);
   await stop(server);server=null;env.PORT=String(Number(env.PORT)+1);
   server=await boot(env);
