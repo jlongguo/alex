@@ -609,6 +609,39 @@ async function refreshProviderBilling(force=false){
   $('provider-billing-status').textContent=error.message;
  }
 }
+let skillGovernanceBusy=false;
+async function refreshSkillGovernance(){
+ if(authorizedActor!=='parent'||skillGovernanceBusy)return;
+ try{
+  const response=await fetch('/api/skills/governance',{cache:'no-store'});
+  if(!response.ok)throw Error('技能管理需要本地家长授权');
+  const skills=(await response.json()).skills;
+  $('skill-governance-list').innerHTML=skills.map(skill=>
+   '<div class="event-row"><span class="event-kind">'+esc(skill.enabled?'已启用':'已停用')+'</span>'+
+   '<span class="event-message"><strong>'+esc(skill.name)+'</strong> · '+
+   esc(skill.id)+' @ '+esc(skill.version)+
+   '<small>角色：'+esc(skill.allowedActors.join(', '))+' · 权限：'+
+   esc(skill.capabilities.join(', ')||'无')+' · 仅内置可信代码</small></span>'+
+   '<button type="button" data-skill-toggle="'+esc(skill.id)+'" data-skill-version="'+
+   esc(skill.version)+'" data-skill-enabled="'+esc(skill.enabled?'0':'1')+'">'+
+   (skill.enabled?'停用':'启用')+'</button></div>'
+  ).join('');
+  $('skill-governance-notice').textContent='只管理内置可信技能的启用状态，不支持安装可执行代码。';
+ }catch(error){$('skill-governance-notice').textContent=error.message;}
+}
+$('skill-governance-refresh').addEventListener('click',()=>void refreshSkillGovernance());
+$('skill-governance-list').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-skill-toggle]');
+ if(!button||authorizedActor!=='parent'||skillGovernanceBusy)return;
+ skillGovernanceBusy=true;
+ try{
+  const id=button.dataset.skillToggle,expectedVersion=button.dataset.skillVersion;
+  const enabled=button.dataset.skillEnabled==='1';
+  await api('/api/skills/governance',{id,expectedVersion,enabled});
+  notify(enabled?'已启用内置技能：'+id:'已停用内置技能：'+id);
+ }catch(error){notify(error.message,true);}
+ finally{skillGovernanceBusy=false;await refreshSkillGovernance();}
+});
 async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
@@ -669,6 +702,7 @@ async function refreshFamily(){
   $('profile-list').innerHTML=profiles.map(p=>`<div class="skill-item"><div class="skill-icon">♧</div><div class="skill-info"><strong>${esc(p.nickname)}</strong><small>${esc(p.ageBand)} · ${esc(p.interests.join('、')||'无兴趣标签')}</small></div><button type="button" data-remove-profile="${esc(p.id)}">删除档案</button></div>`).join('')||'<p class="helper">尚无学习者档案。</p>';
   $('memory-list').innerHTML=memories.slice(-40).reverse().map(m=>`<div class="event-row"><span class="event-time">${esc(m.scope)}</span><span class="event-kind">记忆</span><span class="event-message" title="${esc(m.text)}">${esc(m.text)}</span><button type="button" data-remove-memory="${esc(m.id)}">删除</button></div>`).join('')||'<p class="helper">没有已保存的长期记忆。</p>';
   await refreshProviderBilling();
+  await refreshSkillGovernance();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
 $('provider-billing-refresh').addEventListener('click',()=>void refreshProviderBilling(true));
