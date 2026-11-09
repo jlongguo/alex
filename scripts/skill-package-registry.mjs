@@ -46,9 +46,11 @@ function compare(a,b){
 export class SkillPackageRegistry{
  #queue=Promise.resolve();
  #state={schemaVersion:1,packages:[],installed:[],references:[]};
- constructor({file}={}){
+ constructor({file,authorizePackage=()=>{}}={}){
   if(!safeString(file,4096))fail('INVALID_SKILL_PACKAGE_CONFIG');
   this.store=new JsonStateStore(file);
+  if(typeof authorizePackage!=='function')fail('INVALID_SKILL_PACKAGE_CONFIG');
+  this.authorizePackage=authorizePackage;
  }
  #snapshot(){return structuredClone(this.#state);}
  list(actor){
@@ -124,6 +126,7 @@ export class SkillPackageRegistry{
    if(!pkg)fail('UNKNOWN_SKILL_PACKAGE');
    if(decision==='approve'){
     if(pkg.status!=='pending')fail('SKILL_REVIEW_CONFLICT');
+    this.authorizePackage(pkg.manifest,'review');
     pkg.status='approved';
    }else{
     if(s.installed.some(i=>s.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(i.id,i.version))
@@ -144,6 +147,7 @@ export class SkillPackageRegistry{
     fail('INVALID_SKILL_INSTALL');
    const pkg=s.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(id,version));
    if(!pkg||pkg.status!=='approved')fail('SKILL_NOT_APPROVED');
+   this.authorizePackage(pkg.manifest,'install');
    const old=s.installed.find(i=>i.id===id);
    if((old?.version??null)!==expectedCurrentVersion)fail('SKILL_INSTALL_CONFLICT');
    // All dependencies must be approved and installed exactly at pinned versions.
