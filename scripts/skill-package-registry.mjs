@@ -1,5 +1,6 @@
 // R32 metadata-only Skill package lifecycle. NEVER imports or executes package code.
 import {JsonStateStore} from './state-store.mjs';
+import {createHash} from 'node:crypto';
 const idPattern=/^[a-z][a-z0-9.-]{2,79}$/;
 const versionPattern=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const allowedPermissions=new Set(['audio.input','audio.output','display.face','navigation.goto','navigation.dock']);
@@ -7,6 +8,24 @@ const allowedActors=new Set(['parent','child']);
 const safeString=(v,max=160)=>typeof v==='string'&&v.length>0&&v.length<=max&&!/[\u0000-\u001f]/.test(v);
 const key=(id,version)=>id+'@'+version;
 const fail=(code)=>{throw Error(code);};
+const checksum=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const operationHash=entry=>checksum({seq:entry.seq,action:entry.action,target:entry.target,
+ before:entry.before,after:entry.after,prevHash:entry.prevHash});
+function checkHistory(history){
+ if(!Array.isArray(history)||history.length>2000)fail('INVALID_SKILL_PACKAGE_HISTORY');
+ let last='0'.repeat(64);
+ for(let i=0;i<history.length;i++){
+  const e=history[i];
+  if(!e||Object.keys(e).sort().join(',')!=='action,after,before,hash,prevHash,seq,target'||
+    !Number.isSafeInteger(e.seq)||e.seq!==i+1||typeof e.action!=='string'||
+    !/^(submit|review|install|rollback|uninstall|reference)$/.test(e.action)||
+    typeof e.target!=='string'||e.target.length>200||
+    ![e.before,e.after,e.prevHash,e.hash].every(h=>typeof h==='string'&&/^[a-f0-9]{64}$/.test(h))||
+    e.prevHash!==last||operationHash(e)!==e.hash)
+    fail('INVALID_SKILL_PACKAGE_HISTORY');
+  last=e.hash;
+ }
+}
 function manifestOf(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||
   Object.keys(value).some(k=>!['schemaVersion','id','version','name','description','permissions','allowedActors','dependencies','inputSchema','outputSchema'].includes(k))||
@@ -45,7 +64,7 @@ function compare(a,b){
 }
 export class SkillPackageRegistry{
  #queue=Promise.resolve();
- #state={schemaVersion:1,packages:[],installed:[],references:[]};
+ #state={schemaVersion:2,packages:[],installed:[],references:[],history:[]};
  constructor({file,authorizePackage=()=>{}}={}){
   if(!safeString(file,4096))fail('INVALID_SKILL_PACKAGE_CONFIG');
   this.store=new JsonStateStore(file);
@@ -60,9 +79,10 @@ export class SkillPackageRegistry{
  async load(){
   const saved=await this.store.load();
   if(!saved)return;
-  if(!saved||saved.schemaVersion!==1||!Array.isArray(saved.packages)||
+  if(!saved||![1,2].includes(saved.schemaVersion)||!Array.isArray(saved.packages)||
    !Array.isArray(saved.installed)||!Array.isArray(saved.references)||
-   Object.keys(saved).sort().join(',')!=='installed,packages,references,schemaVersion'||
+   Object.keys(saved).sort().join(',')!==(saved.schemaVersion===1?
+     'installed,packages,references,schemaVersion':'history,installed,packages,references,schemaVersion')||
    saved.packages.length>500||saved.installed.length>100||saved.references.length>1000)
    fail('INVALID_SKILL_PACKAGE_STATE');
   const seen=new Set();
@@ -93,13 +113,23 @@ export class SkillPackageRegistry{
     !installed.has(r.skillId)||saved.installed.find(i=>i.id===r.skillId).version!==r.version)
     fail('INVALID_SKILL_PACKAGE_STATE');
   }
-  this.#state=structuredClone(saved);
+  if(saved.schemaVersion===2)checkHistory(saved.history);
+  this.#state=structuredClone(saved.schemaVersion===1?
+    {...saved,schemaVersion:2,history:[]}:saved);
  }
- #mutate(actor,fn){
+ #mutate(actor,action,target,fn){
   if(actor!=='parent')fail('PARENT_REQUIRED');
   const job=this.#queue.catch(()=>{}).then(async()=>{
    const next=this.#snapshot();
+   const before=checksum({packages:next.packages,installed:next.installed,
+    references:next.references});
    const value=fn(next);
+   const after=checksum({packages:next.packages,installed:next.installed,
+    references:next.references});
+   if(next.history.length>=2000)fail('SKILL_PACKAGE_HISTORY_FULL');
+   const entry={seq:next.history.length+1,action,target,
+     before,after,prevHash:next.history.at(-1)?.hash??'0'.repeat(64)};
+   next.history.push({...entry,hash:operationHash(entry)});
    await this.store.save(next);
    this.#state=next;
    return structuredClone(value);
@@ -109,7 +139,7 @@ export class SkillPackageRegistry{
  }
  submit(actor,manifest){
   const m=manifestOf(manifest);
-  return this.#mutate(actor,s=>{
+  return this.#mutate(actor,'submit',key(m.id,m.version),s=>{
    if(s.packages.some(p=>key(p.manifest.id,p.manifest.version)===key(m.id,m.version)))
     fail('SKILL_PACKAGE_EXISTS');
    if(s.packages.filter(p=>p.manifest.id===m.id).some(p=>compare(p.manifest.version,m.version)>=0))
@@ -119,7 +149,7 @@ export class SkillPackageRegistry{
   });
  }
  review(actor,{id,version,decision}={}){
-  return this.#mutate(actor,s=>{
+  return this.#mutate(actor,'review',key(id,version),s=>{
    if(!idPattern.test(id)||!versionPattern.test(version)||!['approve','revoke'].includes(decision))
     fail('INVALID_SKILL_REVIEW');
    const pkg=s.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(id,version));
@@ -140,8 +170,54 @@ export class SkillPackageRegistry{
    return {id,version,status:pkg.status};
   });
  }
- install(actor,{id,version,expectedCurrentVersion=null}={}){
-  return this.#mutate(actor,s=>{
+ preview(actor,{id,version,expectedCurrentVersion=null}={}){
+  if(actor!=='parent')fail('PARENT_REQUIRED');
+  if(!idPattern.test(id)||!versionPattern.test(version)||
+   (expectedCurrentVersion!==null&&!versionPattern.test(expectedCurrentVersion)))
+   fail('INVALID_SKILL_INSTALL');
+  const state=this.#snapshot(),candidate=state.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(id,version));
+  if(!candidate)fail('UNKNOWN_SKILL_PACKAGE');
+  const currentPin=state.installed.find(i=>i.id===id);
+  const prior=currentPin&&state.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(id,currentPin.version));
+  const priorManifest=prior?.manifest;
+  const next=candidate.manifest;
+  const addedPermissions=next.permissions.filter(p=>!priorManifest?.permissions.includes(p));
+  const removedPermissions=(priorManifest?.permissions??[]).filter(p=>!next.permissions.includes(p));
+  const addedActors=next.allowedActors.filter(a=>!priorManifest?.allowedActors.includes(a));
+  const removedActors=(priorManifest?.allowedActors??[]).filter(a=>!next.allowedActors.includes(a));
+  const missingDependencies=next.dependencies.filter(d=>!state.installed.some(i=>
+   key(i.id,i.version)===key(d.id,d.version)));
+  const impactedReferences=state.references.filter(r=>r.skillId===id&&r.version===currentPin?.version);
+  const dependentPins=state.installed.filter(i=>i.id!==id&&state.packages.some(p=>
+   key(p.manifest.id,p.manifest.version)===key(i.id,i.version)&&
+   p.manifest.dependencies.some(d=>key(d.id,d.version)===key(id,currentPin?.version))));
+  let trusted=false,trustError=null;
+  try{this.authorizePackage(next,'preview');trusted=true;}
+  catch(error){trustError=error instanceof Error?error.message:'SKILL_ATTESTATION_REQUIRED';}
+  const stale=(currentPin?.version??null)!==expectedCurrentVersion;
+  const downgrade=!!currentPin&&compare(version,currentPin.version)<0;
+  const blockers=[
+   ...(candidate.status!=='approved'?['SKILL_NOT_APPROVED']:[]),
+   ...(stale?['SKILL_INSTALL_CONFLICT']:[]),
+   ...(!trusted?[trustError]:[]),
+   ...(missingDependencies.length?['SKILL_DEPENDENCY_MISSING']:[]),
+   ...(impactedReferences.length?['SKILL_REFERENCES_PINNED']:[]),
+   ...(dependentPins.length?['SKILL_DEPENDENCY_IN_USE']:[]),
+   ...((addedPermissions.length||addedActors.length)&&currentPin?
+    ['SKILL_PERMISSION_EXPANSION_REQUIRES_UNINSTALL']:[])
+  ];
+  return structuredClone({id,version,currentVersion:currentPin?.version??null,
+   status:candidate.status,change:!currentPin?'install':downgrade?'rollback':'upgrade',
+   addedPermissions,removedPermissions,addedActors,removedActors,
+   missingDependencies,impactedReferences,dependentPins,blocked:blockers.length>0,
+   blockers,executable:false});
+ }
+ rollback(actor,{id,version,expectedCurrentVersion}={}){
+  return this.install(actor,{id,version,expectedCurrentVersion,operation:'rollback'});
+ }
+ install(actor,{id,version,expectedCurrentVersion=null,operation='install'}={}){
+  if(!['install','rollback'].includes(operation))fail('INVALID_SKILL_INSTALL');
+  return this.#mutate(actor,operation==='rollback'?'rollback':'install',key(id,version),s=>{
    if(!idPattern.test(id)||!versionPattern.test(version)||
     (expectedCurrentVersion!==null&&!versionPattern.test(expectedCurrentVersion)))
     fail('INVALID_SKILL_INSTALL');
@@ -150,6 +226,9 @@ export class SkillPackageRegistry{
    this.authorizePackage(pkg.manifest,'install');
    const old=s.installed.find(i=>i.id===id);
    if((old?.version??null)!==expectedCurrentVersion)fail('SKILL_INSTALL_CONFLICT');
+   if(operation==='rollback'){
+    if(!old||compare(version,old.version)>=0)fail('SKILL_ROLLBACK_NOT_OLDER');
+   }else if(old&&compare(version,old.version)<0)fail('SKILL_ROLLBACK_REQUIRES_REVIEW');
    // All dependencies must be approved and installed exactly at pinned versions.
    for(const d of pkg.manifest.dependencies)
     if(!s.installed.some(i=>key(i.id,i.version)===key(d.id,d.version)))
@@ -173,7 +252,7 @@ export class SkillPackageRegistry{
   });
  }
  uninstall(actor,{id,expectedVersion}={}){
-  return this.#mutate(actor,s=>{
+  return this.#mutate(actor,'uninstall',key(id,expectedVersion),s=>{
    const index=s.installed.findIndex(i=>i.id===id&&i.version===expectedVersion);
    if(index<0)fail('SKILL_INSTALL_CONFLICT');
    if(s.references.some(r=>r.skillId===id))fail('SKILL_REFERENCES_PINNED');
@@ -185,7 +264,7 @@ export class SkillPackageRegistry{
   });
  }
  setReference(actor,{kind,resourceId,skillId,version,enabled}={}){
-  return this.#mutate(actor,s=>{
+  return this.#mutate(actor,'reference',String(kind)+':'+String(resourceId),s=>{
    const r={kind,resourceId,skillId,version};
    if(!validReference(r)||typeof enabled!=='boolean')fail('INVALID_SKILL_REFERENCE');
    const existing=s.references.findIndex(x=>x.kind===kind&&x.resourceId===resourceId&&x.skillId===skillId);
