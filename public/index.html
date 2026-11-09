@@ -237,6 +237,20 @@
             <p id="skill-governance-notice" class="helper" role="status" aria-live="polite">正在读取技能状态…</p>
             <div id="skill-governance-list" class="event-list" aria-live="polite"></div>
           </section>
+          <section class="panel" id="skill-package-panel">
+            <div class="panel-header"><div><div class="eyebrow">SKILL PACKAGE REVIEW · R33</div><h2>技能包审批与引用审计</h2></div><button type="button" class="secondary-btn" id="skill-packages-refresh">刷新注册表</button></div>
+            <p class="helper">仅管理声明式技能包元数据，不安装或执行第三方代码。家长审批与安装不等于授权设备执行。实时引用与手工登记分开展示。</p>
+            <form id="skill-package-submit-form" class="command-form">
+              <label for="skill-package-manifest">登记技能包 Manifest v1（JSON）</label>
+              <textarea id="skill-package-manifest" rows="5" maxlength="7500" placeholder='{"schemaVersion":"alex.skill/v1", ...}' aria-label="技能包清单 JSON" required></textarea>
+              <button type="submit">提交待审核版本</button>
+            </form>
+            <p id="skill-packages-notice" class="helper" role="status" aria-live="polite">尚未加载技能包信息。</p>
+            <div id="skill-packages-list" class="event-list" aria-live="polite"></div>
+            <h3>运行时技能引用（只读）</h3>
+            <p id="skill-usage-notice" class="helper" role="status">尚未加载使用关系。</p>
+            <div id="skill-usage-list" class="event-list" aria-live="polite"></div>
+          </section>
           <section class="panel provider-billing-panel">
             <div class="panel-header"><div><div class="eyebrow">SUPPLIER / COST CONTROL</div><h2>语音供应商用量与账单</h2></div><button type="button" class="secondary-btn" id="provider-billing-refresh">刷新数据</button></div>
             <p class="helper">查看上游返回音频、导入供应商官方用量账单并进行可比单位核对。PCM 字节不等于账单金额；不支持的计费单位会明确标记为未核对。</p>
