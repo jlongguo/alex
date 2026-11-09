@@ -245,6 +245,25 @@
               <textarea id="skill-package-manifest" rows="5" maxlength="7500" placeholder='{"schemaVersion":"alex.skill/v1", ...}' aria-label="技能包清单 JSON" required></textarea>
               <button type="submit">提交待审核版本</button>
             </form>
+            <section class="panel">
+              <h3>R34 · 发布者信任与签名证明</h3>
+              <p class="helper">家长导入可信 Ed25519 公钥，然后提交离线签名证明。私钥不得上传到 Alex。发布者撤销会阻止该发布者的技能包再次审批或安装。</p>
+              <form id="skill-publisher-form" class="command-form">
+                <label for="skill-publisher-id">发布者 ID</label>
+                <input id="skill-publisher-id" type="text" maxlength="80" placeholder="family.publisher" required />
+                <label for="skill-publisher-key">Ed25519 SPKI 公钥 PEM（非私钥）</label>
+                <textarea id="skill-publisher-key" rows="3" maxlength="4096" required aria-label="发布者公开密钥"></textarea>
+                <button type="submit">登记可信发布者</button>
+              </form>
+              <form id="skill-attestation-form" class="command-form">
+                <label for="skill-attestation-json">离线签名证明（JSON：id、version、publisherId、artifactBase64、signature）</label>
+                <textarea id="skill-attestation-json" rows="4" maxlength="7500" required aria-label="签名证明 JSON"></textarea>
+                <button type="submit">验证包内容与签名</button>
+              </form>
+              <p id="skill-trust-notice" role="status" aria-live="polite" class="helper">尚未读取签名证明。</p>
+              <div id="skill-trust-publishers" class="event-list" aria-live="polite"></div>
+              <div id="skill-trust-events" class="event-list" aria-live="polite"></div>
+            </section>
             <p id="skill-packages-notice" class="helper" role="status" aria-live="polite">尚未加载技能包信息。</p>
             <div id="skill-packages-list" class="event-list" aria-live="polite"></div>
             <h3>运行时技能引用（只读）</h3>
