@@ -729,11 +729,16 @@ async function refreshSkillPackages(){
        :'<button type="button" data-package-action="install" data-package-current="'+esc(version??'')+'" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">安装元数据</button>')+
       '<button type="button" data-package-action="revoke" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">撤销审核</button>'
      :'';
+   const inspect='<button type="button" data-package-action="preview" data-package-current="'+esc(version??'')+
+     '" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">影响预览</button>';
+   const rollback=version&&version!==m.version&&item.status==='approved'
+     ?'<button type="button" data-package-action="rollback" data-package-current="'+esc(version)+
+       '" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">回滚元数据</button>':'';
    return '<div class="event-row"><span class="event-kind">'+esc(item.status)+'</span>'+
     '<span class="event-message"><strong>'+esc(m.name)+'</strong> · '+esc(m.id)+' @ '+esc(m.version)+
     '<small>权限：'+esc(m.permissions.join(', ')||'无')+' · 角色：'+
     esc(m.allowedActors.join(', '))+' · 依赖：'+esc(m.dependencies.map(x=>x.id+'@'+x.version).join(', ')||'无')+
-    ' · '+(installedHere?'已安装元数据':'未安装')+' · 关联项 '+(references.get(m.id)||0)+'</small></span>'+controls+'</div>';
+    ' · '+(installedHere?'已安装元数据':'未安装')+' · 关联项 '+(references.get(m.id)||0)+'</small></span>'+inspect+controls+rollback+'</div>';
   }).join('')||'<p class="helper">尚无提交的技能包。</p>';
   const renderReference=row=>'<div class="event-row"><span class="event-kind">'+esc(row.kind)+'</span>'+
     '<span class="event-message">'+esc(row.skillId)+' @ '+esc(row.version??'未指定')+
@@ -766,7 +771,27 @@ $('skill-packages-list').addEventListener('click',async event=>{
  const button=event.target.closest('[data-package-action]');
  if(!button||authorizedActor!=='parent'||skillPackagesBusy)return;
  const action=button.dataset.packageAction,id=button.dataset.packageId,version=button.dataset.packageVersion;
- if(!['approve','revoke','install','uninstall'].includes(action))return;
+ if(!['approve','revoke','install','uninstall','preview','rollback'].includes(action))return;
+ if(action==='preview'){
+  try{
+   const res=await api('/api/skills/packages',{action:'preview',id,version,
+    expectedCurrentVersion:button.dataset.packageCurrent||null});
+   const p=res.preview;
+   $('skill-package-impact').innerHTML='<div class="event-row"><span class="event-kind">'+esc(p.change)+'</span>'+
+    '<span class="event-message"><strong>'+esc(id)+' @ '+esc(version)+'</strong>'+
+    '<small>现版本 '+esc(p.currentVersion??'未安装')+' · 新增权限 '+esc(p.addedPermissions.join(', ')||'无')+
+    ' · 移除权限 '+esc(p.removedPermissions.join(', ')||'无')+
+    ' · 新增角色 '+esc(p.addedActors.join(', ')||'无')+
+    ' · 移除角色 '+esc(p.removedActors.join(', ')||'无')+
+    ' · 缺失依赖 '+esc(p.missingDependencies.map(x=>x.id+'@'+x.version).join(', ')||'无')+
+    ' · 现有引用 '+esc(p.impactedReferences.length)+
+    ' · 依赖者 '+esc(p.dependentPins.length)+
+    ' · 阻断原因 '+esc(p.blockers.join(', ')||'无')+'</small></span></div>';
+   notify(p.blocked?'发现安装约束，请先处理冲突':'已计算版本变更影响，未执行任何安装');
+  }catch(error){notify(error.message,true);}
+  return;
+ }
+ if(action==='rollback'&&!window.confirm('确认显式回滚 '+id+' 从 '+button.dataset.packageCurrent+' 到 '+version+'？仅更新元数据。'))return;
  if((action==='revoke'||action==='uninstall')&&!window.confirm('确认修改 '+id+' @ '+version+' 的安装/审批状态？'))return;
  skillPackagesBusy=true;
  try{
@@ -774,6 +799,7 @@ $('skill-packages-list').addEventListener('click',async event=>{
   if(action==='approve'||action==='revoke')payload={action:'review',id,version,decision:action};
   if(action==='install')payload.expectedCurrentVersion=button.dataset.packageCurrent||null;
   if(action==='uninstall')payload={action,id,expectedVersion:version};
+  if(action==='rollback')payload={action,id,version,expectedCurrentVersion:button.dataset.packageCurrent||null};
   await api('/api/skills/packages',payload);
   notify('技能包元数据操作完成：'+id+' @ '+version);
  }catch(error){notify(error.message,true);}
