@@ -89,6 +89,19 @@ test('R26 stale navigation telemetry cannot change pose or progress',async()=>{
   assert.equal(saved.status,'stopped');assert.equal(saved.telemetry,undefined);
  }finally{await t.close();}
 });
+test('R26 a future-dated heartbeat cannot make a device appear online',async()=>{
+ const t=await fixture();try{
+  t.advance(-500);
+  assert.equal(t.gateway.online(t.device.deviceId),false);
+  const blocked=await t.gateway.dispatch('parent',{
+   deviceId:t.device.deviceId,capability:'audio.output',
+   params:{text:'Hello'},requestId:rid()
+  });
+  assert.equal(blocked.message,'DEVICE_OFFLINE');
+  t.advance(500);
+  assert.equal(t.gateway.online(t.device.deviceId),true);
+ }finally{await t.close();}
+});
 test('R26 on-time feedback remains compatible with existing virtual client',async()=>{
  const t=await fixture();try{
   const job=await t.dispatch('audio.output',{text:'Hello'});
