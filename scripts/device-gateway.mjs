@@ -48,7 +48,8 @@ export class DeviceGateway {
   online(id){
     const d=this.registry.get(id);
     const seen=d?.lastSeenAt?Date.parse(d.lastSeenAt):0;
-    return !!d&&!d.revoked&&Number.isFinite(seen)&&this.clock()-seen<=this.freshMs;
+    const age=this.clock()-seen;
+    return !!d&&!d.revoked&&Number.isFinite(seen)&&age>=0&&age<=this.freshMs;
   }
   async announce(deviceId,token,capabilities,protocolVersion){
     if(![1,2,3].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
@@ -86,6 +87,19 @@ export class DeviceGateway {
       return {ok:true,message:'Virtual device task queued',job:{...job}};
     });
   }
+  async #assertFreshFeedback(job){
+    // A stale heartbeat or expired task must not produce new success
+    // evidence just because the scheduled housekeeping tick has not run.
+    const stale=!this.online(job.deviceId);
+    const timedOut=this.clock()-job.createdMs>this.timeoutMs;
+    if(!stale&&!timedOut)return true;
+    job.status='stopped';
+    job.reason=stale?'Device disconnected or heartbeat stale':'Gateway task timed out';
+    job.updatedAt=new Date(this.clock()).toISOString();
+    await this.save();
+    this.#notify(job.deviceId,{type:'job.stopped',job});
+    return false;
+  }
   async result(deviceId,token,{jobId,status,reason}){
     if(!this.registry.authenticate(deviceId,token))throw new Error('DEVICE_UNAUTHORIZED');
     if(!['running','succeeded','failed'].includes(status)||!safeString(jobId,80)||reason!==undefined&&(typeof reason!=='string'||reason.length>160))throw new Error('INVALID_GATEWAY_RESULT');
@@ -95,6 +109,7 @@ export class DeviceGateway {
       if(!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'DEVICE_CAPABILITY_NOT_APPROVED'};
       if(job.status===status)return {ok:true,job:{...job},duplicate:true};
       if(terminal.has(job.status))return {ok:false,message:'TASK_ALREADY_TERMINAL'};
+      if(!await this.#assertFreshFeedback(job))return {ok:false,message:'TASK_FEEDBACK_EXPIRED'};
       if(status==='running'&&job.status!=='queued')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.status!=='running')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.capability==='sim.navigation.goto'&&this.registry.get(deviceId)?.protocolVersion>=2 && (job.telemetry?.phase!=='arrived'||job.telemetry.progress!==100))return {ok:false,message:'NAVIGATION_ARRIVAL_EVIDENCE_REQUIRED'};
@@ -122,6 +137,7 @@ export class DeviceGateway {
       if(!device?.capabilities.includes(kind)||job.capability!==kind)
         throw new Error('INVALID_PRESENTATION_CAPABILITY');
       if(job.status!=='running')return {ok:false,message:'INVALID_PRESENTATION_JOB_STATE'};
+      if(!await this.#assertFreshFeedback(job))return {ok:false,message:'TASK_FEEDBACK_EXPIRED'};
       const expected=kind==='display.face'?{expression:job.params.expression}
         :{characters:job.params.text.length};
       if(!sameJson(observed,expected))throw new Error('INVALID_PRESENTATION_FEEDBACK');
@@ -148,6 +164,7 @@ export class DeviceGateway {
       const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
       if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
       if(job.capability!=='sim.navigation.goto'||job.status!=='running'||this.registry.get(deviceId)?.protocolVersion<2||!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'NAVIGATION_FEEDBACK_NOT_ALLOWED'};
+      if(!await this.#assertFreshFeedback(job))return {ok:false,message:'TASK_FEEDBACK_EXPIRED'};
       if(job.telemetry && sequence<=job.telemetry.sequence)return {ok:false,message:'NAVIGATION_FEEDBACK_OUT_OF_ORDER'};
       if(job.telemetry && progress<job.telemetry.progress)return {ok:false,message:'NAVIGATION_PROGRESS_REGRESSION'};
       if((!job.telemetry&&phase!=='planning')||(job.telemetry?.phase==='planning'&&!['planning','moving','arrived','blocked'].includes(phase))||(job.telemetry?.phase==='blocked'))return {ok:false,message:'INVALID_NAVIGATION_PHASE'};
