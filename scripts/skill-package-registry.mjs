@@ -213,11 +213,13 @@ export class SkillPackageRegistry{
    blockers,executable:false});
  }
  rollback(actor,{id,version,expectedCurrentVersion}={}){
-  return this.install(actor,{id,version,expectedCurrentVersion,operation:'rollback'});
+  return this.#applyInstall(actor,{id,version,expectedCurrentVersion},'rollback');
  }
- install(actor,{id,version,expectedCurrentVersion=null,operation='install'}={}){
-  if(!['install','rollback'].includes(operation))fail('INVALID_SKILL_INSTALL');
-  return this.#mutate(actor,operation==='rollback'?'rollback':'install',key(id,version),s=>{
+ install(actor,{id,version,expectedCurrentVersion=null}={}){
+  return this.#applyInstall(actor,{id,version,expectedCurrentVersion},'install');
+ }
+ #applyInstall(actor,{id,version,expectedCurrentVersion=null}={},operation){
+  return this.#mutate(actor,operation,key(id,version),s=>{
    if(!idPattern.test(id)||!versionPattern.test(version)||
     (expectedCurrentVersion!==null&&!versionPattern.test(expectedCurrentVersion)))
     fail('INVALID_SKILL_INSTALL');
