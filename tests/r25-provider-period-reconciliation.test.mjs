@@ -58,6 +58,21 @@ test('R25 report filters by overlapping UTC period and exact provider',()=>fixtu
  assert.deepEqual(reconciler.report({from,to,provider:'vendor-a'}).map(x=>x.statementId),['new']);
  assert.equal(reconciler.summary({from,to}).statementCount,2);
 }));
+test('R25 duplicate local usage across repeated invoice lines remains unverified',()=>fixture(file=>{
+ const store=new ProviderBillingStatementStore({file});
+ store.importStatement(invoice('split','vendor-a','USD',
+  '2026-11-01T00:00:00Z','2026-11-02T00:00:00Z',[
+   {model:'voice-v1',metric:'pcm_bytes',quantity:500,amountMinor:7},
+   {model:'voice-v1',metric:'pcm_bytes',quantity:500,amountMinor:7}
+  ]));
+ const summary=new ProviderBillingReconciler({statements:store,journal}).summary();
+ assert.equal(summary.groups.length,1);
+ assert.equal(summary.groups[0].status,'not_comparable');
+ assert.equal(summary.groups[0].localQuantity,null);
+ assert.equal(summary.groups[0].variance,null);
+ assert.equal(summary.groups[0].billedQuantity,1000);
+ assert.equal(summary.currencyTotals[0].amountMinor,14);
+}));
 test('R25 invalid or partial report windows are rejected',()=>fixture(file=>{
  const reconciler=new ProviderBillingReconciler({
   statements:new ProviderBillingStatementStore({file}),journal
