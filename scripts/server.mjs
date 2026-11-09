@@ -15,6 +15,7 @@ import {MAP} from '../dist/robot/map.js';
 import {WorkflowOrchestrator,WORKFLOW_RECIPES,parseWorkflowCommand} from './workflow-orchestrator.mjs';
 import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
+import {SkillGovernance} from './skill-governance.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -125,6 +126,10 @@ const useAgent=process.env.AGENT_PROVIDER==='compatible';
 if(useAgent && (!process.env.AGENT_BASE_URL||!process.env.AGENT_API_KEY||!process.env.AGENT_MODEL))throw new Error('INVALID_AGENT_CONFIG');
 const provider=useAgent?new CompatibleAgentProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL}):new RuleAgentProvider();
 const core = new HomeCore(provider);
+const skillGovernance=new SkillGovernance({
+ file:process.env.ALEX_SKILL_GOVERNANCE_FILE??resolve(appDir,'.local','skill-governance.json'),
+ registry:core.skills
+});
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
 if(!['rules','compatible'].includes(process.env.ALEX_PLAN_PROVIDER??'rules'))throw new Error('INVALID_PLAN_PROVIDER');
@@ -133,6 +138,13 @@ const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
   :new RulePlanProvider();
 const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
 const executionTraces=new ExecutionTraceProjector({plans,workflows,gateway});
+const companionSkillId={english:'learning.english',story:'story.interactive',quiz:'quiz.science'};
+function requireEnabledCompanionSkill(mode){
+  const id=companionSkillId[mode];
+  if(id&&core.skills.list().find(s=>s.id===id)?.enabled!==true)
+    throw Error('SKILL_DISABLED');
+}
+
 // New companion text product lane. Never reuse the intent classifier as a
 // free-form chat engine; each provider is opt-in and completely tool-free.
 // Conversation APIs require verified local family auth (not insecure demo).
@@ -179,6 +191,7 @@ await devices.load();
 await profiles.load();
 await learnerCredentials.load();
 await learnerPrivacy.load();
+await skillGovernance.load();
 await learningPlans.load();
 await gateway.load();
 await workflows.load();
@@ -207,10 +220,11 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'VOICE_TURN_ALREADY_ACTIVE','VOICE_TURN_CANCELLED',
   'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
   'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
-  'SPEECH_PROVIDER_PCM_TOO_LARGE','PROVIDER_BILLING_STATEMENT_ID_CONFLICT'].includes(message)?409:
+  'SPEECH_PROVIDER_PCM_TOO_LARGE','PROVIDER_BILLING_STATEMENT_ID_CONFLICT',
+  'SKILL_VERSION_REVIEW_REQUIRED'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
-  'SPEECH_SESSION_FORBIDDEN'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
+  'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -456,7 +470,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const input=await body(req);
     // Validate ownership before sending SSE headers; no other-role
     // transcript, even session metadata, may leak through error events.
-    conversations.get(actor,input.id);
+    const ownedSession=conversations.get(actor,input.id);
+    requireEnabledCompanionSkill(ownedSession.mode);
     const cancel=new AbortController();
     const forget=trackCompanion(actor,cancel);
     res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
@@ -1043,6 +1058,11 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       companionConversations:conversations.exportForParent(actor),
       transcriptsPersisted:conversations.persist});return;}
   if(req.method==='GET' && pathname==='/api/skills'){send(res,200,{skills:core.skills.list()});return;}
+  if(req.method==='GET' && pathname==='/api/skills/governance'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
+  }
   if(req.method==='GET' && pathname==='/api/memory'){
     const actor=auth.actor(req,new URL(req.url,`http://${incomingHost}`).searchParams.get('actor'));
     send(res,200,{entries:memory.list(actor)});return;
@@ -1062,7 +1082,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const actor=auth.actor(req,data.actor);
     let result;
     try {
-      if(pathname==='/api/learner/privacy'){
+      if(pathname==='/api/skills/governance'){
+        if(auth.mode!=='local')throw Error('LOCAL_AUTH_REQUIRED');
+        result={ok:true,...await skillGovernance.set(actor,{
+          id:data.id,enabled:data.enabled,expectedVersion:data.expectedVersion
+        })};
+        if(result.changed&&!result.skill.enabled){
+          for(const principal of activeCompanionControllers.keys())abortCompanion(principal);
+        }
+      }else if(pathname==='/api/learner/privacy'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,privacy:await learnerPrivacy.set(actor,data.profileId,data.preferences,
           id=>profiles.list().some(p=>p.id===id))};
@@ -1097,10 +1125,12 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         result={ok:await learningPlans.remove(actor,data.id)};
       }else if(pathname==='/api/companion/open'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
+        requireEnabledCompanionSkill(data.mode);
         result={ok:true,session:await conversations.open(principalFor(req),data.mode,{lessonId:data.lessonId})};
       }else if(pathname==='/api/companion/turn'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         const principal=principalFor(req),controller=new AbortController();
+        requireEnabledCompanionSkill(conversations.get(principal,data.id).mode);
         const forget=trackCompanion(principal,controller);
         try{
           result={ok:true,...await conversations.turn(principal,data.id,data.text,

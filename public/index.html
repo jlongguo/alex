@@ -231,6 +231,12 @@
         <div class="panel-header"><div><div class="eyebrow">FAMILY / PRIVACY</div><h2>家庭档案与记忆</h2></div></div>
         <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>打开家长授权</button></p>
         <div id="family-private" class="hidden">
+          <section class="panel">
+            <div class="panel-header"><div><div class="eyebrow">TRUSTED SKILL GOVERNANCE · R31</div><h2>技能启停与权限</h2></div><button type="button" class="secondary-btn" id="skill-governance-refresh">刷新技能</button></div>
+            <p class="helper">仅允许家长开启或停用已随 Alex 发布的可信技能。此面板不安装第三方代码、不授予设备控制能力；升级版本需要单独审核。</p>
+            <p id="skill-governance-notice" class="helper" role="status" aria-live="polite">正在读取技能状态…</p>
+            <div id="skill-governance-list" class="event-list" aria-live="polite"></div>
+          </section>
           <section class="panel provider-billing-panel">
             <div class="panel-header"><div><div class="eyebrow">SUPPLIER / COST CONTROL</div><h2>语音供应商用量与账单</h2></div><button type="button" class="secondary-btn" id="provider-billing-refresh">刷新数据</button></div>
             <p class="helper">查看上游返回音频、导入供应商官方用量账单并进行可比单位核对。PCM 字节不等于账单金额；不支持的计费单位会明确标记为未核对。</p>

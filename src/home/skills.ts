@@ -34,6 +34,42 @@ export class SkillRegistry {
     if(!/^[a-z][a-z0-9.-]{2,79}$/.test(m.id) || !/^\d+\.\d+\.\d+$/.test(m.version) || typeof plugin.execute!=='function' || this.plugins.has(m.id) || typeof m.name!=='string' || !m.name.trim() || typeof m.description!=='string' || typeof m.enabled!=='boolean' || (m.conversationMode!==undefined&&!['english','story','quiz'].includes(m.conversationMode)) || !Array.isArray(m.allowedActors) || !Array.isArray(m.capabilities) || !m.allowedActors.length || m.allowedActors.some(x=>x!=='parent'&&x!=='child') || m.capabilities.some(x=>!['audio.input','audio.output','display.face','navigation.goto','navigation.dock'].includes(x)))throw new Error('INVALID_SKILL_MANIFEST');
     this.plugins.set(m.id,{manifest:{...m,capabilities:[...m.capabilities],allowedActors:[...m.allowedActors]},execute:plugin.execute});
   }
+  /** Parent-controlled state change; no untrusted source or executable upload. */
+  setEnabled(id:string,enabled:boolean,actor:Actor):SkillManifest {
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    if(typeof enabled!=='boolean')throw new Error('INVALID_SKILL_STATE');
+    const plugin=this.plugins.get(id);
+    if(!plugin)throw new Error('UNKNOWN_SKILL');
+    // Copy before mutation: the built-in manifest is the executable identity.
+    const changed={...plugin.manifest,enabled};
+    this.plugins.set(id,{manifest:changed,execute:plugin.execute});
+    return {...changed,
+      capabilities:[...plugin.manifest.capabilities],
+      allowedActors:[...plugin.manifest.allowedActors]};
+  }
+  /** A trusted in-process code upgrade is not a remote plugin install. */
+  upgradeTrusted(plugin:SkillPlugin,actor:Actor):SkillManifest {
+    if(actor!=='parent')throw new Error('PARENT_REQUIRED');
+    const incoming=plugin?.manifest;
+    const previous=incoming?.id&&this.plugins.get(incoming.id);
+    if(!incoming||!previous)throw new Error('UNKNOWN_SKILL');
+    const semver=(v:string)=>/^\d+\.\d+\.\d+$/.test(v)?v.split('.').map(Number):null;
+    const oldVersion=semver(previous.manifest.version);
+    const nextVersion=semver(incoming.version);
+    if(!nextVersion||!oldVersion)throw new Error('SKILL_VERSION_NOT_NEWER');
+    const [nextMajor=0,nextMinor=0,nextPatch=0]=nextVersion;
+    const [oldMajor=0,oldMinor=0,oldPatch=0]=oldVersion;
+    if(nextMajor<oldMajor
+      ||nextMajor===oldMajor&&nextMinor<oldMinor
+      ||nextMajor===oldMajor&&nextMinor===oldMinor&&nextPatch<=oldPatch)
+      throw new Error('SKILL_VERSION_NOT_NEWER');
+    if(typeof plugin.execute!=='function')throw new Error('INVALID_SKILL_MANIFEST');
+    // Validate the full manifest through the existing registration path.
+    this.plugins.delete(incoming.id);
+    try{this.register({...plugin,manifest:{...incoming,enabled:previous.manifest.enabled}});}
+    catch(error){this.plugins.set(incoming.id,previous);throw error;}
+    return this.list().find(s=>s.id===incoming.id)!;
+  }
   unregister(id:string):boolean {return this.plugins.delete(id);}
   list():SkillManifest[]{return [...this.plugins.values()].map(x=>({...x.manifest,capabilities:[...x.manifest.capabilities],allowedActors:[...x.manifest.allowedActors]}));}
   invoke(id:string,actor:Actor):SkillResult {
