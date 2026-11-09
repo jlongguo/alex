@@ -27,21 +27,58 @@ export function validateVirtualAction(capability,params){
 export class DeviceGateway {
   constructor(file,registry,{clock=()=>Date.now(),freshMs=30_000,timeoutMs=60_000}={}){
     this.store=new JsonStateStore(file);this.registry=registry;this.clock=clock;this.freshMs=freshMs;this.timeoutMs=timeoutMs;
-    this.jobs=[];this.listeners=new Map();this.serial=Promise.resolve();
+    this.jobs=[];this.events=[];this.eventSeq=0;this.listeners=new Map();this.serial=Promise.resolve();
   }
   #exclusive(fn){const op=this.serial.catch(()=>{}).then(fn);this.serial=op.catch(()=>{});return op;}
   async load(){
     const snapshot=await this.store.load();if(!snapshot)return;
     if(snapshot.schemaVersion!==1||!Array.isArray(snapshot.jobs)||snapshot.jobs.length>200)throw new Error('INVALID_GATEWAY_STATE');
+    if(snapshot.events!==undefined){
+      if(!Number.isSafeInteger(snapshot.eventSeq)||snapshot.eventSeq<0
+       ||!Array.isArray(snapshot.events)||snapshot.events.length>500)
+       throw Error('INVALID_GATEWAY_EVENTS');
+      let previous=0;
+      for(const e of snapshot.events){
+        if(!e||!Number.isSafeInteger(e.seq)||e.seq<=previous||e.seq>snapshot.eventSeq
+         ||typeof e.type!=='string'||!/^[a-z][a-z.]{2,60}$/.test(e.type)
+         ||typeof e.deviceId!=='string'||!/^dev-[0-9a-f-]{36}$/.test(e.deviceId)
+         ||typeof e.jobId!=='string'||!/^job-[0-9a-f-]{36}$/.test(e.jobId)
+         ||typeof e.at!=='string'||!Number.isFinite(Date.parse(e.at))
+         ||!['queued','running','succeeded','failed','stopped','cancelled'].includes(e.status)
+         ||(e.requestId!==undefined&&!/^[a-zA-Z0-9_-]{8,100}$/.test(e.requestId))
+         ||!['at,deviceId,jobId,requestId,seq,status,type',
+           'at,deviceId,jobId,seq,status,type'].includes(Object.keys(e).sort().join(',')))
+         throw Error('INVALID_GATEWAY_EVENTS');
+        previous=e.seq;
+      }
+      this.events=structuredClone(snapshot.events);this.eventSeq=snapshot.eventSeq;
+    }
     const ids=new Set();
     this.jobs=snapshot.jobs.map(j=>{
       if(!j||!/^job-[0-9a-f-]{36}$/.test(j.id)||ids.has(j.id)||!safeString(j.deviceId,80)||!['queued','running','succeeded','failed','stopped','cancelled'].includes(j.status)||!['parent','child'].includes(j.actor)||!Number.isFinite(j.createdMs)||!safeString(j.createdAt,60)||!safeString(j.updatedAt,60)||typeof j.requestId!=='string'||!/^[a-zA-Z0-9_-]{8,100}$/.test(j.requestId))throw new Error('INVALID_GATEWAY_STATE');
       validateVirtualAction(j.capability,j.params);ids.add(j.id);
       return {...j,status:terminal.has(j.status)?j.status:'stopped',reason:terminal.has(j.status)?j.reason:'Interrupted by server restart; not replayed',updatedAt:terminal.has(j.status)?j.updatedAt:new Date(this.clock()).toISOString()};
     });
-    if(this.jobs.some((j,i)=>snapshot.jobs[i].status!==j.status))await this.save();
+    if(this.jobs.some((j,i)=>snapshot.jobs[i].status!==j.status)){
+      for(const j of this.jobs.filter((x,i)=>snapshot.jobs[i].status!==x.status))
+       this.#record('job.stopped',j);
+      await this.save();
+    }
   }
-  save(){return this.store.save({schemaVersion:1,jobs:this.jobs});}
+  save(){return this.store.save({schemaVersion:1,jobs:this.jobs,eventSeq:this.eventSeq,events:this.events});}
+  #record(type,job){
+    const entry={seq:++this.eventSeq,type,deviceId:job.deviceId,jobId:job.id,
+      requestId:job.requestId,status:job.status,at:new Date(this.clock()).toISOString()};
+    this.events.push(entry);if(this.events.length>500)this.events.shift();
+    return entry;
+  }
+  getEvents(after=0,{limit=100}={}){
+    if(!Number.isSafeInteger(after)||after<0||!Number.isSafeInteger(limit)||limit<1||limit>500)
+      throw Error('INVALID_GATEWAY_EVENT_CURSOR');
+    return {latestSeq:this.eventSeq,oldestSeq:this.events[0]?.seq??null,
+      cursorExpired:this.events.length>0&&after<this.events[0].seq-1,
+      events:structuredClone(this.events.filter(e=>e.seq>after).slice(0,limit))};
+  }
   list(){return this.jobs.map(j=>({...j,params:{...j.params}}));}
   forDevice(id){return this.list().filter(j=>j.deviceId===id);}
   pending(id){return this.forDevice(id).filter(j=>j.status==='queued');}
@@ -83,6 +120,7 @@ export class DeviceGateway {
       const now=this.clock();
       const job={id:`job-${randomUUID()}`,actor,deviceId,capability,params:sanitized,requestId,status:'queued',createdMs:now,createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString(),reason:null};
       this.jobs.unshift(job);if(this.jobs.length>200)this.jobs.length=200;
+      this.#record('job.queued',job);
       await this.save();this.#notify(deviceId,{type:'job.queued',job});
       return {ok:true,message:'Virtual device task queued',job:{...job}};
     });
@@ -96,6 +134,7 @@ export class DeviceGateway {
     job.status='stopped';
     job.reason=stale?'Device disconnected or heartbeat stale':'Gateway task timed out';
     job.updatedAt=new Date(this.clock()).toISOString();
+    this.#record('job.stopped',job);
     await this.save();
     this.#notify(job.deviceId,{type:'job.stopped',job});
     return false;
@@ -124,6 +163,7 @@ export class DeviceGateway {
         &&job.presentationEvidence?.phase!=='rendered')
         return {ok:false,message:'VIRTUAL_PRESENTATION_EVIDENCE_REQUIRED'};
       job.status=status;job.updatedAt=new Date(this.clock()).toISOString();if(status==='failed')job.reason=reason||'Device reported failure';
+      this.#record('job.updated',job);
       await this.save();this.#notify(deviceId,{type:'job.updated',job});
       return {ok:true,job:{...job}};
     });
@@ -157,6 +197,7 @@ export class DeviceGateway {
         sequence,kind,phase:'rendered',at:new Date(this.clock()).toISOString()
       };
       job.updatedAt=new Date(this.clock()).toISOString();
+      this.#record('presentation.rendered',job);
       await this.save();
       this.#notify(deviceId,{type:'presentation.rendered',jobId,kind});
       return {ok:true,jobId,kind,phase:'rendered'};
@@ -181,6 +222,7 @@ export class DeviceGateway {
       if(job.telemetry?.phase==='arrived')return {ok:false,message:'NAVIGATION_ALREADY_ARRIVED'};
       job.telemetry={sequence,phase,progress,pose:{x:pose.x,y:pose.y,heading:pose.heading},mapVersion,updatedAt:new Date(this.clock()).toISOString()};
       job.updatedAt=job.telemetry.updatedAt;
+      this.#record('navigation.feedback',job);
       await this.save();this.#notify(deviceId,{type:'navigation.feedback',jobId,telemetry:job.telemetry});
       return {ok:true,jobId,telemetry:{...job.telemetry}};
     });
@@ -192,14 +234,20 @@ export class DeviceGateway {
       if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
       if(terminal.has(job.status))return {ok:false,message:'TASK_ALREADY_TERMINAL'};
       job.status='cancelled';job.reason='Cancelled by parent';job.updatedAt=new Date(this.clock()).toISOString();
+      this.#record('job.cancelled',job);
       await this.save();this.#notify(job.deviceId,{type:'job.cancelled',job});return {ok:true,job:{...job}};
     });
   }
   async disconnect(deviceId){
     return this.#exclusive(async()=>{
-      const now=new Date(this.clock()).toISOString();let changed=false;
-      for(const job of this.jobs.filter(j=>j.deviceId===deviceId&&!terminal.has(j.status))){job.status='stopped';job.reason='Device revoked';job.updatedAt=now;changed=true;}
-      if(changed)await this.save();this.#notify(deviceId,{type:'device.revoked'});
+      const now=new Date(this.clock()).toISOString();
+      const changed=this.jobs.filter(j=>j.deviceId===deviceId&&!terminal.has(j.status));
+      for(const job of changed){
+        job.status='stopped';job.reason='Device revoked';job.updatedAt=now;
+        this.#record('job.stopped',job);
+      }
+      if(changed.length)await this.save();
+      this.#notify(deviceId,{type:'device.revoked'});
       for(const connection of this.listeners.get(deviceId)??[])try{connection.end();}catch{}
       this.listeners.delete(deviceId);
     });
@@ -210,6 +258,7 @@ export class DeviceGateway {
       for(const job of this.jobs.filter(j=>!terminal.has(j.status))){
         if(now-job.createdMs>this.timeoutMs || !this.online(job.deviceId)){
           job.status='stopped';job.reason=!this.online(job.deviceId)?'Device disconnected or heartbeat stale':'Gateway task timed out';job.updatedAt=ts;changed++;
+          this.#record('job.stopped',job);
           this.#notify(job.deviceId,{type:'job.stopped',job});
         }
       }

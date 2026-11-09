@@ -239,15 +239,35 @@ $('logout').addEventListener('click',async()=>{
 });
 // v0.5 local-only virtual device dispatch. Device tokens are NEVER exposed to this console.
 let lastGatewayPoll=0,gatewayBusy=false,authorizedActor=null;
+let gatewayEventCursor=0,gatewayEventCache=[];
 async function refreshGateway(){
   if(!authorizedActor||authorizedActor!=='parent')return;
   const now=Date.now();if(now-lastGatewayPoll<1400)return;lastGatewayPoll=now;
   try{
-    const [devicesResponse,jobsResponse,mapResponse]=await Promise.all([fetch('/api/devices'),fetch('/api/gateway/jobs'),fetch('/api/gateway/navigation-map')]);
+    const [devicesResponse,jobsResponse,mapResponse,eventResponse]=await Promise.all([
+      fetch('/api/devices'),fetch('/api/gateway/jobs'),fetch('/api/gateway/navigation-map'),
+      fetch('/api/gateway/events?after='+gatewayEventCursor+'&limit=100',{cache:'no-store'})
+    ]);
     if(!devicesResponse.ok||!jobsResponse.ok)throw new Error('需要本地家长认证');
     const allDevices=(await devicesResponse.json()).devices.filter(d=>d.id?.startsWith('dev-'));
     const jobs=(await jobsResponse.json()).jobs;
     if(mapResponse.ok)renderGatewayNavigationMap((await mapResponse.json()).map,jobs);
+    if(eventResponse.ok){
+      const timeline=await eventResponse.json();
+      if(timeline.cursorExpired)gatewayEventCache=[];
+      gatewayEventCache.push(...timeline.events);
+      if(gatewayEventCache.length>60)gatewayEventCache=gatewayEventCache.slice(-60);
+      if(timeline.events.length)gatewayEventCursor=timeline.events.at(-1).seq;
+      $('gateway-events-notice').textContent=timeline.cursorExpired
+       ?'旧事件历史已截断；从当前保留的序列继续查看。'
+       :'最新事件序列：'+timeline.latestSeq+'；所有事件仅为模拟设备元数据。';
+      $('gateway-events').innerHTML=gatewayEventCache.slice(-20).reverse().map(e=>
+       '<div class="event-row"><span class="event-time">#'+esc(e.seq)+'</span>'+
+       '<span class="event-kind">'+esc(e.type)+'</span><span class="event-message">'+
+       esc(e.status)+' · '+esc(e.deviceId)+' · '+esc(e.jobId)+
+       (e.requestId?' · '+esc(e.requestId):'')+'</span></div>'
+      ).join('')||'<p class="helper">暂无设备事件。</p>';
+    }else $('gateway-events-notice').textContent='无法读取事件：需要本地家长认证。';
     $('device-count').innerHTML=`${1+allDevices.length} <sub>台</sub>`;
     $('nav-device-count').textContent=String(1+allDevices.length);
     const select=$('gateway-device'),current=select.value;
