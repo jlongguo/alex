@@ -725,6 +725,34 @@ async function refreshSkillReconciliation(){
  }catch(error){$('skill-reconciliation-status').textContent=error.message;}
 }
 $('skill-reconciliation-refresh').addEventListener('click',()=>void refreshSkillReconciliation());
+// R37 durable metadata apply; only an explicit parent action supplies the operation ID.
+async function refreshSkillTransactions(){
+ if(authorizedActor!=='parent')return;
+ try{
+  const response=await fetch('/api/skills/transactions',{cache:'no-store'});
+  if(!response.ok)throw Error('需家长身份读取事务恢复记录');
+  const state=await response.json();
+  const pending=state.records.filter(r=>r.phase==='prepared');
+  $('skill-transaction-notice').textContent='事务总数 '+state.records.length+
+   ' · 待恢复 '+pending.length+'。仅涉及技能包元数据，不代表第三方执行成功。';
+  $('skill-transaction-list').innerHTML=state.records.slice(-25).reverse().map(r=>
+   '<div class="event-row"><span class="event-kind">'+esc(r.phase)+'</span>'+
+   '<span class="event-message"><strong>'+esc(r.id)+' @ '+esc(r.version)+'</strong>'+
+   '<small>操作ID '+esc(r.operationId)+' · 发布者 '+esc(r.publisherId)+
+   ' · Manifest '+esc(r.manifestSha256.slice(0,16))+'…</small></span></div>'
+  ).join('')||'<p class="helper">暂无持久化元数据事务。</p>';
+ }catch(error){$('skill-transaction-notice').textContent=error.message;}
+}
+$('skill-transaction-recover').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ if(!window.confirm('核对并尝试恢复已由家长确认的未完成元数据事务？不会重放设备命令。'))return;
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'recover'});
+  notify('已检查恢复记录：'+result.reports.length+' 项；仍待处理 '+result.pending+' 项');
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillTransactions();await refreshSkillPackages();}
+});
 async function refreshSkillPackages(){
  if(authorizedActor!=='parent'||skillPackagesBusy)return;
  try{
@@ -751,6 +779,9 @@ async function refreshSkillPackages(){
      :'';
    const inspect='<button type="button" data-package-action="preview" data-package-current="'+esc(version??'')+
      '" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">影响预览</button>';
+   const apply=!installedHere&&['pending','approved'].includes(item.status)
+     ?'<button type="button" data-package-action="apply" data-package-current="'+esc(version??'')+
+       '" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">审批并安装（事务）</button>':'';
    const rollback=version&&version!==m.version&&item.status==='approved'
      ?'<button type="button" data-package-action="rollback" data-package-current="'+esc(version)+
        '" data-package-id="'+esc(m.id)+'" data-package-version="'+esc(m.version)+'">回滚元数据</button>':'';
@@ -758,7 +789,7 @@ async function refreshSkillPackages(){
     '<span class="event-message"><strong>'+esc(m.name)+'</strong> · '+esc(m.id)+' @ '+esc(m.version)+
     '<small>权限：'+esc(m.permissions.join(', ')||'无')+' · 角色：'+
     esc(m.allowedActors.join(', '))+' · 依赖：'+esc(m.dependencies.map(x=>x.id+'@'+x.version).join(', ')||'无')+
-    ' · '+(installedHere?'已安装元数据':'未安装')+' · 关联项 '+(references.get(m.id)||0)+'</small></span>'+inspect+controls+rollback+'</div>';
+    ' · '+(installedHere?'已安装元数据':'未安装')+' · 关联项 '+(references.get(m.id)||0)+'</small></span>'+inspect+controls+rollback+apply+'</div>';
   }).join('')||'<p class="helper">尚无提交的技能包。</p>';
   const renderReference=row=>'<div class="event-row"><span class="event-kind">'+esc(row.kind)+'</span>'+
     '<span class="event-message">'+esc(row.skillId)+' @ '+esc(row.version??'未指定')+
@@ -791,7 +822,7 @@ $('skill-packages-list').addEventListener('click',async event=>{
  const button=event.target.closest('[data-package-action]');
  if(!button||authorizedActor!=='parent'||skillPackagesBusy)return;
  const action=button.dataset.packageAction,id=button.dataset.packageId,version=button.dataset.packageVersion;
- if(!['approve','revoke','install','uninstall','preview','rollback'].includes(action))return;
+ if(!['approve','revoke','install','uninstall','preview','rollback','apply'].includes(action))return;
  if(action==='preview'){
   try{
    const res=await api('/api/skills/packages',{action:'preview',id,version,
@@ -811,6 +842,8 @@ $('skill-packages-list').addEventListener('click',async event=>{
   }catch(error){notify(error.message,true);}
   return;
  }
+ if(action==='apply'&&!window.confirm('家长确认审批并安装 '+id+' @ '+version+
+  ' 的元数据？需要已验证发布者签名；该操作不授权第三方代码运行。'))return;
  if(action==='rollback'&&!window.confirm('确认显式回滚 '+id+' 从 '+button.dataset.packageCurrent+' 到 '+version+'？仅更新元数据。'))return;
  if((action==='revoke'||action==='uninstall')&&!window.confirm('确认修改 '+id+' @ '+version+' 的安装/审批状态？'))return;
  skillPackagesBusy=true;
@@ -820,6 +853,9 @@ $('skill-packages-list').addEventListener('click',async event=>{
   if(action==='install')payload.expectedCurrentVersion=button.dataset.packageCurrent||null;
   if(action==='uninstall')payload={action,id,expectedVersion:version};
   if(action==='rollback')payload={action,id,version,expectedCurrentVersion:button.dataset.packageCurrent||null};
+  if(action==='apply')payload={action,id,version,
+   expectedCurrentVersion:button.dataset.packageCurrent||null,
+   operationId:'parent-'+crypto.randomUUID()};
   await api('/api/skills/packages',payload);
   notify('技能包元数据操作完成：'+id+' @ '+version);
  }catch(error){notify(error.message,true);}
@@ -888,6 +924,7 @@ async function refreshFamily(){
   await refreshSkillGovernance();
   await refreshSkillPackages();
   await refreshSkillReconciliation();
+  await refreshSkillTransactions();
   await refreshSkillTrust();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
