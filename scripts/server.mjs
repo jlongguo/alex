@@ -980,9 +980,17 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
        ||deviceId!==undefined&&!/^dev-[0-9a-f-]{36}$/.test(deviceId)){
         send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_FILTER'});return;
       }
-      send(res,200,{ok:true,executions:executionTraces.list({
-        limit:Number(limit),kind,deviceId
-      }),simulationOnly:true});return;
+      const cursor=params.get('cursor')??undefined;
+      if(cursor!==undefined&&(cursor.length>350||! /^[A-Za-z0-9_-]{12,350}$/.test(cursor))){
+        send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_CURSOR'});return;
+      }
+      let page;
+      try{page=executionTraces.page({limit:Number(limit),kind,deviceId,cursor});}
+      catch(error){
+        if(error?.message!=='INVALID_EXECUTION_TRACE_CURSOR')throw error;
+        send(res,400,{ok:false,error:'INVALID_EXECUTION_TRACE_CURSOR'});return;
+      }
+      send(res,200,{ok:true,...page,simulationOnly:true});return;
     }
     const id=pathname.slice('/api/executions/'.length);
     if(!/^(plan|wf)-[0-9a-f-]{36}$/.test(id)){
