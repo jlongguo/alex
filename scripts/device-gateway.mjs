@@ -107,9 +107,15 @@ export class DeviceGateway {
       const job=this.jobs.find(j=>j.id===jobId&&j.deviceId===deviceId);
       if(!job)throw new Error('UNKNOWN_GATEWAY_JOB');
       if(!this.registry.get(deviceId)?.capabilities.includes(job.capability))return {ok:false,message:'DEVICE_CAPABILITY_NOT_APPROVED'};
-      if(job.status===status)return {ok:true,job:{...job},duplicate:true};
-      if(terminal.has(job.status))return {ok:false,message:'TASK_ALREADY_TERMINAL'};
+      // Terminal acknowledgements remain idempotent only if they were
+      // completed before expiry. An already-running device must still pass
+      // current heartbeat/deadline checks even for a duplicate 'running'.
+      if(terminal.has(job.status)){
+        if(job.status===status)return {ok:true,job:{...job},duplicate:true};
+        return {ok:false,message:'TASK_ALREADY_TERMINAL'};
+      }
       if(!await this.#assertFreshFeedback(job))return {ok:false,message:'TASK_FEEDBACK_EXPIRED'};
+      if(job.status===status)return {ok:true,job:{...job},duplicate:true};
       if(status==='running'&&job.status!=='queued')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.status!=='running')return {ok:false,message:'INVALID_TASK_TRANSITION'};
       if(status==='succeeded'&&job.capability==='sim.navigation.goto'&&this.registry.get(deviceId)?.protocolVersion>=2 && (job.telemetry?.phase!=='arrived'||job.telemetry.progress!==100))return {ok:false,message:'NAVIGATION_ARRIVAL_EVIDENCE_REQUIRED'};

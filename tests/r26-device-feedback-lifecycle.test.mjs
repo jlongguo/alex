@@ -102,6 +102,40 @@ test('R26 a future-dated heartbeat cannot make a device appear online',async()=>
   assert.equal(t.gateway.online(t.device.deviceId),true);
  }finally{await t.close();}
 });
+test('R27 duplicate running status never bypasses expiry and stale heartbeats',async()=>{
+ const t=await fixture();try{
+  const job=await t.dispatch('audio.output',{text:'Short'});
+  const first=await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'running'});
+  assert.equal(first.ok,true);
+  assert.equal((await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'running'})).duplicate,true);
+  t.advance(1200);
+  const late=await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'running'});
+  assert.equal(late.ok,false);
+  assert.equal(late.message,'TASK_FEEDBACK_EXPIRED');
+  assert.equal(t.gateway.list().find(x=>x.id===job.id).status,'stopped');
+ }finally{await t.close();}
+});
+test('R27 completed feedback remains idempotent after an earlier successful completion',async()=>{
+ const t=await fixture();try{
+  const job=await t.dispatch('display.face',{expression:'happy'});
+  await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'running'});
+  await t.gateway.presentation(t.device.deviceId,t.device.token,{
+   jobId:job.id,sequence:1,phase:'rendered',kind:'display.face',
+   observed:{expression:'happy'}});
+  const done=await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'succeeded'});
+  assert.equal(done.ok,true);
+  t.advance(6000);
+  const repeat=await t.gateway.result(t.device.deviceId,t.device.token,{
+   jobId:job.id,status:'succeeded'});
+  assert.equal(repeat.duplicate,true);
+  assert.equal(t.gateway.list().find(x=>x.id===job.id).status,'succeeded');
+ }finally{await t.close();}
+});
 test('R26 on-time feedback remains compatible with existing virtual client',async()=>{
  const t=await fixture();try{
   const job=await t.dispatch('audio.output',{text:'Hello'});
