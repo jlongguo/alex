@@ -705,6 +705,26 @@ $('skill-trust-publishers').addEventListener('click',async event=>{
  }catch(error){notify(error.message,true);}
  finally{skillTrustBusy=false;await refreshSkillTrust();}
 });
+// R36: read-only recovery readiness, never silently repairs installed state.
+async function refreshSkillReconciliation(){
+ if(authorizedActor!=='parent')return;
+ try{
+  const response=await fetch('/api/skills/reconciliation',{cache:'no-store'});
+  if(!response.ok)throw Error('需家长授权进行一致性检查');
+  const health=await response.json();
+  $('skill-reconciliation-status').textContent=(health.status==='consistent'?
+   '已核对：未发现已建模的不一致':'发现 '+health.findings.length+' 项待处理问题')+
+   ' · 注册版本 '+health.checked.packages+' · 已安装元数据 '+health.checked.installed+
+   ' · 运行时引用 '+health.checked.runtimeReferences+
+   '。仅只读检查，不代表事务恢复或执行成功。';
+  $('skill-reconciliation-findings').innerHTML=health.findings.map(f=>
+   '<div class="event-row"><span class="event-kind">'+esc(f.kind)+'</span>'+
+   '<span class="event-message">'+esc(f.id??'依赖图')+
+   ' · '+esc(f.version??'无固定版本')+'</span></div>'
+  ).join('')||'<p class="helper">本次检查没有发现异常。</p>';
+ }catch(error){$('skill-reconciliation-status').textContent=error.message;}
+}
+$('skill-reconciliation-refresh').addEventListener('click',()=>void refreshSkillReconciliation());
 async function refreshSkillPackages(){
  if(authorizedActor!=='parent'||skillPackagesBusy)return;
  try{
@@ -867,6 +887,7 @@ async function refreshFamily(){
   await refreshProviderBilling();
   await refreshSkillGovernance();
   await refreshSkillPackages();
+  await refreshSkillReconciliation();
   await refreshSkillTrust();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }
