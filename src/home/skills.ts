@@ -41,8 +41,9 @@ export class SkillRegistry {
     const plugin=this.plugins.get(id);
     if(!plugin)throw new Error('UNKNOWN_SKILL');
     // Copy before mutation: the built-in manifest is the executable identity.
-    plugin.manifest={...plugin.manifest,enabled};
-    return {...plugin.manifest,
+    const changed={...plugin.manifest,enabled};
+    this.plugins.set(id,{manifest:changed,execute:plugin.execute});
+    return {...changed,
       capabilities:[...plugin.manifest.capabilities],
       allowedActors:[...plugin.manifest.allowedActors]};
   }
