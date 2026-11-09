@@ -52,7 +52,7 @@ export class SkillRegistry {
     if(actor!=='parent')throw new Error('PARENT_REQUIRED');
     const incoming=plugin?.manifest;
     const previous=incoming?.id&&this.plugins.get(incoming.id);
-    if(!previous)throw new Error('UNKNOWN_SKILL');
+    if(!incoming||!previous)throw new Error('UNKNOWN_SKILL');
     const semver=(v:string)=>/^\\d+\\.\\d+\\.\\d+$/.test(v)?v.split('.').map(Number):null;
     const oldVersion=semver(previous.manifest.version);
     const nextVersion=semver(incoming.version);
