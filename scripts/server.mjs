@@ -17,6 +17,7 @@ import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
+import {SkillPackageTransactions} from './skill-package-transactions.mjs';
 import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
