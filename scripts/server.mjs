@@ -17,6 +17,7 @@ import {PlanOrchestrator} from './plan-orchestrator.mjs';
 import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
+import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -226,10 +227,16 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'AUDIO_REALTIME_FINAL_TIMEOUT','AUDIO_REQUEST_CANCELLED',
   'SPEECH_SESSION_NOT_READY','SPEECH_PLAYBACK_BACKPRESSURE',
   'SPEECH_PROVIDER_PCM_TOO_LARGE','PROVIDER_BILLING_STATEMENT_ID_CONFLICT',
-  'SKILL_VERSION_REVIEW_REQUIRED'].includes(message)?409:
+  'SKILL_VERSION_REVIEW_REQUIRED','SKILL_INSTALL_CONFLICT',
+  'SKILL_REFERENCE_CONFLICT','SKILL_REFERENCES_PINNED',
+  'SKILL_DEPENDENCY_MISSING','SKILL_DEPENDENCY_IN_USE',
+  'SKILL_PERMISSION_EXPANSION_REQUIRES_UNINSTALL',
+  'SKILL_REVIEW_CONFLICT','SKILL_PACKAGE_EXISTS',
+  'SKILL_VERSION_NOT_NEWER'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
-  'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
+  'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED','SKILL_NOT_APPROVED',
+  'SKILL_NOT_INSTALLED'].includes(message)?403:message==='UNAUTHENTICATED'||message==='DEVICE_UNAUTHORIZED'||message==='INVALID_CREDENTIALS'?401:message==='PARENT_REQUIRED'||message==='LOCAL_AUTH_REQUIRED'||message==='LEARNING_PLANS_FORBIDDEN'||message==='LEARNING_PLANS_AUTH_REQUIRED'?403:['TOO_MANY_ATTEMPTS','AUDIO_RATE_LIMIT','SPEECH_DAILY_DELIVERY_LIMIT'].includes(message)?429:/^INVALID_|^UNKNOWN_|^CHAT_HAS_NO_LESSON|^LEARNING_PLANS_LIMIT|^AUTH_NOT_ENABLED|^MEMORY_LIMIT_|^SESSION_LIMIT_|^DEVICE_LIMIT_|^PROFILE_LIMIT_|^PROVIDER_BILLING_CSV_/.test(message)?400:500;
 function asyncWrap(fn) {
   return async (req, res) => {
     try {await fn(req,res);} catch (err) {
@@ -1067,6 +1074,14 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
+  }
+  if(req.method==='GET' && pathname==='/api/skills/usage'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,...projectSkillUsage({
+      skills:core.skills,plans,workflows,learningPlans,
+      packages:skillPackages.list('parent')
+    })});return;
   }
   if(req.method==='GET' && pathname==='/api/skills/packages'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
