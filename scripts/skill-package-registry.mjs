@@ -79,6 +79,13 @@ export class SkillPackageRegistry{
     fail('INVALID_SKILL_PACKAGE_STATE');
    installed.add(i.id);
   }
+  // Fail closed when persisted installed packages have missing dependency pins.
+  for(const i of saved.installed){
+   const pkg=saved.packages.find(p=>key(p.manifest.id,p.manifest.version)===key(i.id,i.version));
+   if(pkg.manifest.dependencies.some(d=>!saved.installed.some(j=>
+    key(j.id,j.version)===key(d.id,d.version))))
+    fail('INVALID_SKILL_PACKAGE_STATE');
+  }
   for(const r of saved.references){
    if(!validReference(r)||!seen.has(key(r.skillId,r.version))||
     !installed.has(r.skillId)||saved.installed.find(i=>i.id===r.skillId).version!==r.version)
@@ -151,6 +158,11 @@ export class SkillPackageRegistry{
      fail('SKILL_PERMISSION_EXPANSION_REQUIRES_UNINSTALL');
     if(s.references.some(r=>r.skillId===id&&r.version===old.version))
      fail('SKILL_REFERENCES_PINNED');
+    // Existing installed dependents pin the old version and must be moved first.
+    if(s.installed.some(i=>i.id!==id&&s.packages.find(p=>
+      key(p.manifest.id,p.manifest.version)===key(i.id,i.version))
+      ?.manifest.dependencies.some(d=>key(d.id,d.version)===key(id,old.version))))
+     fail('SKILL_DEPENDENCY_IN_USE');
     old.version=version;
    }else s.installed.push({id,version});
    return {id,version,executable:false};
