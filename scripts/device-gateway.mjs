@@ -48,7 +48,8 @@ export class DeviceGateway {
   online(id){
     const d=this.registry.get(id);
     const seen=d?.lastSeenAt?Date.parse(d.lastSeenAt):0;
-    return !!d&&!d.revoked&&Number.isFinite(seen)&&this.clock()-seen<=this.freshMs;
+    const age=this.clock()-seen;
+    return !!d&&!d.revoked&&Number.isFinite(seen)&&age>=0&&age<=this.freshMs;
   }
   async announce(deviceId,token,capabilities,protocolVersion){
     if(![1,2,3].includes(protocolVersion))throw new Error('INVALID_PROTOCOL_VERSION');
