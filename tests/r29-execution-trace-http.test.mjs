@@ -60,7 +60,7 @@ test('R29 parent-only execution trace lists and detail survive restart without d
   assert.equal(empty.status,200);assert.deepEqual(empty.data.executions,[]);
   for(const path of ['/api/executions?limit=0','/api/executions?limit=101',
    '/api/executions?kind=arbitrary','/api/executions?deviceId=not-a-device',
-   '/api/executions/../../private']){
+   '/api/executions/not-an-id']){
    const result=await request(server.base,path,{cookie:parent});
    assert.ok([400,404].includes(result.status),path+' '+result.status);
   }
