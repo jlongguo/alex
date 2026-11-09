@@ -53,7 +53,7 @@ export class SkillRegistry {
     const incoming=plugin?.manifest;
     const previous=incoming?.id&&this.plugins.get(incoming.id);
     if(!incoming||!previous)throw new Error('UNKNOWN_SKILL');
-    const semver=(v:string)=>/^\\d+\\.\\d+\\.\\d+$/.test(v)?v.split('.').map(Number):null;
+    const semver=(v:string)=>/^\d+\.\d+\.\d+$/.test(v)?v.split('.').map(Number):null;
     const oldVersion=semver(previous.manifest.version);
     const nextVersion=semver(incoming.version);
     if(!nextVersion||!oldVersion
