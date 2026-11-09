@@ -21,7 +21,7 @@ test('R22 supplier billing controls live inside the parent-private family worksp
 test('R22 console fetches parent-only provider and statement endpoints without exposing credentials',()=>{
  assert.match(app,/fetch\('\/api\/audio\/provider-usage'/);
  assert.match(app,/fetch\('\/api\/audio\/provider-billing\/statements'/);
- assert.match(app,/fetch\('\/api\/audio\/provider-billing\/reconciliation'/);
+ assert.match(app,/fetch\(reconciliationUrl,/);
  assert.match(app,/api\('\/api\/audio\/provider-billing\/csv'/);
  assert.match(app,/authorizedActor!=='parent'/);
  assert.match(app,/JSON\.parse\(\$\('provider-billing-json'\)\.value\)/);
