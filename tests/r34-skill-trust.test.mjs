@@ -64,7 +64,8 @@ test('R34 signatures cannot be replayed against changed version, bytes or signer
    artifactBase64:artifact.toString('base64'),publisherId:'family.publisher',
    signature:signature(other.privateKey,m)}),/INVALID_SKILL_SIGNATURE/);
   assert.throws(()=>f.trust.attest('parent',{manifest:m,
-   artifactBase64:'not valid
+   artifactBase64:'*invalid*',publisherId:'family.publisher',
+   signature:valid}),/INVALID_ARTIFACT_BASE64/);
   assert.equal(f.trust.list('parent').attestations.length,0);
  }finally{await f.close();}
 });
