@@ -182,6 +182,14 @@
         <p>工作流、计划图、家长审核归在同一工作区。儿童可以提交计划建议；移动和设备执行仍必须由经过认证的家长批准。</p>
         <p id="tasks-access-note" class="helper hidden" role="status">工作流与计划执行需要 AUTH_MODE=local 的家长账户。儿童账户只能提交建议，不可批准。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>家长登录 / 切换身份</button></p>
       </section>
+      <section class="panel events-panel" id="execution-trace-section" data-nav-view="tasks">
+        <div class="panel-header"><div><div class="eyebrow">R29 EXECUTION TRACE</div><h2>跨模块执行追踪 <span class="version-label">VIRTUAL ONLY</span></h2></div>
+          <button type="button" class="secondary-btn" id="execution-trace-refresh">刷新</button></div>
+        <p class="helper">查看受控计划、技能步骤、虚拟设备任务和事件的关联关系。这里不会执行新的设备指令；历史缺失会明确标记。</p>
+        <p id="execution-trace-notice" class="helper" role="status" aria-live="polite">请使用家长身份查看执行追踪。</p>
+        <div id="execution-trace-list" class="event-list" aria-live="polite"></div>
+        <div id="execution-trace-detail" class="event-list" aria-live="polite"></div>
+      </section>
       <section class="panel events-panel" id="workflow-section" data-nav-view="tasks">
         <div class="panel-header"><div><div class="eyebrow">WORKFLOW ORCHESTRATOR</div><h2>跨设备技能编排 <span class="version-label">V0.6 SIMULATION</span></h2></div><span class="pill">PARENT ONLY</span></div>
         <p class="helper">机器人先完成虚拟导航，再启动英语或故事演示技能，最后通过虚拟音频回复。只有家长授权的虚拟设备才能执行，重启不会自动重放任务。</p>
