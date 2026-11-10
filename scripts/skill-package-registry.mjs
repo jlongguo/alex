@@ -79,7 +79,9 @@ export class SkillPackageRegistry{
  // The coordinator owns the transaction lock. Context propagates through serialized writes.
  // This is in-process isolation; a second process sharing files remains unsupported.
  setTransactionGuard(guard){
-  if(this.#transactionGuard||typeof guard!=='function')fail('INVALID_SKILL_TRANSACTION_GUARD');
+  // A new coordinator can replace an abandoned instance during in-process recovery.
+  // Only the latest coordinator guard governs this single registry instance.
+  if(typeof guard!=='function')fail('INVALID_SKILL_TRANSACTION_GUARD');
   this.#transactionGuard=guard;
  }
  withinTransaction(operationId,fn){
