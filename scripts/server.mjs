@@ -1152,7 +1152,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       profileCount:profiles.list().length,skillReconciliation:integrity,
       singleWal:{pending:single.pending.length,remaining:single.remaining},
       batchWal:{pending:batch.pending.length,remaining:batch.remaining},
-      audioConfigured:audioMode!=='disabled'||speechStreamMode!=='disabled',
+      // 只有语音输出不足以证明录音识别路径具备配置条件。
+      audioConfigured:audioMode!=='disabled',
       conversationProvider:conversations.providerKind,
       writerLockHeld:!!writerLease
     });
