@@ -102,6 +102,20 @@ test('R44 真实 HTTP 家庭首次使用：家长建立独立身份+默认拒绝
   assert.equal((await req(server.base,'/api/family/onboarding',{cookie:learner.cookie})).status,403);
   assert.equal((await req(server.base,'/api/learner/privacy?profileId='+profileId,{
    cookie:learner.cookie})).status,403);
+  // R45 回归：撤销孩子凭据必须同步失效已经登录的独立会话。
+  const revoked=await req(server.base,'/api/learners/revoke',{cookie:parent,data:{profileId}});
+  assert.equal(revoked.status,200,JSON.stringify(revoked.body));
+  assert.equal(revoked.body.runtimeStopped,true);
+  assert.ok(revoked.body.revokedSessions>=1);
+  assert.equal((await req(server.base,'/api/family/onboarding',{
+   cookie:learner.cookie})).status,401);
+  assert.equal((await req(server.base,'/api/voice/turn/capabilities',{
+   cookie:learner.cookie})).status,401);
+  const refused=await req(server.base,'/api/auth/login',{data:{
+   role:'learner',code:credential.body.learner.code,secret:'647219'}});
+  assert.notEqual(refused.status,200);
+  // 家长自身会话仍可读取设置状态，其他学习者不应受误伤。
+  assert.equal((await req(server.base,'/api/family/onboarding',{cookie:parent})).status,200);
  }finally{await stop(server);await rm(dir,{recursive:true,force:true});}
 });
 test('R44 重启后初次配置进度仍从真实档案与隐私存储计算',{timeout:45000},async()=>{
