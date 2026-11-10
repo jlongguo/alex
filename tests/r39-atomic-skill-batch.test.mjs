@@ -95,7 +95,7 @@ test('R39 atomic batch validation rejects duplicate targets and stale parent req
   const r=f.registry;
   await approved(r,m('family.a','1.0.0'));
   await assert.rejects(r.installBatch('parent',{targets:[d('family.a','1.0.0'),d('family.a','1.0.0')],expectedPins:[]}),/INVALID_SKILL_UPGRADE_TARGET/);
-  await assert.rejects(r.installBatch('child',{targets:[d('family.a','1.0.0')],expectedPins:[]}),/PARENT_REQUIRED/);
+  assert.throws(()=>r.installBatch('child',{targets:[d('family.a','1.0.0')],expectedPins:[]}),/PARENT_REQUIRED/);
   assert.deepEqual(r.list('parent').installed,[]);
  }finally{await f.close();}
 });
