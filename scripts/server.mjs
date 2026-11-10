@@ -1481,7 +1481,17 @@ function shutdown(){
   realtimeSessions?.cancelChildren();
   realtimeSessions?.cancel('parent');
   clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{
-  try{await store.save(core.snapshot());await writerLease.release();}
+  try{
+    await store.save(core.snapshot());
+    // 放行下一实例前必须确保 Skill 注册表、信任库及两套 WAL 无待落盘写入。
+    await Promise.all([
+      skillPackages.store.flush(),
+      skillPackageTrust.store.flush(),
+      skillTransactions.store.flush(),
+      skillBatchTransactions.store.flush()
+    ]);
+    await writerLease.release();
+  }
   catch(err){console.error('ALEX_SHUTDOWN_PERSISTENCE_OR_LOCK_ERROR',err.message);process.exitCode=1;}
   process.exit(process.exitCode??0);
 });}
