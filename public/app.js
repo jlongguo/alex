@@ -767,6 +767,51 @@ $('skill-transaction-list').addEventListener('click',async event=>{
  }catch(error){notify(error.message,true);}
  finally{skillPackagesBusy=false;await refreshSkillTransactions();}
 });
+// R39: advisory plan is explicitly bound to its full installed-pin snapshot.
+let atomicSkillBatchPlan=null;
+$('skill-atomic-batch-preview').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ let targets;
+ try{targets=JSON.parse($('skill-upgrade-targets').value);}
+ catch{notify('目标版本必须是 JSON 数组',true);return;}
+ atomicSkillBatchPlan=null;
+ $('skill-atomic-batch-commit').disabled=true;
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'atomic-plan',targets});
+  const plan=result.plan;
+  $('skill-atomic-batch-status').textContent=plan.ready?
+   '原子注册表版本变更可行，仍须家长明确确认。':'原子注册表版本变更被阻断；未修改任何数据。';
+  $('skill-atomic-batch-results').innerHTML=(plan.ready?plan.changes.map(change=>
+   '<div class="event-row"><span class="event-kind">变更</span>'+
+   '<span class="event-message">'+esc(change.id)+' · '+esc(change.from??'未安装')+
+   ' → '+esc(change.to)+'</span></div>'):plan.blockers.map(blocker=>
+   '<div class="event-row"><span class="event-kind">阻断</span>'+
+   '<span class="event-message">'+esc(blocker.id)+' · '+esc(blocker.reason)+'</span></div>'
+  )).join('')||'<p class="helper">当前目标没有版本变化。</p>';
+  if(plan.ready&&plan.changes.length){
+   atomicSkillBatchPlan={targets:plan.changes.map(change=>({id:change.id,version:change.to})),
+    expectedPins:plan.currentPins};
+   $('skill-atomic-batch-commit').disabled=false;
+  }
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;}
+});
+$('skill-atomic-batch-commit').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent'||skillPackagesBusy||!atomicSkillBatchPlan)return;
+ const plan=atomicSkillBatchPlan;
+ if(!window.confirm('确认同时修改 '+plan.targets.length+
+  ' 个 Skill 的注册表固定版本？仅原子写入元数据，不执行第三方代码或设备命令。'))return;
+ atomicSkillBatchPlan=null;
+ $('skill-atomic-batch-commit').disabled=true;
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'atomic-batch',...plan});
+  notify('已原子更新 '+result.changes.length+' 个 Skill 元数据版本');
+  $('skill-atomic-batch-status').textContent='注册表快照已提交；独立信任与设备状态未修改。';
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillPackages();await refreshSkillTransactions();}
+});
 $('skill-upgrade-plan-form').addEventListener('submit',async event=>{
  event.preventDefault();
  if(authorizedActor!=='parent'||skillPackagesBusy)return;

@@ -62,3 +62,64 @@ export function planSkillUpgrade({registry,targets,verify=()=>({})}={}){
   finalPins:blockers.length?null:[...simulated].map(([id,version])=>({id,version})),
   advisory:true,executable:false});
 }
+
+
+// R39 simultaneous target-pin transition. No intermediate invalid state is exposed.
+// Validates the FINAL installed graph, not a sequence of individual installations.
+// The returned proposal is advisory; the registry MUST revalidate during its queued commit.
+export function planAtomicSkillUpgrade({registry,targets,verify=()=>({})}={}){
+ if(!registry||!Array.isArray(registry.packages)||!Array.isArray(registry.installed)||
+  !Array.isArray(registry.references)||!Array.isArray(targets)||!targets.length||
+  targets.length>12||typeof verify!=='function')fail('INVALID_SKILL_UPGRADE_PLAN');
+ const catalog=new Map(registry.packages.map(p=>[key(p.manifest.id,p.manifest.version),p]));
+ const previous=new Map(registry.installed.map(p=>[p.id,p.version]));
+ const desired=new Map(previous),seen=new Set(),blockers=[],changes=[];
+ for(const target of targets){
+  if(!target||Object.keys(target).sort().join(',')!=='id,version'||
+   typeof target.id!=='string'||!/^[a-z][a-z0-9.-]{2,79}$/.test(target.id)||
+   typeof target.version!=='string'||!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(target.version)||
+   seen.has(target.id))fail('INVALID_SKILL_UPGRADE_TARGET');
+  seen.add(target.id);
+  const p=catalog.get(key(target.id,target.version));
+  if(!p){blockers.push({id:target.id,reason:'UNKNOWN_SKILL_PACKAGE'});continue;}
+  if(p.status!=='approved')blockers.push({id:target.id,reason:'SKILL_NOT_APPROVED'});
+  try{verify(p.manifest);}
+  catch(error){blockers.push({id:target.id,reason:error?.message??'SKILL_ATTESTATION_REQUIRED'});}
+  const old=previous.get(target.id)??null;
+  if(old!==null){
+   const prior=catalog.get(key(target.id,old))?.manifest;
+   if(!prior){blockers.push({id:target.id,reason:'SKILL_INSTALL_CONFLICT'});}
+   else{
+    if(cmp(target.version,old)<0)blockers.push({id:target.id,reason:'SKILL_ROLLBACK_REQUIRES_REVIEW'});
+    if(p.manifest.permissions.some(permission=>!prior.permissions.includes(permission))||
+       p.manifest.allowedActors.some(actor=>!prior.allowedActors.includes(actor)))
+     blockers.push({id:target.id,reason:'SKILL_PERMISSION_EXPANSION_REQUIRES_UNINSTALL'});
+    if(old!==target.version&&registry.references.some(r=>r.skillId===target.id&&r.version===old))
+     blockers.push({id:target.id,reason:'SKILL_REFERENCES_PINNED'});
+   }
+  }
+  desired.set(target.id,target.version);
+  if(old!==target.version)changes.push({id:target.id,from:old,to:target.version});
+ }
+ const graph=[],visited=new Set(),active=new Set();
+ const visit=(id,path)=>{
+  if(active.has(id)){blockers.push({id,reason:'SKILL_DEPENDENCY_CYCLE',path:[...path,id]});return;}
+  if(visited.has(id))return;
+  active.add(id);
+  const p=catalog.get(key(id,desired.get(id)));
+  if(!p||p.status!=='approved')blockers.push({id,reason:'SKILL_DEPENDENCY_MISSING'});
+  else for(const dependency of p.manifest.dependencies){
+   if(desired.get(dependency.id)!==dependency.version)
+    blockers.push({id,reason:'SKILL_DEPENDENCY_MISSING',dependency:key(dependency.id,dependency.version)});
+   else visit(dependency.id,[...path,id]);
+  }
+  active.delete(id);visited.add(id);graph.push(id);
+ };
+ for(const id of desired.keys())visit(id,[]);
+ return structuredClone({ready:!blockers.length,advisory:true,atomic:true,executable:false,
+  blockers,changes:blockers.length?[]:changes,
+  currentPins:[...previous].map(([id,version])=>({id,version})),
+  finalPins:blockers.length?null:[...desired].map(([id,version])=>({id,version})),
+  dependencyFirst:graph,
+  note:'One registry snapshot, never a multi-file or device-command transaction'});
+}

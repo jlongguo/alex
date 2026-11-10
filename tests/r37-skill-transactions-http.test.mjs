@@ -112,6 +112,40 @@ test('R37 signed HTTP transaction is parent-only, durable and idempotent across 
   assert.equal(abandon.status,409);
   assert.equal(abandon.body.error,'SKILL_TRANSACTION_NOT_PENDING');
   assert.equal((await api(server.base,'/api/skills/packages',child,{action:'recover'})).status,403);
+  // R39 signed version upgrade: preview is read-only, CAS guards atomic mutation.
+  const upgraded={...manifest,version:'2.0.0',description:'Updated signed declarative metadata'};
+  assert.equal((await api(server.base,'/api/skills/packages',parent,{action:'submit',manifest:upgraded})).status,200);
+  const upgradedSignature=sign(null,signedPayload(manifestDigest(upgraded),artifactSha256),
+   keys.privateKey).toString('base64');
+  assert.equal((await api(server.base,'/api/skills/trust',parent,{
+   action:'attest',id:upgraded.id,version:upgraded.version,
+   publisherId:'family.publisher',artifactBase64:bytes.toString('base64'),
+   signature:upgradedSignature})).status,200);
+  assert.equal((await api(server.base,'/api/skills/packages',parent,{
+   action:'review',id:upgraded.id,version:upgraded.version,decision:'approve'
+  })).status,200);
+  const atomicTargets=[{id:upgraded.id,version:upgraded.version}];
+  const atomicPlan=await api(server.base,'/api/skills/packages',parent,{
+   action:'atomic-plan',targets:atomicTargets
+  });
+  assert.equal(atomicPlan.status,200,JSON.stringify(atomicPlan.body));
+  assert.equal(atomicPlan.body.plan.ready,true);
+  assert.equal(atomicPlan.body.plan.advisory,true);
+  assert.equal((await api(server.base,'/api/skills/packages',child,{
+   action:'atomic-batch',targets:atomicTargets,expectedPins:atomicPlan.body.plan.currentPins
+  })).status,403);
+  const stale=await api(server.base,'/api/skills/packages',parent,{
+   action:'atomic-batch',targets:atomicTargets,expectedPins:[]
+  });
+  assert.equal(stale.status,409);
+  const atomic=await api(server.base,'/api/skills/packages',parent,{
+   action:'atomic-batch',targets:atomicTargets,
+   expectedPins:atomicPlan.body.plan.currentPins
+  });
+  assert.equal(atomic.status,200,JSON.stringify(atomic.body));
+  assert.equal(atomic.body.atomic,true);
+  assert.equal(atomic.body.executable,false);
+  assert.equal((await api(server.base,'/api/skills/packages',parent)).body.installed[0].version,'2.0.0');
   await stop(server);server=null;
   env.PORT=String(Number(env.PORT)+1);
   server=await boot(env);
