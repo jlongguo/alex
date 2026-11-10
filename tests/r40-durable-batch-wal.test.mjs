@@ -154,3 +154,52 @@ test('R40 stale precondition and invalid target fail before WAL prepare',async()
   assert.deepEqual(f.batch.list('parent').records,[]);
  }finally{await f.cleanup();}
 });
+
+test('R40 external registry modification after prepare is never mistaken for own batch commit',async()=>{
+ const f=await fixture();try{
+  await setup(f.registry);
+  const data=request(f.registry);
+  f.registry.installBatch=async()=>{throw Error('INJECTED_CRASH_BEFORE_REGISTRY');};
+  await assert.rejects(f.batch.apply('parent',data),/INJECTED_CRASH_BEFORE_REGISTRY/);
+  const altered=new SkillPackageRegistry({file:f.file});await altered.load();
+  await altered.submit('parent',manifest('family.unrelated','1.0.0'));
+  const before=altered.list('parent');
+  const recovering=new SkillBatchTransactions({file:f.wal,registry:altered,trust});
+  await recovering.load();
+  const result=await recovering.recover('parent');
+  assert.equal(result.pending,1);
+  assert.equal(result.reports[0].error,'SKILL_BATCH_RECOVERY_CONFLICT');
+  assert.deepEqual(altered.list('parent'),before);
+  await assert.rejects(recovering.abandon('parent',{operationId}),/SKILL_BATCH_RECOVERY_CONFLICT/);
+ }finally{await f.cleanup();}
+});
+test('R40 publisher revocation after prepare blocks restart until parent resolves trust',async()=>{
+ const f=await fixture();try{
+  await setup(f.registry);
+  const data=request(f.registry);
+  f.registry.installBatch=async()=>{throw Error('INJECTED_BEFORE_COMMIT');};
+  await assert.rejects(f.batch.apply('parent',data),/INJECTED_BEFORE_COMMIT/);
+  const freshRegistry=new SkillPackageRegistry({file:f.file});await freshRegistry.load();
+  const revoked={assertTrusted:()=>{throw Error('PUBLISHER_NOT_ACTIVE');}};
+  const batch=new SkillBatchTransactions({file:f.wal,registry:freshRegistry,trust:revoked});
+  await batch.load();
+  const recovery=await batch.recover('parent');
+  assert.equal(recovery.pending,1);
+  assert.equal(recovery.reports[0].error,'PUBLISHER_NOT_ACTIVE');
+  assert.equal(freshRegistry.list('parent').installed[0].version,'1.0.0');
+ }finally{await f.cleanup();}
+});
+test('R40 committed WAL survives full restart and preserves original idempotency key',async()=>{
+ const f=await fixture();try{
+  await setup(f.registry);
+  const data=request(f.registry);
+  await f.batch.apply('parent',data);
+  const loaded=new SkillPackageRegistry({file:f.file});await loaded.load();
+  const wal=new SkillBatchTransactions({file:f.wal,registry:loaded,trust});await wal.load();
+  const before=loaded.list('parent').history.length;
+  assert.equal((await wal.apply('parent',data)).status,'committed');
+  assert.equal((await wal.recover('parent')).pending,0);
+  assert.equal(loaded.list('parent').history.length,before);
+  assert.equal(wal.readiness('parent').remaining,399);
+ }finally{await f.cleanup();}
+});
