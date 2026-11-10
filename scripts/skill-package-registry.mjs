@@ -1,6 +1,7 @@
 // R32 metadata-only Skill package lifecycle. NEVER imports or executes package code.
 import {JsonStateStore} from './state-store.mjs';
 import {createHash} from 'node:crypto';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {analyzeSkillDependencies,requireSkillDependencyIntegrity} from './skill-dependency-graph.mjs';
 const idPattern=/^[a-z][a-z0-9.-]{2,79}$/;
 const versionPattern=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -66,6 +67,8 @@ function compare(a,b){
 export class SkillPackageRegistry{
  #queue=Promise.resolve();
  #state={schemaVersion:2,packages:[],installed:[],references:[],history:[]};
+ #transactionContext=new AsyncLocalStorage();
+ #transactionGuard=null;
  constructor({file,authorizePackage=()=>{}}={}){
   if(!safeString(file,4096))fail('INVALID_SKILL_PACKAGE_CONFIG');
   this.store=new JsonStateStore(file);
@@ -73,6 +76,16 @@ export class SkillPackageRegistry{
   this.authorizePackage=authorizePackage;
  }
  #snapshot(){return structuredClone(this.#state);}
+ // The coordinator owns the transaction lock. Context propagates through serialized writes.
+ // This is in-process isolation; a second process sharing files remains unsupported.
+ setTransactionGuard(guard){
+  if(this.#transactionGuard||typeof guard!=='function')fail('INVALID_SKILL_TRANSACTION_GUARD');
+  this.#transactionGuard=guard;
+ }
+ withinTransaction(operationId,fn){
+  if(typeof fn!=='function'||typeof operationId!=='string')fail('INVALID_SKILL_TRANSACTION_CONTEXT');
+  return this.#transactionContext.run(operationId,fn);
+ }
  list(actor){
   if(actor!=='parent')fail('PARENT_REQUIRED');
   return this.#snapshot();
@@ -139,6 +152,8 @@ export class SkillPackageRegistry{
  #mutate(actor,action,target,fn){
   if(actor!=='parent')fail('PARENT_REQUIRED');
   const job=this.#queue.catch(()=>{}).then(async()=>{
+   if(this.#transactionGuard)this.#transactionGuard({action,target,
+    operationId:this.#transactionContext.getStore()??null});
    const next=this.#snapshot();
    const before=checksum({packages:next.packages,installed:next.installed,
     references:next.references});
