@@ -10,6 +10,7 @@ import {FamilyAuth,AuditLog} from './family-security.mjs';
 import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
+import {familyOnboardingStatus} from './family-onboarding.mjs';
 import {LearnerCredentials} from './learner-credentials.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
 import {MAP} from '../dist/robot/map.js';
@@ -1098,6 +1099,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const visible=session.actor==='parent'?profiles.list():
       session.learnerId?profiles.list().filter(p=>p.id===session.learnerId):[];
     send(res,200,{profiles:visible});return;
+  }
+  if(req.method==='GET' && pathname==='/api/family/onboarding'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,report:familyOnboardingStatus({
+      authMode:auth.mode,profiles:profiles.list(),
+      learners:learnerCredentials.listForParent('parent'),
+      privacyRows:learnerPrivacy.list('parent')
+    })});return;
   }
   if(req.method==='GET' && pathname==='/api/learners/access'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
