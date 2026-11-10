@@ -241,6 +241,15 @@
             <p id="release-readiness-status" class="helper" role="status" aria-live="polite">尚未执行上线检查。</p>
             <div id="release-readiness-checks" class="event-list" aria-live="polite"></div>
             <p id="release-readiness-robot-status" class="helper" role="status">真实 ROS2/Nav2 运行验收未核实。</p>
+            <details>
+              <summary>R43 · 离线数据备份及恢复演练（需管理员在本机操作）</summary>
+              <p class="helper">必须先正常停止 Alex 服务；备份只覆盖所选状态目录顶层的 JSON/JSONL 文件，可能不包含其他位置的数据库或外部资源。备份中可能包含家庭隐私数据，禁止上传至公开网站。</p>
+              <p class="helper">在项目目录内，确认实际状态目录与目标目录后执行：</p>
+              <code>node scripts/offline-state-backup.mjs create .local /private/backup-new</code>
+              <p class="helper">核验：<code>node scripts/offline-state-backup.mjs verify /private/backup-new</code></p>
+              <p class="helper">恢复预演：先创建空的隔离目录，再执行 <code>node scripts/offline-state-backup.mjs restore-stage /private/backup-new /private/restore-empty</code>。此操作不覆盖原状态，也不代表完整产品恢复验收。</p>
+              <p class="helper">如果使用了自定义 STATE_FILE、其他业务数据路径或 ALEX_SERVER_LOCK_FILE，需要单独检查这些路径的覆盖范围和锁状态；不得直接照搬默认路径。</p>
+            </details>
           </section>
           <section class="panel">
             <div class="panel-header"><div><div class="eyebrow">TRUSTED SKILL GOVERNANCE · R31</div><h2>技能启停与权限</h2></div><button type="button" class="secondary-btn" id="skill-governance-refresh">刷新技能</button></div>
