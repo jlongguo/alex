@@ -67,6 +67,18 @@ test('R37 signed HTTP transaction is parent-only, durable and idempotent across 
   const child=(await api(server.base,'/api/auth/login',null,{role:'child',secret:env.ALEX_CHILD_PIN})).cookie;
   assert.equal((await api(server.base,'/api/skills/transactions')).status,401);
   assert.equal((await api(server.base,'/api/skills/transactions',child)).status,403);
+  // R42：上线检查只允许家长读取，且未完成真实验收时绝不能显示可发布。
+  assert.equal((await api(server.base,'/api/release/readiness')).status,401);
+  assert.equal((await api(server.base,'/api/release/readiness',child)).status,403);
+  const release=(await api(server.base,'/api/release/readiness',parent));
+  assert.equal(release.status,200,JSON.stringify(release.body));
+  assert.equal(release.body.report.status,'blocked');
+  assert.equal(release.body.report.releaseApproved,false);
+  assert.ok(release.body.report.blockers.includes('LEARNER_PROFILE_REQUIRED'));
+  assert.ok(release.body.report.blockers.includes('AUDIO_PROVIDER_CONFIGURED'));
+  assert.ok(release.body.report.manual.includes('VOICE_END_TO_END_ACCEPTANCE'));
+  assert.equal(release.body.report.robotCandidate.physicalSafetyCertified,false);
+
   const payload={action:'apply',operationId:'r37-parent-request-01',
    id:manifest.id,version:manifest.version,expectedCurrentVersion:null};
   assert.equal((await api(server.base,'/api/skills/packages',child,payload)).status,403);

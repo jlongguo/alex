@@ -231,6 +231,17 @@
         <div class="panel-header"><div><div class="eyebrow">FAMILY / PRIVACY</div><h2>家庭档案与记忆</h2></div></div>
         <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>打开家长授权</button></p>
         <div id="family-private" class="hidden">
+          <section class="panel" aria-labelledby="release-readiness-title">
+            <div class="panel-header">
+              <div><div class="eyebrow">R42 · SOFTWARE PILOT RELEASE GATE</div>
+              <h2 id="release-readiness-title">软件内测上线检查</h2></div>
+              <button type="button" class="secondary-btn" id="release-readiness-refresh">核对发布阻断项</button>
+            </div>
+            <p class="helper">这是一份只读检查。静态配置可满足时也必须完成真实语音、儿童体验和恢复演练；不会自动批准发布或接管设备。</p>
+            <p id="release-readiness-status" class="helper" role="status" aria-live="polite">尚未执行上线检查。</p>
+            <div id="release-readiness-checks" class="event-list" aria-live="polite"></div>
+            <p id="release-readiness-robot-status" class="helper" role="status">真实 ROS2/Nav2 运行验收未核实。</p>
+          </section>
           <section class="panel">
             <div class="panel-header"><div><div class="eyebrow">TRUSTED SKILL GOVERNANCE · R31</div><h2>技能启停与权限</h2></div><button type="button" class="secondary-btn" id="skill-governance-refresh">刷新技能</button></div>
             <p class="helper">仅允许家长开启或停用已随 Alex 发布的可信技能。此面板不安装第三方代码、不授予设备控制能力；升级版本需要单独审核。</p>

@@ -706,6 +706,32 @@ $('skill-trust-publishers').addEventListener('click',async event=>{
  finally{skillTrustBusy=false;await refreshSkillTrust();}
 });
 // R36: read-only recovery readiness, never silently repairs installed state.
+// R42 发布门槛只读核对：绝不把未执行的真实使用验收显示为通过。
+async function refreshReleaseReadiness(){
+ if(authorizedActor!=='parent')return;
+ const status=$('release-readiness-status'),checks=$('release-readiness-checks');
+ try{
+  const response=await fetch('/api/release/readiness',{cache:'no-store'});
+  if(!response.ok)throw Error('需要家长登录才能核对上线条件');
+  const {report}=await response.json();
+  const state=report.status==='blocked'?'当前禁止发布：'+report.blockers.length+' 项阻断':
+   report.status==='manual-validation-required'?'静态检查无阻断，但还有 '+report.manual.length+' 项需人工实测':
+   '检查项已齐全，但尚未取得正式上线批准';
+  status.textContent=state+'。此报告不能代替实际内测和产品验收。';
+  checks.innerHTML=report.checks.map(item=>
+   '<div class="event-row"><span class="event-kind">'+
+    esc(item.status==='pass'?'静态通过':item.status==='blocked'?'阻断':'待实测')+'</span>'+
+    '<span class="event-message"><strong>'+esc(item.id)+'</strong>'+
+    '<small>'+esc(item.detail)+'</small></span></div>').join('');
+  $('release-readiness-robot-status').textContent='机器人验收：'+
+   (report.robotCandidate.check.status==='pass'?'需最终安全复核':'真实 Gazebo/Nav2 尚未验收')+
+   '；实体设备安全认证不能由当前静态检查证明。';
+ }catch(error){
+  status.textContent=error.message;
+  checks.textContent='';
+ }
+}
+$('release-readiness-refresh').addEventListener('click',()=>void refreshReleaseReadiness());
 async function refreshSkillReconciliation(){
  if(authorizedActor!=='parent')return;
  try{
