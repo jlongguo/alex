@@ -1370,7 +1370,13 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,learner:await learnerCredentials.setPin(actor,data.profileId,data.pin,
           profileId=>profiles.list().some(p=>p.id===profileId))};
-        auth.revokeLearner(data.profileId);
+        // PIN 重置同样会废止此前的会话及其正在执行的音频/模型任务。
+        const stopped=revokeLearnerRuntime({
+          profileId:data.profileId,auth,abortCompanion,audioGate,audioIngress,
+          realtimeSessions,speechPlayback,voiceTurns
+        });
+        result.revokedSessions=stopped.revokedSessions;
+        result.runtimeStopped=stopped.principalStopped;
       }else if(pathname==='/api/learners/revoke'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:await learnerCredentials.revoke(actor,data.profileId)};
