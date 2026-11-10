@@ -281,6 +281,14 @@
               </form>
               <p id="skill-upgrade-plan-status" class="helper" role="status" aria-live="polite">尚未生成升级规划。</p>
               <div id="skill-upgrade-plan-results" class="event-list" aria-live="polite"></div>
+              <div class="panel-header">
+                <h3>R39 · 单快照原子批量安装</h3>
+                <button type="button" class="secondary-btn" id="skill-atomic-batch-preview">检查原子批量目标</button>
+              </div>
+              <p class="helper">同一注册表文件内同时变更所有目标固定版本；允许相互依赖的目标一起升级。不会修改信任库或 Plan/Workflow，不执行设备动作。</p>
+              <p id="skill-atomic-batch-status" role="status" aria-live="polite" class="helper">尚未检查原子批量方案。</p>
+              <div id="skill-atomic-batch-results" class="event-list" aria-live="polite"></div>
+              <button type="button" id="skill-atomic-batch-commit" disabled>家长确认一次性提交元数据版本</button>
             </section>
             <div class="panel-header"><h3>R36 · 跨存储一致性检查（只读）</h3><button type="button" class="secondary-btn" id="skill-reconciliation-refresh">重新核对</button></div>
             <p class="helper">核对发布者信任、已安装版本、依赖和运行时引用。发现异常时不会自动删除或重放任何任务。</p>
