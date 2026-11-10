@@ -77,7 +77,7 @@ export function planAtomicSkillUpgrade({registry,targets,verify=()=>({})}={}){
  for(const target of targets){
   if(!target||Object.keys(target).sort().join(',')!=='id,version'||
    typeof target.id!=='string'||!/^[a-z][a-z0-9.-]{2,79}$/.test(target.id)||
-   typeof target.version!=='string'||!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(target.version)||
+   typeof target.version!=='string'||!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(target.version)||
    seen.has(target.id))fail('INVALID_SKILL_UPGRADE_TARGET');
   seen.add(target.id);
   const p=catalog.get(key(target.id,target.version));
