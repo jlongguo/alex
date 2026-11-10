@@ -18,6 +18,7 @@ import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
 import {SkillPackageTransactions} from './skill-package-transactions.mjs';
+import {SkillBatchTransactions} from './skill-batch-transactions.mjs';
 import {planSkillUpgrade,planAtomicSkillUpgrade} from './skill-upgrade-planner.mjs';
 import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
@@ -147,6 +148,10 @@ const skillTransactions=new SkillPackageTransactions({
  file:process.env.ALEX_SKILL_TRANSACTIONS_FILE??resolve(appDir,'.local','skill-transactions.json'),
  registry:skillPackages,trust:skillPackageTrust
 });
+const skillBatchTransactions=new SkillBatchTransactions({
+ file:process.env.ALEX_SKILL_BATCH_WAL_FILE??resolve(appDir,'.local','skill-batch-wal.json'),
+ registry:skillPackages,trust:skillPackageTrust
+});
 const workflows=new WorkflowOrchestrator(process.env.WORKFLOW_FILE??resolve(appDir,'.local','workflows.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>plans.list().some(p=>p.deviceId===id&&p.status==='running')});
 const plans=new PlanOrchestrator(process.env.PLAN_FILE??resolve(appDir,'.local','plans.json'),{gateway,registry:devices,skills:core.skills,busyDevice:id=>workflows.list().some(w=>w.deviceId===id&&['dispatching','navigating','speaking'].includes(w.status))});
 if(!['rules','compatible'].includes(process.env.ALEX_PLAN_PROVIDER??'rules'))throw new Error('INVALID_PLAN_PROVIDER');
@@ -212,6 +217,10 @@ await skillGovernance.load();
 await skillPackageTrust.load();
 await skillPackages.load();
 await skillTransactions.load();
+await skillBatchTransactions.load();
+const batchRecoveryAtStartup=await skillBatchTransactions.recover('parent');
+if(batchRecoveryAtStartup.pending)
+ console.warn('SKILL_BATCH_TRANSACTIONS_REQUIRE_REVIEW',batchRecoveryAtStartup.pending);
 const skillRecoveryAtStartup=await skillTransactions.recover('parent');
 if(skillRecoveryAtStartup.pending)
  console.warn('SKILL_TRANSACTIONS_REQUIRE_REVIEW',skillRecoveryAtStartup.pending);
@@ -1100,6 +1109,15 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
     send(res,200,{ok:true,skills:skillGovernance.list(),trustedOnly:true});return;
   }
+  if(req.method==='GET' && pathname==='/api/skills/batch-transactions'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const state=skillBatchTransactions.list('parent');
+    send(res,200,{ok:true,records:state.records.map(r=>({
+      operationId:r.operationId,phase:r.phase,targets:r.targets,
+      seq:r.seq,hash:r.hash,baseline:r.baseline
+    })),readiness:skillBatchTransactions.readiness('parent'),executable:false});return;
+  }
   if(req.method==='GET' && pathname==='/api/skills/transactions'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
     if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
@@ -1201,7 +1219,9 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
           registry:skillPackages.list('parent'),targets:data.targets,
           verify:manifest=>skillPackageTrust.assertTrusted(manifest)
         })};
-        else if(action==='atomic-batch')result={ok:true,...await skillPackages.installBatch(actor,data)};
+        else if(action==='atomic-batch')result={ok:true,...await skillBatchTransactions.apply(actor,data)};
+        else if(action==='batch-recover')result={ok:true,...await skillBatchTransactions.recover(actor)};
+        else if(action==='batch-abandon')result={ok:true,...await skillBatchTransactions.abandon(actor,data)};
         else if(action==='rollback')result={ok:true,...await skillPackages.rollback(actor,data)};
         else if(action==='uninstall')result={ok:true,...await skillPackages.uninstall(actor,data)};
         else if(action==='reference')result={ok:true,...await skillPackages.setReference(actor,data)};
