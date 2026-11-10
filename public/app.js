@@ -1012,6 +1012,66 @@ $('skill-packages-list').addEventListener('click',async event=>{
  }catch(error){notify(error.message,true);}
  finally{skillPackagesBusy=false;await refreshSkillPackages();}
 });
+// R44 家长首次使用流程：所有写入复用已有接口，并且云端授权一律保持关闭。
+async function refreshFamilyOnboarding(){
+ if(authorizedActor!=='parent')return;
+ const status=$('onboarding-status'),list=$('onboarding-steps');
+ try{
+  const response=await fetch('/api/family/onboarding',{cache:'no-store'});
+  if(!response.ok)throw Error('需家长授权读取初始化状态');
+  const {report}=await response.json();
+  status.textContent=report.complete?
+   '家庭基础配置已齐全；真实语音及儿童操作仍需单独验收。':
+   '尚未完成首次设置；可按下方步骤操作或补齐已有档案。';
+  list.innerHTML=report.steps.map(step=>
+   '<div class="event-row"><span class="event-kind">'+(step.done?'已完成':'待设置')+
+   '</span><span class="event-message"><strong>'+esc(step.id)+
+   '</strong><small>'+esc(step.detail)+'</small></span></div>').join('');
+ }catch(error){status.textContent=error.message;list.replaceChildren();}
+}
+$('onboarding-refresh').addEventListener('click',()=>void refreshFamilyOnboarding());
+$('onboarding-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(familyBusy||authorizedActor!=='parent')return;
+ const form=$('onboarding-form');
+ if(!form.reportValidity())return;
+ const pin=$('onboarding-pin').value;
+ if(!/^\d{6,12}$/.test(pin)){notify('请输入 6–12 位数字 PIN',true);return;}
+ // 隐私默认拒绝：绝不凭首次设置表单暗中获取云端上传授权。
+ const preferences={voiceInputAllowed:false,voiceOutputAllowed:false,
+  cloudTextAllowed:false,cloudAudioInputAllowed:false,cloudAudioOutputAllowed:false,
+  preferredLanguage:$('onboarding-language').value,
+  learningPace:$('onboarding-pace').value,topics:[]};
+ if(!window.confirm('将创建新的儿童档案和独立登录 PIN。云端与语音权限保持全部关闭。确认继续？'))return;
+ familyBusy=true;
+ let stage='创建档案',profileId=null,loginCode=null;
+ const result=$('onboarding-result');
+ result.textContent='正在创建家庭档案…';
+ try{
+  const created=await api('/api/profiles',{
+   nickname:$('onboarding-name').value.trim(),ageBand:$('onboarding-age').value,interests:[]});
+  profileId=created.profile.id;
+  stage='设置 PIN';
+  const credential=await api('/api/learners/set-pin',{profileId,pin});
+  loginCode=credential.learner.code;
+  stage='设置默认隐私';
+  await api('/api/learner/privacy',{profileId,preferences});
+  form.reset();
+  result.textContent='初始化成功。孩子登录代码：'+loginCode+
+   '。请家长私下保存；PIN 不会再次显示。所有云端权限默认关闭。';
+  notify('儿童档案、独立身份和默认隐私已建立');
+ }catch(error){
+  result.textContent='初始化中断于「'+stage+'」：'+error.message+
+   (profileId?'。已创建档案，不能重复盲目创建；请在下方使用现有档案补齐 PIN / 隐私。':'')+
+   (loginCode?' 登录代码：'+loginCode+'（请私下保存）。':'');
+  notify('首次设置未全部完成：'+error.message,true);
+ }finally{
+  $('onboarding-pin').value='';
+  familyBusy=false;lastFamilyPoll=0;
+  await refreshFamily();
+  await refreshFamilyOnboarding();
+ }
+});
 async function refreshFamily(){
  if(authorizedActor!=='parent')return;
  if(Date.now()-lastFamilyPoll<1500)return;lastFamilyPoll=Date.now();
@@ -1027,6 +1087,7 @@ async function refreshFamily(){
     throw new Error('需要家长身份读取家庭资料');
   const profiles=(await pr.json()).profiles,memories=(await mr.json()).entries;
   const learners=(await lr.json()).learners;
+  void refreshFamilyOnboarding();
   curriculum=(await cr.json()).courses;
   const plans=(await plansResponse.json()).overview;
   currentLearningPlans=plans;

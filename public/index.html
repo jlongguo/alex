@@ -231,6 +231,23 @@
         <div class="panel-header"><div><div class="eyebrow">FAMILY / PRIVACY</div><h2>家庭档案与记忆</h2></div></div>
         <p id="family-access-note" class="helper" role="status">请使用本地家长账户登录后管理家庭档案和隐私数据。<button type="button" class="secondary-btn auth-inline-button" data-parent-auth-entry>打开家长授权</button></p>
         <div id="family-private" class="hidden">
+          <section class="panel" aria-labelledby="onboarding-title">
+            <div class="panel-header"><div><div class="eyebrow">R44 · FAMILY FIRST RUN</div><h2 id="onboarding-title">家庭首次使用引导</h2></div><button type="button" class="secondary-btn" id="onboarding-refresh">检查配置进度</button></div>
+            <p class="helper">先创建孩子的年龄段档案，再设置独立 PIN 和偏好。云端 AI、短录音上传和云端朗读等权限默认全部关闭，需要在下方独立授权区按需开启。</p>
+            <p id="onboarding-status" role="status" aria-live="polite">尚未检查家庭初始化。</p>
+            <div id="onboarding-steps" class="event-list" aria-live="polite"></div>
+            <form id="onboarding-form" class="command-form">
+              <label for="onboarding-name">孩子昵称（不用真实姓名）</label><input id="onboarding-name" maxlength="32" required autocomplete="off" placeholder="例如：小朋友" />
+              <label for="onboarding-age">年龄段</label><select id="onboarding-age"><option value="3-5">3–5 岁</option><option value="6-8">6–8 岁</option><option value="9-12">9–12 岁</option><option value="13-17">13–17 岁</option></select>
+              <label for="onboarding-pin">孩子专属 PIN（6–12 位数字）</label><input type="password" id="onboarding-pin" pattern="[0-9]{6,12}" minlength="6" maxlength="12" inputmode="numeric" autocomplete="new-password" required />
+              <label for="onboarding-language">默认学习语言</label><select id="onboarding-language"><option value="bilingual">中英双语</option><option value="zh">中文</option><option value="en">英语</option></select>
+              <label for="onboarding-pace">学习节奏</label><select id="onboarding-pace"><option value="slow">慢速</option><option value="normal">正常</option></select>
+              <button type="submit" id="onboarding-submit">创建儿童档案并配置默认隐私</button>
+            </form>
+            <p class="helper">首次创建使用三个已有服务接口顺序保存：档案、独立登录凭据、隐私偏好。如果后两步失败，已经创建的档案不会被静默删除；可以在本面板查看进度并用下方单独表单补齐。</p>
+            <p id="onboarding-result" role="status" aria-live="polite" class="helper"></p>
+            <p class="helper">完成后，在下方“学习者专属 AI 与语音隐私”中审查每个权限，再让孩子使用自己的登录代码和 PIN 登录。</p>
+          </section>
           <section class="panel" aria-labelledby="release-readiness-title">
             <div class="panel-header">
               <div><div class="eyebrow">R42 · SOFTWARE PILOT RELEASE GATE</div>
