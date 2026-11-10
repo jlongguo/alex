@@ -118,6 +118,7 @@ export function planAtomicSkillUpgrade({registry,targets,verify=()=>({})}={}){
  for(const id of desired.keys())visit(id,[]);
  return structuredClone({ready:!blockers.length,advisory:true,atomic:true,executable:false,
   blockers,changes:blockers.length?[]:changes,
+  currentPins:[...previous].map(([id,version])=>({id,version})),
   finalPins:blockers.length?null:[...desired].map(([id,version])=>({id,version})),
   dependencyFirst:graph,
   note:'One registry snapshot, never a multi-file or device-command transaction'});
