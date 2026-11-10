@@ -768,6 +768,46 @@ $('skill-transaction-list').addEventListener('click',async event=>{
  finally{skillPackagesBusy=false;await refreshSkillTransactions();}
 });
 // R39: advisory plan is explicitly bound to its full installed-pin snapshot.
+async function refreshSkillBatchWAL(){
+ if(authorizedActor!=='parent')return;
+ try{
+  const response=await fetch('/api/skills/batch-transactions',{cache:'no-store'});
+  if(!response.ok)throw Error('家长授权后才可查看批量事务');
+  const state=await response.json();
+  $('skill-batch-wal-status').textContent='批量事务 '+state.records.length+
+   ' · 待处理 '+state.readiness.pending.length+' · 剩余容量 '+state.readiness.remaining+
+   ' / '+state.readiness.capacity+'。仅元数据，不代表设备或 Skill 已执行。';
+  $('skill-batch-wal-list').innerHTML=state.records.slice(-25).reverse().map(r=>
+   '<div class="event-row"><span class="event-kind">'+esc(r.phase)+'</span>'+
+   '<span class="event-message">'+esc(r.operationId)+
+   '<small>目标 '+esc(r.targets.map(x=>x.id+'@'+x.version).join(', '))+
+   ' · 审计检查点 '+esc(r.baseline.historyHash.slice(0,12))+'…</small></span>'+
+   (r.phase==='prepared'?'<button type="button" data-batch-abandon="'+esc(r.operationId)+'">安全放弃（未提交）</button>':'')+
+   '</div>').join('')||'<p class="helper">无批量 WAL 历史。</p>';
+ }catch(error){$('skill-batch-wal-status').textContent=error.message;}
+}
+$('skill-batch-wal-recover').addEventListener('click',async()=>{
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ if(!window.confirm('重试已由家长确认的批量元数据请求？有冲突时会停止，不会执行设备命令。'))return;
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'batch-recover'});
+  notify('批量恢复核对 '+result.reports.length+' 项；仍待处理 '+result.pending+' 项');
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillBatchWAL();await refreshSkillPackages();}
+});
+$('skill-batch-wal-list').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-batch-abandon]');
+ if(!button||authorizedActor!=='parent'||skillPackagesBusy)return;
+ const operationId=button.dataset.batchAbandon;
+ if(!window.confirm('仅注册表完全未变更时可安全放弃操作 '+operationId+'，确认？'))return;
+ skillPackagesBusy=true;
+ try{
+  await api('/api/skills/packages',{action:'batch-abandon',operationId});
+  notify('已放弃尚未生效的批量意图');
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillBatchWAL();}
+});
 let atomicSkillBatchPlan=null;
 $('skill-atomic-batch-preview').addEventListener('click',async()=>{
  if(authorizedActor!=='parent'||skillPackagesBusy)return;
@@ -806,11 +846,13 @@ $('skill-atomic-batch-commit').addEventListener('click',async()=>{
  $('skill-atomic-batch-commit').disabled=true;
  skillPackagesBusy=true;
  try{
-  const result=await api('/api/skills/packages',{action:'atomic-batch',...plan});
+  const result=await api('/api/skills/packages',{action:'atomic-batch',
+   ...plan,operationId:'parent-batch-'+crypto.randomUUID()});
   notify('已原子更新 '+result.changes.length+' 个 Skill 元数据版本');
   $('skill-atomic-batch-status').textContent='注册表快照已提交；独立信任与设备状态未修改。';
  }catch(error){notify(error.message,true);}
- finally{skillPackagesBusy=false;await refreshSkillPackages();await refreshSkillTransactions();}
+ finally{skillPackagesBusy=false;await refreshSkillPackages();await refreshSkillTransactions();
+  await refreshSkillBatchWAL();}
 });
 $('skill-upgrade-plan-form').addEventListener('submit',async event=>{
  event.preventDefault();
@@ -1008,6 +1050,7 @@ async function refreshFamily(){
   await refreshSkillPackages();
   await refreshSkillReconciliation();
   await refreshSkillTransactions();
+  await refreshSkillBatchWAL();
   await refreshSkillTrust();
  }catch(err){$('family-notice').textContent=err.message;notify(err.message,true);}
 }

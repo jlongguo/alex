@@ -26,6 +26,7 @@ test('R39 server only exposes verified parent atomic planning and install action
  assert.ok(server.slice(start,start+500).includes("auth.actor(req)!=='parent'"));
  assert.ok(server.includes("action==='atomic-plan'"));
  assert.ok(server.includes("action==='atomic-batch'"));
- assert.ok(server.includes('await skillPackages.installBatch(actor,data)'));
+ assert.ok(server.includes('await skillBatchTransactions.apply(actor,data)'));
+ assert.ok(!server.includes('await skillPackages.installBatch(actor,data)'));
  assert.ok(server.includes('verify:manifest=>skillPackageTrust.assertTrusted(manifest)'));
 });

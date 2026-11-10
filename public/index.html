@@ -287,6 +287,10 @@
               </div>
               <p class="helper">同一注册表文件内同时变更所有目标固定版本；允许相互依赖的目标一起升级。不会修改信任库或 Plan/Workflow，不执行设备动作。</p>
               <p id="skill-atomic-batch-status" role="status" aria-live="polite" class="helper">尚未检查原子批量方案。</p>
+              <div class="panel-header"><h3>R40 · 多包 WAL 恢复</h3><button type="button" class="secondary-btn" id="skill-batch-wal-recover">恢复待处理批量操作</button></div>
+              <p class="helper">批量版本请求会先持久化意图，再原子提交注册表。重启时核对注册表审计检查点；有冲突的事务不会自动重放。</p>
+              <p id="skill-batch-wal-status" role="status" aria-live="polite" class="helper">尚未读取批量事务日志。</p>
+              <div id="skill-batch-wal-list" class="event-list" aria-live="polite"></div>
               <div id="skill-atomic-batch-results" class="event-list" aria-live="polite"></div>
               <button type="button" id="skill-atomic-batch-commit" disabled>家长确认一次性提交元数据版本</button>
             </section>

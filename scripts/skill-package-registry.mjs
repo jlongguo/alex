@@ -70,6 +70,7 @@ export class SkillPackageRegistry{
  #state={schemaVersion:2,packages:[],installed:[],references:[],history:[]};
  #transactionContext=new AsyncLocalStorage();
  #transactionGuard=null;
+ #additionalTransactionGuards=[];
  constructor({file,authorizePackage=()=>{}}={}){
   if(!safeString(file,4096))fail('INVALID_SKILL_PACKAGE_CONFIG');
   this.store=new JsonStateStore(file);
@@ -77,8 +78,20 @@ export class SkillPackageRegistry{
   this.authorizePackage=authorizePackage;
  }
  #snapshot(){return structuredClone(this.#state);}
+ // Read-only audit checkpoint for WAL reconciliation; serialized registry mutations own writes.
+ checkpoint(actor){
+  if(actor!=='parent')fail('PARENT_REQUIRED');
+  const s=this.#snapshot();
+  return {historyLength:s.history.length,historyHash:s.history.at(-1)?.hash??'0'.repeat(64),
+   snapshotHash:checksum({packages:s.packages,installed:s.installed,references:s.references}),
+   installed:s.installed};
+ }
  // The coordinator owns the transaction lock. Context propagates through serialized writes.
  // This is in-process isolation; a second process sharing files remains unsupported.
+ addTransactionGuard(guard){
+  if(typeof guard!=='function')fail('INVALID_SKILL_TRANSACTION_GUARD');
+  this.#additionalTransactionGuards.push(guard);
+ }
  setTransactionGuard(guard){
   // A new coordinator can replace an abandoned instance during in-process recovery.
   // Only the latest coordinator guard governs this single registry instance.
@@ -155,8 +168,9 @@ export class SkillPackageRegistry{
  #mutate(actor,action,target,fn){
   if(actor!=='parent')fail('PARENT_REQUIRED');
   const job=this.#queue.catch(()=>{}).then(async()=>{
-   if(this.#transactionGuard)this.#transactionGuard({action,target,
-    operationId:this.#transactionContext.getStore()??null});
+   const context={action,target,operationId:this.#transactionContext.getStore()??null};
+   if(this.#transactionGuard)this.#transactionGuard(context);
+   for(const guard of this.#additionalTransactionGuards)guard(context);
    const next=this.#snapshot();
    const before=checksum({packages:next.packages,installed:next.installed,
     references:next.references});
