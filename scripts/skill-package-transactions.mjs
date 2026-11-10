@@ -39,6 +39,14 @@ export class SkillPackageTransactions {
  constructor({file,registry,trust}={}){
   if(typeof file!=='string'||!file||!registry||!trust)fail('INVALID_SKILL_TRANSACTION_CONFIG');
   this.store=new JsonStateStore(file);this.registry=registry;this.trust=trust;
+  registry.setTransactionGuard?.(({action,target,operationId})=>{
+   const pending=this.#state.records.find(r=>r.phase==='prepared');
+   if(!pending)return;
+   if(operationId!==pending.intent.operationId||
+      !['review','install'].includes(action)||
+      target!==pending.intent.id+'@'+pending.intent.version)
+    fail('SKILL_TRANSACTION_ISOLATED');
+  });
  }
  async load(){
   const state=await this.store.load();
@@ -111,6 +119,7 @@ export class SkillPackageTransactions {
   });
  }
  async #resume(record){
+  return this.registry.withinTransaction(record.intent.operationId,async()=>{
   let current=this.#state.records.find(r=>r.intent.operationId===record.intent.operationId);
   if(current.phase==='committed')return {operationId:current.intent.operationId,
    status:'committed',id:current.intent.id,version:current.intent.version,executable:false};
@@ -141,6 +150,39 @@ export class SkillPackageTransactions {
   await this.#save(next);
   return {operationId:intent.operationId,status:'committed',id:intent.id,
    version:intent.version,executable:false};
+  });
+ }
+ // Parent may abandon only an untouched prepared intent. Partial approvals must be
+ // recovered or manually investigated; the coordinator never silently rolls them back.
+ abandon(actor,{operationId}={}){
+  if(actor!=='parent')fail('PARENT_REQUIRED');
+  return this.#serialize(async()=>{
+   const rec=this.#state.records.find(r=>r.intent.operationId===operationId);
+   if(!rec||rec.phase!=='prepared')fail('SKILL_TRANSACTION_NOT_PENDING');
+   const state=this.registry.list('parent');
+   const pkg=state.packages.find(p=>p.manifest.id===rec.intent.id&&
+     p.manifest.version===rec.intent.version);
+   const current=state.installed.find(i=>i.id===rec.intent.id)?.version??null;
+   if(!pkg||pkg.status!=='pending'||current!==rec.intent.expectedCurrentVersion)
+    fail('SKILL_TRANSACTION_PARTIAL_EFFECTS');
+   const next=structuredClone(this.#state);
+   next.records.find(r=>r.intent.operationId===operationId).phase='blocked';
+   let prev='0'.repeat(64);
+   for(const item of next.records){item.prevHash=prev;item.hash=hashRecord(item);prev=item.hash;}
+   await this.#save(next);
+   return {operationId,status:'abandoned',executable:false};
+  });
+ }
+ readiness(actor){
+  if(actor!=='parent')fail('PARENT_REQUIRED');
+  const pending=this.#state.records.filter(r=>r.phase==='prepared');
+  return {pending:pending.map(r=>({operationId:r.intent.operationId,
+    id:r.intent.id,version:r.intent.version,
+    installed:this.registry.list('parent').installed.find(i=>i.id===r.intent.id)?.version??null,
+    expectedCurrentVersion:r.intent.expectedCurrentVersion})),
+    retained:this.#state.records.length,capacity:400,
+    remaining:400-this.#state.records.length,
+    archival:'no unsafe automatic pruning; export or migration required at capacity'};
  }
  recover(actor){
   if(actor!=='parent')fail('PARENT_REQUIRED');

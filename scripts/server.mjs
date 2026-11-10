@@ -18,6 +18,7 @@ import {ExecutionTraceProjector} from './execution-trace-projector.mjs';
 import {SkillGovernance} from './skill-governance.mjs';
 import {SkillPackageRegistry} from './skill-package-registry.mjs';
 import {SkillPackageTransactions} from './skill-package-transactions.mjs';
+import {planSkillUpgrade} from './skill-upgrade-planner.mjs';
 import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
@@ -253,7 +254,8 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SKILL_ROLLBACK_REQUIRES_REVIEW','SKILL_TRANSACTION_PENDING_RECOVERY',
   'SKILL_TRANSACTION_ALREADY_INSTALLED','SKILL_TRANSACTION_IDEMPOTENCY_CONFLICT',
   'SKILL_TRANSACTION_EVIDENCE_DRIFT','SKILL_TRANSACTION_REQUIRES_REVIEW',
-  'SKILL_TRANSACTION_NOT_COMMITTED'].includes(message)?409:
+  'SKILL_TRANSACTION_NOT_COMMITTED','SKILL_TRANSACTION_ISOLATED',
+  'SKILL_TRANSACTION_NOT_PENDING','SKILL_TRANSACTION_PARTIAL_EFFECTS'].includes(message)?409:
   ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED','SKILL_NOT_APPROVED',
@@ -1106,7 +1108,7 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       publisherId:r.intent.publisherId,manifestSha256:r.intent.manifestSha256,
       artifactSha256:r.intent.artifactSha256,seq:r.seq,hash:r.hash
     }));
-    send(res,200,{ok:true,records,executable:false});return;
+    send(res,200,{ok:true,records,readiness:skillTransactions.readiness('parent'),executable:false});return;
   }
   if(req.method==='GET' && pathname==='/api/skills/reconciliation'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
@@ -1189,6 +1191,11 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         else if(action==='preview')result={ok:true,preview:skillPackages.preview(actor,data)};
         else if(action==='apply')result={ok:true,...await skillTransactions.apply(actor,data)};
         else if(action==='recover')result={ok:true,...await skillTransactions.recover(actor)};
+        else if(action==='abandon')result={ok:true,...await skillTransactions.abandon(actor,data)};
+        else if(action==='upgrade-plan')result={ok:true,plan:planSkillUpgrade({
+          registry:skillPackages.list('parent'),targets:data.targets,
+          verify:manifest=>skillPackageTrust.assertTrusted(manifest)
+        })};
         else if(action==='rollback')result={ok:true,...await skillPackages.rollback(actor,data)};
         else if(action==='uninstall')result={ok:true,...await skillPackages.uninstall(actor,data)};
         else if(action==='reference')result={ok:true,...await skillPackages.setReference(actor,data)};

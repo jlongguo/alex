@@ -271,6 +271,17 @@
             <p class="helper">“审批并安装”会先保存带签名摘要的家长意图，再执行元数据审批和安装；相同操作 ID 可安全重试。只操作元数据，不执行第三方代码。</p>
             <p id="skill-transaction-notice" class="helper" role="status" aria-live="polite">尚未加载事务日志。</p>
             <div id="skill-transaction-list" class="event-list" aria-live="polite"></div>
+            <section class="panel">
+              <h3>R38 · 多技能升级规划（只读）</h3>
+              <p class="helper">提交目标版本数组，例如 [{"id":"family.reader","version":"2.0.0"}]。系统验证签名、权限、依赖、引用和安装顺序，仅生成规划，不自动安装或授权第三方代码。</p>
+              <form id="skill-upgrade-plan-form" class="command-form">
+                <label for="skill-upgrade-targets">目标版本 JSON 数组（最多 12 项）</label>
+                <textarea id="skill-upgrade-targets" rows="3" maxlength="5000" required aria-label="多个技能的目标版本"></textarea>
+                <button type="submit">检查依赖升级顺序</button>
+              </form>
+              <p id="skill-upgrade-plan-status" class="helper" role="status" aria-live="polite">尚未生成升级规划。</p>
+              <div id="skill-upgrade-plan-results" class="event-list" aria-live="polite"></div>
+            </section>
             <div class="panel-header"><h3>R36 · 跨存储一致性检查（只读）</h3><button type="button" class="secondary-btn" id="skill-reconciliation-refresh">重新核对</button></div>
             <p class="helper">核对发布者信任、已安装版本、依赖和运行时引用。发现异常时不会自动删除或重放任何任务。</p>
             <p id="skill-reconciliation-status" class="helper" role="status" aria-live="polite">尚未检查。</p>

@@ -734,12 +734,14 @@ async function refreshSkillTransactions(){
   const state=await response.json();
   const pending=state.records.filter(r=>r.phase==='prepared');
   $('skill-transaction-notice').textContent='事务总数 '+state.records.length+
-   ' · 待恢复 '+pending.length+'。仅涉及技能包元数据，不代表第三方执行成功。';
+   ' · 待恢复 '+pending.length+' · 剩余容量 '+state.readiness.remaining+
+   ' / '+state.readiness.capacity+'。仅涉及技能包元数据，不代表第三方执行成功。';
   $('skill-transaction-list').innerHTML=state.records.slice(-25).reverse().map(r=>
    '<div class="event-row"><span class="event-kind">'+esc(r.phase)+'</span>'+
    '<span class="event-message"><strong>'+esc(r.id)+' @ '+esc(r.version)+'</strong>'+
    '<small>操作ID '+esc(r.operationId)+' · 发布者 '+esc(r.publisherId)+
-   ' · Manifest '+esc(r.manifestSha256.slice(0,16))+'…</small></span></div>'
+   ' · Manifest '+esc(r.manifestSha256.slice(0,16))+'…</small></span>'+ 
+   (r.phase==='prepared'?'<button type="button" data-abandon-transaction="'+esc(r.operationId)+'">安全放弃（未生效）</button>':'')+'</div>'
   ).join('')||'<p class="helper">暂无持久化元数据事务。</p>';
  }catch(error){$('skill-transaction-notice').textContent=error.message;}
 }
@@ -752,6 +754,42 @@ $('skill-transaction-recover').addEventListener('click',async()=>{
   notify('已检查恢复记录：'+result.reports.length+' 项；仍待处理 '+result.pending+' 项');
  }catch(error){notify(error.message,true);}
  finally{skillPackagesBusy=false;await refreshSkillTransactions();await refreshSkillPackages();}
+});
+$('skill-transaction-list').addEventListener('click',async event=>{
+ const button=event.target.closest('[data-abandon-transaction]');
+ if(!button||authorizedActor!=='parent'||skillPackagesBusy)return;
+ const operationId=button.dataset.abandonTransaction;
+ if(!window.confirm('仅当此事务尚未产生审批或安装效果时才可放弃；有部分效果的事务必须恢复或人工检查。确认申请安全放弃 '+operationId+'？'))return;
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'abandon',operationId});
+  notify('事务状态：'+result.status);
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;await refreshSkillTransactions();}
+});
+$('skill-upgrade-plan-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(authorizedActor!=='parent'||skillPackagesBusy)return;
+ let targets;
+ try{targets=JSON.parse($('skill-upgrade-targets').value);}
+ catch{notify('目标版本必须是 JSON 数组',true);return;}
+ skillPackagesBusy=true;
+ try{
+  const result=await api('/api/skills/packages',{action:'upgrade-plan',targets});
+  const plan=result.plan;
+  $('skill-upgrade-plan-status').textContent=plan.ready?
+   '依赖顺序可行；仅为只读规划，尚未执行任何操作。':
+   '规划被阻断：'+plan.blockers.length+' 项；不会执行部分升级。';
+  $('skill-upgrade-plan-results').innerHTML=(plan.ready?plan.steps.map((step,i)=>
+   '<div class="event-row"><span class="event-kind">'+esc(String(i+1))+'</span>'+
+   '<span class="event-message">'+esc(step.id)+' @ '+esc(step.version)+
+   '<small>旧版本 '+esc(step.expectedCurrentVersion??'未安装')+'</small></span></div>'
+  ):plan.blockers.map(b=>
+   '<div class="event-row"><span class="event-kind">阻断</span>'+
+   '<span class="event-message">'+esc(b.id)+' · '+esc(b.reason)+'</span></div>'
+  )).join('')||'<p class="helper">无需版本变更。</p>';
+ }catch(error){notify(error.message,true);}
+ finally{skillPackagesBusy=false;}
 });
 async function refreshSkillPackages(){
  if(authorizedActor!=='parent'||skillPackagesBusy)return;

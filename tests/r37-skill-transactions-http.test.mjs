@@ -91,6 +91,26 @@ test('R37 signed HTTP transaction is parent-only, durable and idempotent across 
   assert.equal(wal.records[0].phase,'committed');
   assert.equal(wal.records[0].manifestSha256,manifestDigest(manifest));
   assert.equal(wal.records[0].artifactSha256,artifactSha256);
+  assert.equal(wal.readiness.capacity,400);
+  assert.equal(wal.readiness.remaining,399);
+  const planned=await api(server.base,'/api/skills/packages',parent,{
+   action:'upgrade-plan',targets:[{id:manifest.id,version:manifest.version}]
+  });
+  assert.equal(planned.status,200,JSON.stringify(planned.body));
+  assert.equal(planned.body.plan.ready,true);
+  assert.equal(planned.body.plan.advisory,true);
+  assert.deepEqual(planned.body.plan.steps,[]);
+  assert.equal((await api(server.base,'/api/skills/packages',child,{
+   action:'upgrade-plan',targets:[{id:manifest.id,version:manifest.version}]
+  })).status,403);
+  assert.equal((await api(server.base,'/api/skills/packages',child,{
+   action:'abandon',operationId:payload.operationId
+  })).status,403);
+  const abandon=await api(server.base,'/api/skills/packages',parent,{
+   action:'abandon',operationId:payload.operationId
+  });
+  assert.equal(abandon.status,409);
+  assert.equal(abandon.body.error,'SKILL_TRANSACTION_NOT_PENDING');
   assert.equal((await api(server.base,'/api/skills/packages',child,{action:'recover'})).status,403);
   await stop(server);server=null;
   env.PORT=String(Number(env.PORT)+1);
