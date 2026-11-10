@@ -23,7 +23,7 @@ test('R39 server only exposes verified parent atomic planning and install action
  const start=server.indexOf("pathname==='/api/skills/packages'");
  assert.ok(start>0);
  assert.ok(server.slice(start,start+500).includes("auth.mode!=='local'"));
- assert.ok(server.slice(start,start+500).includes("actor!=='parent'"));
+ assert.ok(server.slice(start,start+500).includes("auth.actor(req)!=='parent'"));
  assert.ok(server.includes("action==='atomic-plan'"));
  assert.ok(server.includes("action==='atomic-batch'"));
  assert.ok(server.includes('await skillPackages.installBatch(actor,data)'));
