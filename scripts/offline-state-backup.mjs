@@ -1,8 +1,8 @@
 // R43 离线状态备份：敏感数据仅保留在本地，默认不提供 HTTP 下载或数据覆盖。
 // 运行条件：Alex 进程已退出、写者锁不存在；只处理状态目录顶层常规文件。
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdir,readdir,lstat,readFile,open,access} from 'node:fs/promises';
-import {basename,dirname,join,resolve} from 'node:path';
+import {mkdir,readdir,lstat,readFile,open} from 'node:fs/promises';
+import {dirname,join,resolve,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const MAX_FILES=100,MAX_BYTES=20*1024*1024;
@@ -78,8 +78,8 @@ export async function createOfflineBackup({sourceDir,destinationDir}={}){
  if(typeof sourceDir!=='string'||typeof destinationDir!=='string'||
   !sourceDir||!destinationDir)fail('ALEX_BACKUP_INVALID_PATH');
  const source=resolve(sourceDir),destination=resolve(destinationDir);
- if(destination===source||destination.startsWith(source+'/')||
-  source.startsWith(destination+'/'))fail('ALEX_BACKUP_OVERLAPPING_PATH');
+ if(destination===source||destination.startsWith(source+sep)||
+  source.startsWith(destination+sep))fail('ALEX_BACKUP_OVERLAPPING_PATH');
  const parent=dirname(destination);
  await ensureDirectory(parent);
  const {files,data}=await inventory(source);
@@ -134,7 +134,7 @@ export async function verifyOfflineBackup({directory}={}){
 export async function planOfflineRestore({directory,targetDir}={}){
  if(typeof targetDir!=='string'||!targetDir)fail('ALEX_BACKUP_INVALID_PATH');
  const target=resolve(targetDir),source=resolve(directory);
- if(target===source||target.startsWith(source+'/')||source.startsWith(target+'/'))
+ if(target===source||target.startsWith(source+sep)||source.startsWith(target+sep))
   fail('ALEX_BACKUP_OVERLAPPING_PATH');
  const verified=await verifyOfflineBackup({directory:source});
  // 目标必须是存在的空目录，不能以 dry-run 为由覆盖当前活跃家庭状态。
@@ -144,12 +144,35 @@ export async function planOfflineRestore({directory,targetDir}={}){
  return {...verified,target,eligibleForManualRestore:true,
   readOnly:true,restored:false,execution:'not-implemented'};
 }
+// 只允许向现有的空 staging 目录还原副本，不修改真实状态目录。
+export async function stageOfflineRestore({directory,targetDir}={}){
+ const plan=await planOfflineRestore({directory,targetDir});
+ const root=resolve(directory),target=resolve(targetDir);
+ const manifest=validateManifest(JSON.parse(await readFile(join(root,'backup-manifest.json'),'utf8')));
+ let bytes=0;
+ for(const item of manifest.files){
+  // 在每一次写入前重新验证备份文件，避免预演与写入之间发生未察觉的修改。
+  const data=await readFile(join(root,item.name));
+  if(data.length!==item.size||sha(data)!==item.sha256)
+   fail('ALEX_BACKUP_FILE_MISMATCH');
+  await writeNew(join(target,item.name),data);
+  bytes+=data.length;
+ }
+ const evidence=await inventory(target);
+ if(!same(evidence.files.map(f=>f.name+':'+f.sha256),
+  manifest.files.map(f=>f.name+':'+f.sha256)))
+  fail('ALEX_RESTORE_STAGING_MISMATCH');
+ return {status:'staged',snapshotId:plan.snapshotId,files:plan.files,bytes,
+  target,productionRestored:false,stagingOnly:true,
+  warning:'仅在全新空目录中还原，不能据此证明业务加载或全链路运行验收'};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const [action,first,second]=process.argv.slice(2);
  try{
   const result=action==='create'?await createOfflineBackup({sourceDir:first,destinationDir:second}):
    action==='verify'?await verifyOfflineBackup({directory:first}):
    action==='restore-plan'?await planOfflineRestore({directory:first,targetDir:second}):
+   action==='restore-stage'?await stageOfflineRestore({directory:first,targetDir:second}):
    fail('ALEX_BACKUP_USAGE');
   console.log(JSON.stringify(result,null,2));
  }catch(error){console.error(error.message);process.exitCode=1;}
