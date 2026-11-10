@@ -1036,7 +1036,7 @@ $('onboarding-form').addEventListener('submit',async event=>{
  const form=$('onboarding-form');
  if(!form.reportValidity())return;
  const pin=$('onboarding-pin').value;
- if(!/^\\d{6,12}$/.test(pin)){notify('请输入 6–12 位数字 PIN',true);return;}
+ if(!/^\d{6,12}$/.test(pin)){notify('请输入 6–12 位数字 PIN',true);return;}
  // 隐私默认拒绝：绝不凭首次设置表单暗中获取云端上传授权。
  const preferences={voiceInputAllowed:false,voiceOutputAllowed:false,
   cloudTextAllowed:false,cloudAudioInputAllowed:false,cloudAudioOutputAllowed:false,
