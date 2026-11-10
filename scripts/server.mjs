@@ -24,6 +24,7 @@ import {planSkillUpgrade,planAtomicSkillUpgrade} from './skill-upgrade-planner.m
 import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
+import {evaluateReleaseReadiness} from './release-readiness.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -1135,6 +1136,27 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       artifactSha256:r.intent.artifactSha256,seq:r.seq,hash:r.hash
     }));
     send(res,200,{ok:true,records,readiness:skillTransactions.readiness('parent'),executable:false});return;
+  }
+  if(req.method==='GET' && pathname==='/api/release/readiness'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const usage=projectSkillUsage({skills:core.skills,plans,workflows,learningPlans,
+      packages:skillPackages.list('parent')});
+    const integrity=reconcileSkillStores({registry:skillPackages.list('parent'),
+      trust:skillPackageTrust.list('parent'),usage});
+    const single=skillTransactions.readiness('parent');
+    const batch=skillBatchTransactions.readiness('parent');
+    // 静态配置只证明可尝试运行，不能伪造语音、儿童旅程与真实导航验收通过。
+    const report=evaluateReleaseReadiness({
+      authMode:auth.mode,childLoginEnabled:!!auth.childDigest,
+      profileCount:profiles.list().length,skillReconciliation:integrity,
+      singleWal:{pending:single.pending.length,remaining:single.remaining},
+      batchWal:{pending:batch.pending.length,remaining:batch.remaining},
+      audioConfigured:audioMode!=='disabled'||speechStreamMode!=='disabled',
+      conversationProvider:conversations.providerKind,
+      writerLockHeld:!!writerLease
+    });
+    send(res,200,{ok:true,report});return;
   }
   if(req.method==='GET' && pathname==='/api/skills/reconciliation'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
