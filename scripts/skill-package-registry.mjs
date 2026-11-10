@@ -2,6 +2,7 @@
 import {JsonStateStore} from './state-store.mjs';
 import {createHash} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
+import {planAtomicSkillUpgrade} from './skill-upgrade-planner.mjs';
 import {analyzeSkillDependencies,requireSkillDependencyIntegrity} from './skill-dependency-graph.mjs';
 const idPattern=/^[a-z][a-z0-9.-]{2,79}$/;
 const versionPattern=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -20,7 +21,7 @@ function checkHistory(history){
   const e=history[i];
   if(!e||Object.keys(e).sort().join(',')!=='action,after,before,hash,prevHash,seq,target'||
     !Number.isSafeInteger(e.seq)||e.seq!==i+1||typeof e.action!=='string'||
-    !/^(submit|review|install|rollback|uninstall|reference)$/.test(e.action)||
+    !/^(submit|review|install|rollback|uninstall|reference|batch-install)$/.test(e.action)||
     typeof e.target!=='string'||e.target.length>200||
     ![e.before,e.after,e.prevHash,e.hash].every(h=>typeof h==='string'&&/^[a-f0-9]{64}$/.test(h))||
     e.prevHash!==last||operationHash(e)!==e.hash)
@@ -289,6 +290,29 @@ export class SkillPackageRegistry{
     old.version=version;
    }else s.installed.push({id,version});
    return {id,version,executable:false};
+  });
+ }
+ // One queued registry snapshot for all pin replacements. No intermediate dependency drift.
+ // All approval, trust, permission and version checks run again INSIDE the queue.
+ installBatch(actor,{targets,expectedPins}={}){
+  if(!Array.isArray(expectedPins)||!Array.isArray(targets)||
+   expectedPins.length>100||expectedPins.some(x=>!x||typeof x.id!=='string'||
+   typeof x.version!=='string'))fail('INVALID_SKILL_BATCH');
+  return this.#mutate(actor,'batch-install','batch:'+targets.length,s=>{
+   const pins=new Map(s.installed.map(i=>[i.id,i.version]));
+   const optimistic=new Map(expectedPins.map(x=>[x.id,x.version]));
+   if(optimistic.size!==expectedPins.length||pins.size!==optimistic.size||
+      [...pins].some(([id,v])=>optimistic.get(id)!==v))
+    fail('SKILL_INSTALL_CONFLICT');
+   const plan=planAtomicSkillUpgrade({registry:s,targets,
+    verify:manifest=>this.authorizePackage(manifest,'install')});
+   if(!plan.ready)fail(plan.blockers[0]?.reason??'SKILL_BATCH_UNSAFE');
+   for(const entry of plan.changes){
+    const installed=s.installed.find(i=>i.id===entry.id);
+    if(installed)installed.version=entry.to;
+    else s.installed.push({id:entry.id,version:entry.to});
+   }
+   return {changes:plan.changes,installed:s.installed,atomic:true,executable:false};
   });
  }
  uninstall(actor,{id,expectedVersion}={}){
