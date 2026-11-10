@@ -42,7 +42,7 @@ test('R38 abandon only untouched prepared intent; subsequent operations are unbl
   f.registry.review=async()=>{throw Error('INJECTED_CRASH_BEFORE_REVIEW');};
   await assert.rejects(f.transactions.apply('parent',req('family.alpha')),/INJECTED_CRASH_BEFORE_REVIEW/);
   assert.equal(f.transactions.readiness('parent').pending.length,1);
-  await assert.rejects(f.transactions.abandon('child',{operationId:'parent-operation-001'}),/PARENT_REQUIRED/);
+  assert.throws(()=>f.transactions.abandon('child',{operationId:'parent-operation-001'}),/PARENT_REQUIRED/);
   assert.equal((await f.transactions.abandon('parent',{operationId:'parent-operation-001'})).status,'abandoned');
   assert.equal(f.transactions.list('parent').records[0].phase,'blocked');
   assert.equal((await f.transactions.recover('parent')).pending,0);
