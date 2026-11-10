@@ -1472,7 +1472,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
 server.on('error',async err=>{
  console.error('ALEX_SERVER_LISTEN_FAILURE',err.message);
  try{await writerLease.release();}catch(releaseError){console.error(releaseError.message);}
- process.exitCode=1;
+ // 监听失败后已有后台计时器仍可能运行，仅设置退出码无法终止进程。
+ process.exit(1);
 });
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
 function shutdown(){
