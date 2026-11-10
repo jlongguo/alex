@@ -99,7 +99,8 @@ export async function createOfflineBackup({sourceDir,destinationDir}={}){
   throw error;
  }
  return {snapshotId:manifest.snapshotId,files:files.length,bytes:files.reduce((a,f)=>a+f.size,0),
-  destination,verified:await verifyOfflineBackup({directory:destination})};
+  destination,coverage:'top-level-json-jsonl-only',fullApplicationBackup:false,
+  verified:await verifyOfflineBackup({directory:destination})};
 }
 export async function verifyOfflineBackup({directory}={}){
  if(typeof directory!=='string'||!directory)fail('ALEX_BACKUP_INVALID_PATH');
@@ -129,7 +130,8 @@ export async function verifyOfflineBackup({directory}={}){
   }
  }
  return {status:'verified',snapshotId:manifest.snapshotId,files:manifest.files.length,
-  bytes:manifest.files.reduce((a,f)=>a+f.size,0),readOnly:true,restored:false};
+  bytes:manifest.files.reduce((a,f)=>a+f.size,0),readOnly:true,restored:false,
+  coverage:'top-level-json-jsonl-only',fullApplicationBackup:false};
 }
 export async function planOfflineRestore({directory,targetDir}={}){
  if(typeof targetDir!=='string'||!targetDir)fail('ALEX_BACKUP_INVALID_PATH');
