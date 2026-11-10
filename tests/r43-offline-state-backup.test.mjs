@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,writeFile,rm,symlink,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {createOfflineBackup,verifyOfflineBackup,planOfflineRestore}
+import {createOfflineBackup,verifyOfflineBackup,planOfflineRestore,stageOfflineRestore}
  from '../scripts/offline-state-backup.mjs';
 
 async function fixture(){
@@ -104,5 +104,28 @@ test('R43 JSON 文件损坏必须在备份开始前拒绝，原始源文件保�
   await assert.rejects(createOfflineBackup({sourceDir:f.state,destinationDir:f.backup}),
    /ALEX_BACKUP_INVALID_JSON/);
   assert.equal(await readFile(join(f.state,'memory.json'),'utf8'),'{broken');
+ }finally{await f.close();}
+});
+
+test('R43 恢复演练只写入原先为空的 staging 目录，并逐字节校验',async()=>{
+ const f=await fixture();try{
+  await createOfflineBackup({sourceDir:f.state,destinationDir:f.backup});
+  const staged=await stageOfflineRestore({directory:f.backup,targetDir:f.restore});
+  assert.equal(staged.status,'staged');
+  assert.equal(staged.productionRestored,false);
+  assert.equal(staged.files,3);
+  for(const file of ['state.json','skill-batch-wal.json','audit.jsonl'])
+   assert.deepEqual(await readFile(join(f.state,file)),await readFile(join(f.restore,file)));
+  await assert.rejects(stageOfflineRestore({directory:f.backup,targetDir:f.restore}),
+   /ALEX_RESTORE_TARGET_NOT_EMPTY/);
+ }finally{await f.close();}
+});
+test('R43 staging 恢复拒绝已存在家庭数据，绝不覆盖任何内容',async()=>{
+ const f=await fixture();try{
+  await createOfflineBackup({sourceDir:f.state,destinationDir:f.backup});
+  await writeFile(join(f.restore,'state.json'),'ORIGINAL-FAMILY-DATA');
+  await assert.rejects(stageOfflineRestore({directory:f.backup,targetDir:f.restore}),
+   /ALEX_RESTORE_TARGET_NOT_EMPTY/);
+  assert.equal(await readFile(join(f.restore,'state.json'),'utf8'),'ORIGINAL-FAMILY-DATA');
  }finally{await f.close();}
 });
