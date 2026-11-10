@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HomeCore,CompatibleAgentProvider,RuleAgentProvider,validateProposal } from '../dist/index.js';
 import {JsonStateStore} from './state-store.mjs';
+import {acquireWriterLease} from './single-writer-lease.mjs';
 import {FamilyAuth,AuditLog} from './family-security.mjs';
 import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
@@ -206,6 +207,9 @@ function audioAllowedForVoice(principal){
   throw Error('CHILD_CLOUD_AUDIO_DISABLED');
 }
 const store=new JsonStateStore(process.env.STATE_FILE??resolve(appDir,'.local','state.json'));
+// 必须在任何状态读写及 WAL 恢复前获得独占权，避免双实例交错更新 JSON。
+const writerLease=await acquireWriterLease(process.env.ALEX_SERVER_LOCK_FILE??
+ resolve(dirname(store.file),'.alex-writer.lock'));
 const saved=await store.load();
 if(saved)core.restore(saved);
 await memory.load();
@@ -1465,11 +1469,31 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
   });
   res.end(bytes);
 }));
+server.on('error',async err=>{
+ console.error('ALEX_SERVER_LISTEN_FAILURE',err.message);
+ try{await writerLease.release();}catch(releaseError){console.error(releaseError.message);}
+ // 监听失败后已有后台计时器仍可能运行，仅设置退出码无法终止进程。
+ process.exit(1);
+});
 server.listen(port,host,()=>console.log(`Home Agent OS ready → http://${host}:${port}`));
 function shutdown(){
   voiceTurns?.eraseScope('all');
   speechPlayback?.cancelChildren();speechPlayback?.cancel('parent');
   realtimeSessions?.cancelChildren();
   realtimeSessions?.cancel('parent');
-  clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{try{await store.save(core.snapshot());}catch(err){console.error(err);}process.exit(process.exitCode??0);});}
+  clearInterval(audioSweepTimer);clearInterval(gatewayTimer);clearInterval(workflowTimer);clearInterval(planTimer);for(const r of deviceStreamClients)try{r.end();}catch{}clearInterval(tickTimer);clearInterval(keepAliveTimer);clearTimeout(persistTimer);for(const res of clients)res.end();server.close(async()=>{
+  try{
+    await store.save(core.snapshot());
+    // 放行下一实例前必须确保 Skill 注册表、信任库及两套 WAL 无待落盘写入。
+    await Promise.all([
+      skillPackages.store.flush(),
+      skillPackageTrust.store.flush(),
+      skillTransactions.store.flush(),
+      skillBatchTransactions.store.flush()
+    ]);
+    await writerLease.release();
+  }
+  catch(err){console.error('ALEX_SHUTDOWN_PERSISTENCE_OR_LOCK_ERROR',err.message);process.exitCode=1;}
+  process.exit(process.exitCode??0);
+});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
