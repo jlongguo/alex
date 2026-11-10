@@ -116,6 +116,27 @@ test('R44 真实 HTTP 家庭首次使用：家长建立独立身份+默认拒绝
   assert.notEqual(refused.status,200);
   // 家长自身会话仍可读取设置状态，其他学习者不应受误伤。
   assert.equal((await req(server.base,'/api/family/onboarding',{cookie:parent})).status,200);
+  // R45：重设 PIN 与撤销同等级处理，旧浏览器身份被立即取消。
+  const reseeded=await req(server.base,'/api/learners/set-pin',{cookie:parent,data:{
+   profileId,pin:'831649'}});
+  assert.equal(reseeded.status,200);
+  const fresh=await req(server.base,'/api/auth/login',{data:{
+   role:'learner',code:reseeded.body.learner.code,secret:'831649'}});
+  assert.equal(fresh.status,200);
+  const reset=await req(server.base,'/api/learners/set-pin',{cookie:parent,data:{
+   profileId,pin:'204683'}});
+  assert.equal(reset.status,200);
+  assert.equal(reset.body.runtimeStopped,true);
+  assert.ok(reset.body.revokedSessions>=1);
+  assert.equal((await req(server.base,'/api/voice/turn/capabilities',{
+   cookie:fresh.cookie})).status,401);
+  const newLogin=await req(server.base,'/api/auth/login',{data:{
+   role:'learner',code:reset.body.learner.code,secret:'204683'}});
+  assert.equal(newLogin.status,200);
+  assert.equal((await req(server.base,'/api/voice/turn/capabilities',{
+   cookie:newLogin.cookie})).status,200);
+  assert.equal((await req(server.base,'/api/voice/turn/capabilities',{
+   cookie:parent})).status,200);
  }finally{await stop(server);await rm(dir,{recursive:true,force:true});}
 });
 test('R44 重启后初次配置进度仍从真实档案与隐私存储计算',{timeout:45000},async()=>{
