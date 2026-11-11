@@ -11,6 +11,7 @@ import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
 import {familyOnboardingStatus} from './family-onboarding.mjs';
+import {revokeLearnerRuntime} from './learner-session-revocation.mjs';
 import {LearnerCredentials} from './learner-credentials.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
 import {MAP} from '../dist/robot/map.js';
@@ -1369,11 +1370,23 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:true,learner:await learnerCredentials.setPin(actor,data.profileId,data.pin,
           profileId=>profiles.list().some(p=>p.id===profileId))};
-        auth.revokeLearner(data.profileId);
+        // PIN 重置同样会废止此前的会话及其正在执行的音频/模型任务。
+        const stopped=revokeLearnerRuntime({
+          profileId:data.profileId,auth,abortCompanion,audioGate,audioIngress,
+          realtimeSessions,speechPlayback,voiceTurns
+        });
+        result.revokedSessions=stopped.revokedSessions;
+        result.runtimeStopped=stopped.principalStopped;
       }else if(pathname==='/api/learners/revoke'){
         if(auth.mode!=='local')throw new Error('LOCAL_AUTH_REQUIRED');
         result={ok:await learnerCredentials.revoke(actor,data.profileId)};
-        auth.revokeLearner(data.profileId);
+        // 不能只吊销 Cookie：进行中的 SSE、录音和播放必须同步终止。
+        const stopped=revokeLearnerRuntime({
+          profileId:data.profileId,auth,abortCompanion,audioGate,audioIngress,
+          realtimeSessions,speechPlayback,voiceTurns
+        });
+        result.revokedSessions=stopped.revokedSessions;
+        result.runtimeStopped=stopped.principalStopped;
       }else if(pathname==='/api/profiles/delete'){
         const deleted=await profiles.remove(actor,data.id);
         if(deleted){
