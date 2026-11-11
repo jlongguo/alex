@@ -1666,6 +1666,7 @@ function speakCompanion(text,mode){
  }catch(err){companionNotice(err.message,true);companionState('error');}
 }
 async function refreshCompanionProgress(){
+ const identity=companionActor,epoch=companionIdentityEpoch;
  if(!authorizedActor){$('companion-progress-summary').textContent='请登录后查看学习记录。';return;}
  try{
   const selector=$('companion-progress-scope');
@@ -1673,6 +1674,7 @@ async function refreshCompanionProgress(){
   const res=await fetch('/api/companion/progress?scope='+encodeURIComponent(scope),{cache:'no-store'});
   if(!res.ok)throw new Error('学习记录暂时不可用');
   const progress=(await res.json()).progress;
+  if(identity!==companionActor||epoch!==companionIdentityEpoch||!authorizedActor)return;
   $('companion-progress-summary').textContent='A1 文字练习完成 '+progress.englishTextExercisesCompleted
     +' 次；分支故事完成 '+progress.storyBranchesCompleted
     +' 次；科学文字问答完成 '+(progress.scienceTextQuizzesCompleted??0)
@@ -1684,7 +1686,10 @@ async function refreshCompanionProgress(){
    line.textContent=course.title+'：'+times+' 次文本练习完成';
    $('companion-course-progress').append(line);
   }
- }catch(error){companionNotice(error.message,true);}
+ }catch(error){
+  if(identity===companionActor&&epoch===companionIdentityEpoch&&authorizedActor)
+   companionNotice(error.message,true);
+ }
 }
 async function refreshCompanionInfo(){
  const identity=companionActor,epoch=companionIdentityEpoch;
