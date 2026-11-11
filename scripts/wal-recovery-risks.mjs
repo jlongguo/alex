@@ -1,8 +1,8 @@
 // R49 只读 WAL 风险扫描：读取元数据，不执行 recover，也不修改已存在的文件。
-// 精确复核已有事务格式的 SHA-256 哈希链；外部 Skill 签名、Registry 状态仍由正式加载器验证。
+// 复用事务引擎的规范化 SHA-256 校验；外部签名和 Registry 状态仍需启动加载器验证。
 import {lstat,readFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
-import {canonicalJson} from './skill-package-trust.mjs';
+import {inspectSkillPackageWalState} from './skill-package-transactions.mjs';
+import {inspectSkillBatchWalState} from './skill-batch-transactions.mjs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -12,46 +12,6 @@ const definitions=Object.freeze([
  {id:'batch',env:'ALEX_SKILL_BATCH_WAL_FILE',name:'skill-batch-wal.json',
   phases:['prepared','committed','abandoned'],limit:400}
 ]);
-const validHash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
-
-const sha=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
-const pin=p=>p&&Object.keys(p).sort().join(',')==='id,version'&&
- typeof p.id==='string'&&/^[a-z][a-z0-9.-]{2,79}$/.test(p.id)&&
- typeof p.version==='string'&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(p.version);
-const uniquePins=rows=>Array.isArray(rows)&&rows.every(pin)&&
- new Set(rows.map(p=>p.id)).size===rows.length;
-const safeVersion=v=>v===null||typeof v==='string'&&
- /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v);
-const singleIntent=intent=>intent&&
- Object.keys(intent).sort().join(',')===
- 'artifactSha256,expectedCurrentVersion,id,manifestSha256,operationId,publisherId,version'&&
- pin({id:intent.id,version:intent.version})&&safeVersion(intent.expectedCurrentVersion)&&
- typeof intent.publisherId==='string'&&/^[a-z][a-z0-9.-]{2,79}$/.test(intent.publisherId)&&
- validHash(intent.manifestSha256)&&validHash(intent.artifactSha256);
-function completeHash(item,row){
- if(item.id==='single'){
-  if(!singleIntent(row.intent)||row.requestHash!==sha(row.intent))return false;
-  return row.hash===sha({seq:row.seq,phase:row.phase,intent:row.intent,
-   requestHash:row.requestHash,prevHash:row.prevHash});
- }
- if(!uniquePins(row.targets)||row.targets.length<1||row.targets.length>12||
-  !uniquePins(row.expectedPins)||row.expectedPins.length>100||
-  !Array.isArray(row.proofs)||row.proofs.length!==row.targets.length||
-  row.proofs.some(p=>!p||Object.keys(p).sort().join(',')!==
-   'artifactSha256,id,manifestSha256,publisherId,version'||
-   !pin({id:p.id,version:p.version})||!validHash(p.artifactSha256)||
-   !validHash(p.manifestSha256)||typeof p.publisherId!=='string')||
-  !row.baseline||Object.keys(row.baseline).sort().join(',')!==
-  'historyHash,historyLength,snapshotHash'||
-  !Number.isSafeInteger(row.baseline.historyLength)||row.baseline.historyLength<0||
-  !validHash(row.baseline.historyHash)||!validHash(row.baseline.snapshotHash)||
-  row.requestHash!==sha({targets:row.targets,expectedPins:row.expectedPins}))
-  return false;
- return row.hash===sha({seq:row.seq,phase:row.phase,operationId:row.operationId,
-  requestHash:row.requestHash,targets:row.targets,expectedPins:row.expectedPins,
-  proofs:row.proofs,baseline:row.baseline,prevHash:row.prevHash});
-}
-
 export async function inspectWalRecoveryRisks({stateDir='.local',env=process.env}={}){
  if(typeof stateDir!=='string'||!stateDir)throw Error('INVALID_WAL_INSPECTION_DIRECTORY');
  const root=resolve(stateDir),checks=[];
@@ -77,38 +37,20 @@ export async function inspectWalRecoveryRisks({stateDir='.local',env=process.env
     corrupted:true,readOnly:true});
    continue;
   }
-  if(!data||data.schemaVersion!==1||Object.keys(data).sort().join(',')!=='records,schemaVersion'||
-   !Array.isArray(data.records)||data.records.length>item.limit){
-   checks.push({id:item.id,status:'blocked',records:null,pending:null,
-    corrupted:true,readOnly:true});
-   continue;
+  // 原事务模块严格校验 schema、哈希链、请求摘要和每条业务证明。
+  // 预检在内存中调用相同校验器，不进行 recover 或文件修改。
+  let result=null;
+  try{
+   result=item.id==='single'
+    ?inspectSkillPackageWalState(data):inspectSkillBatchWalState(data);
+  }catch(error){
+   if(!(error instanceof Error))throw error;
   }
-  let valid=true,prev='0'.repeat(64),pending=0;
-  const ids=new Set();
-  for(const [i,row] of data.records.entries()){
-   const op=item.id==='single'?row?.intent?.operationId:row?.operationId;
-   const keys=item.id==='single'?'hash,intent,phase,prevHash,requestHash,seq':
-    'baseline,expectedPins,hash,operationId,phase,prevHash,proofs,requestHash,seq,targets';
-   let good=false;
-   try{
-    good=!!row&&Object.keys(row).sort().join(',')===keys&&
-     item.phases.includes(row.phase)&&Number.isSafeInteger(row.seq)&&row.seq===i+1&&
-     typeof op==='string'&&/^[A-Za-z0-9._:-]{8,100}$/.test(op)&&!ids.has(op)&&
-     validHash(row.prevHash)&&row.prevHash===prev&&
-     validHash(row.hash)&&validHash(row.requestHash)&&completeHash(item,row);
-   }catch(error){
-    // 不可信 WAL 输入导致 canonicalJson 失败也必须阻断，而不能跳过该行。
-    if(!(error instanceof Error))throw error;
-   }
-   if(!good){
-    valid=false;break;
-   }
-   ids.add(op);prev=row.hash;
-   if(row.phase==='prepared')pending++;
-  }
+  const valid=result!==null;
+  const pending=result?.pending??null;
   checks.push({id:item.id,
    status:!valid?'blocked':pending?'manual-review-required':'pass',
-   records:data.records.length,pending:valid?pending:null,
+   records:valid?result.records:null,pending,
    corrupted:!valid,readOnly:true});
  }
  return {schemaVersion:'alex.dev/wal-risk-scan/v1',checks,
