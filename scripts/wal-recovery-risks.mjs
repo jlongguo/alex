@@ -7,10 +7,8 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const definitions=Object.freeze([
- {id:'single',env:'ALEX_SKILL_TRANSACTIONS_FILE',name:'skill-transactions.json',
-  phases:['prepared','committed','blocked'],limit:400},
- {id:'batch',env:'ALEX_SKILL_BATCH_WAL_FILE',name:'skill-batch-wal.json',
-  phases:['prepared','committed','abandoned'],limit:400}
+ {id:'single',env:'ALEX_SKILL_TRANSACTIONS_FILE',name:'skill-transactions.json'},
+ {id:'batch',env:'ALEX_SKILL_BATCH_WAL_FILE',name:'skill-batch-wal.json'}
 ]);
 export async function inspectWalRecoveryRisks({stateDir='.local',env=process.env}={}){
  if(typeof stateDir!=='string'||!stateDir)throw Error('INVALID_WAL_INSPECTION_DIRECTORY');
