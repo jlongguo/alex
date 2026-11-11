@@ -114,9 +114,11 @@ export async function inspectWalRecoveryRisks({stateDir='.local',env=process.env
  return {schemaVersion:'alex.dev/wal-risk-scan/v1',checks,
   blocked:checks.filter(x=>x.status==='blocked').map(x=>x.id),
   pending:checks.filter(x=>x.status==='manual-review-required').map(x=>x.id),
-  readOnly:true,recoveryExecuted:false,hashChainCryptographicallyVerified:true,
+  readOnly:true,recoveryExecuted:false,
+  hashChainCryptographicallyVerified:checks.every(c=>!c.corrupted),
+  verifiedJournalCount:checks.filter(c=>c.status!=='absent'&&!c.corrupted).length,
   approvedForUpgrade:false,
-  note:'已复核两套 WAL 的规范化 SHA-256 链，但未验证 Registry 状态、签名与恢复执行；仍须由正式事务加载器验收'};
+  note:'只对存在且无结构错误的 WAL 确认规范化 SHA-256 链；尚未验证 Registry 状态、签名与恢复执行'};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  if(process.argv.length>3){console.error('用法: node scripts/wal-recovery-risks.mjs [状态目录]');process.exitCode=2;}
