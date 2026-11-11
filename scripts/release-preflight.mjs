@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {verifyOfflineBackup} from './offline-state-backup.mjs';
 import {inspectWalRecoveryRisks} from './wal-recovery-risks.mjs';
 import {inspectSkillStateCompatibility} from './skill-state-compat.mjs';
+import {inspectSkillRecoveryEvidence} from './skill-recovery-evidence.mjs';
 
 const FILES=Object.freeze({
  STATE_FILE:'state.json',
@@ -127,6 +128,16 @@ export async function inspectReleasePreflight({
     :item.status==='absent'?'未发现对应状态文件，只有全新安装才可接受'
     :'使用正式模块完成只读加载/签名校验，不代表实际恢复验收'));
  }
+ // 风险扫描证明 WAL 结构有效后，仍需确认 pending 意图对应的真实发行者签名。
+ const evidence=await inspectSkillRecoveryEvidence({stateDir:root,env});
+ checks.push(issue('SKILL_PENDING_PROOFS',
+  evidence.status==='blocked'?'blocked':
+  evidence.status==='manual-review-required'?'manual-required':'pass',
+  evidence.status==='blocked'
+   ?'待恢复事务或其来源证明不能通过正式 Trust/Registry 一致性核查'
+   :evidence.pending
+    ?'待恢复事务证明可核对，但必须在隔离环境执行恢复并人工审核'
+    :'没有待恢复 Skill 事务的来源证明待核查'));
  if(env.AUTH_MODE!=='local')
   checks.push(issue('FAMILY_AUTH','blocked','家庭试用必须启用 AUTH_MODE=local'));
  else if(typeof env.ALEX_PARENT_PASSWORD!=='string'||env.ALEX_PARENT_PASSWORD.length<12)
