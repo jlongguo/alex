@@ -242,6 +242,14 @@ async function acceptance(){
   const match=result.match(/([a-f0-9]{12})/);
   assert.ok(match,'家长首次设置未返回孩子登录代码');
   const learnerCode=match[1];
+  const parent=await parentCookie(server.base,server.env.ALEX_PARENT_PASSWORD);
+  const second=await parentAction(server.base,parent,'/api/profiles',{
+   nickname:'R54第二孩子',ageBand:'9-12',interests:[]
+  });
+  const secondCredentials=await parentAction(server.base,parent,'/api/learners/set-pin',{
+   profileId:second.profile.id,pin:'647220'
+  });
+  const secondCode=secondCredentials.learner.code;
   stages.push('family-onboarding-ui');
   await click(cdp,'logout');
   await browserLogin(cdp,'learner','647219',learnerCode);
@@ -263,8 +271,21 @@ async function acceptance(){
   await click(cdp,'learner-journey-resume');
   await eventually(cdp,`document.getElementById('companion-messages').textContent.includes('Hello Alex, I am studying')`,'RESTORED_MESSAGES');
   stages.push('reload-and-resume-ui');
+  await click(cdp,'logout');
+  await browserLogin(cdp,'learner','647220',secondCode);
+  await eventually(cdp,`document.getElementById('learner-journey-status').textContent.includes('已有 0 个可恢复会话')`,
+   'SECOND_CHILD_EMPTY_JOURNEY');
+  assert.equal(await evaluate(cdp,`document.getElementById('learner-journey-resume').disabled`),true);
+  assert.equal(await evaluate(cdp,`document.getElementById('companion-messages').children.length`),0);
+  stages.push('two-child-browser-isolation');
+  await click(cdp,'logout');
+  await browserLogin(cdp,'learner','647219',learnerCode);
+  await eventually(cdp,`!document.getElementById('learner-journey-resume').disabled`,'RETURN_TO_FIRST_CHILD');
+  await click(cdp,'learner-journey-resume');
+  await eventually(cdp,`document.getElementById('companion-messages').textContent.includes('Hello Alex, I am studying')`,
+   'FIRST_CHILD_RESTORED_AFTER_SWITCH');
+  stages.push('switch-back-and-resume-ui');
 
-  const parent=await parentCookie(server.base,server.env.ALEX_PARENT_PASSWORD);
   const profiles=await (await fetch(server.base+'/api/profiles',{headers:{Cookie:parent}})).json();
   assert.equal(profiles.profiles.length,1);
   await parentAction(server.base,parent,'/api/learners/set-pin',{
