@@ -218,7 +218,7 @@ async function parentAction(base,cookie,path,data){
 }
 async function acceptance(){
  const root=await mkdtemp(join(tmpdir(),'alex-r54-browser-'));
- let server=null,chrome=null,cdp=null;
+ let server=null,chrome=null,cdp=null,primaryError=null;
  const stages=[];
  try{
   await mkdir(join(root,'alex-state'));
@@ -299,11 +299,35 @@ async function acceptance(){
   return {status:'passed',stages,browser:'chromium-cdp',
    testsBrowserRendered:true,cloudAudioTested:false,rosRuntimeTested:false,
    realFamilyDataUsed:false};
+ }catch(error){
+  primaryError=error;
+  throw error;
  }finally{
+  const cleanupErrors=[];
   cdp?.close();
-  await stopProcess(chrome?.child);
-  await stopProcess(server?.child);
-  await rm(root,{recursive:true,force:true});
+  for(const child of [chrome?.child,server?.child]){
+   try{await stopProcess(child);}
+   catch(error){cleanupErrors.push(error);}
+  }
+  // Chromium 的孙进程可能在主进程退出后短暂持有 Profile 文件。
+  // 限定于本次 mkdtemp 创建的目录，延迟重试而不是扩大清理范围。
+  let removed=false;
+  for(let attempt=0;attempt<15;attempt++){
+   try{await rm(root,{recursive:true,force:true});removed=true;break;}
+   catch(error){
+    if(!['ENOTEMPTY','EBUSY','EPERM'].includes(error?.code)||
+     attempt===14){cleanupErrors.push(error);break;}
+    await delay(150);
+   }
+  }
+  if(!removed&&!cleanupErrors.length)
+   cleanupErrors.push(Error('R54_TEMP_DIRECTORY_NOT_REMOVED'));
+  if(cleanupErrors.length){
+   // 不允许清理异常覆盖最先发生的浏览器错误。
+   if(primaryError)throw new AggregateError([primaryError,...cleanupErrors],
+    'R54_PRIMARY_AND_CLEANUP_FAILURE');
+   throw new AggregateError(cleanupErrors,'R54_CLEANUP_FAILURE');
+  }
  }
 }
 try{
@@ -311,6 +335,7 @@ try{
  console.log(JSON.stringify(report,null,2));
 }catch(error){
  // 不输出 DOM 文本、登录代码、私密 Cookie 或测试 PIN。
- console.error('R54 浏览器验收失败：'+error.message);
+ const causes=error instanceof AggregateError?error.errors:[error];
+ console.error('R54 浏览器验收失败：'+causes.map(c=>c.message).join('; '));
  process.exitCode=1;
 }
