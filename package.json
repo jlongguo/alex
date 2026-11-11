@@ -22,6 +22,7 @@
     "sim:launch": "bash scripts/launch-ros-sim.sh",
     "sim:smoke": "python3 robotics/ros2/alex_sim/scripts/ros_smoke.py",
     "sim:accept": "bash scripts/run-ros-acceptance.sh",
+    "release:runtime-evidence": "python3 scripts/runtime-acceptance-gate.py",
     "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json"
   },
   "devDependencies": {
