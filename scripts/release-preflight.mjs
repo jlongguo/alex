@@ -53,7 +53,7 @@ export async function inspectReleasePreflight({
   variable,name,path:resolve(env[variable]||join(root,name))
  }));
  // R43 只收集源目录顶层命名受限的 JSON/JSONL 文件；自定义文件名同目录也可能漏备份。
- const backupName=/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}\\.(?:json|jsonl)$/;
+ const backupName=/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}\.(?:json|jsonl)$/;
  const outside=storage.filter(f=>dirname(f.path)!==root||!backupName.test(f.path.slice(root.length+1)));
  const optional=OPTIONAL.filter(k=>env[k]).map(variable=>({variable,path:resolve(env[variable])}));
  if(outside.length||optional.length){
