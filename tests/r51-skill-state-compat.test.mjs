@@ -122,7 +122,7 @@ test('R51 链接和状态都合法但自定义 Trust 文件路径被采用时仍
  const f=await fixture();try{
   await install(f);await attest(f);
   const report=await inspectSkillStateCompatibility({stateDir:f.dir,env:{
-   ...auth(),ALEX_SKILL_TRUST_FILE:f.trustFile}});
+   ...auth,ALEX_SKILL_TRUST_FILE:f.trustFile}});
   assert.deepEqual(report.blocked,[]);
   assert.equal(report.checks[1].status,'pass');
  }finally{await f.cleanup();}
