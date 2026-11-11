@@ -14,7 +14,9 @@ test('R46 独立学习者旅程界面只显示文字进度，不宣称音频或�
  assert.ok(html.includes('不证明发音质量或机器人动作'));
  assert.ok(app.includes("fetch('/api/learning/journey',{cache:'no-store'})"));
  assert.ok(app.includes("authorizedActor!=='child'"));
- assert.ok(app.includes("companionActor?.startsWith('learner:')"));
+ assert.ok(app.includes("identity?.startsWith('learner:')"));
+ assert.ok(app.includes('learnerResume.current(identity,token)'));
+ assert.ok(app.includes('learnerResume.acceptJourney(identity,token,report)'));
  assert.ok(app.includes('esc(plan.courseId)')===false);
 });
 test('R46 旅程 API 只接受受认证独立学习者或明确选择档案的家长',()=>{
