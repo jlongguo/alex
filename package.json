@@ -14,6 +14,7 @@
     "release:stage-audit": "node scripts/recovery-stage-audit.mjs",
     "dev": "npm run build && npm run start",
     "test": "npm run build && node --test --test-concurrency=2 tests/*.test.mjs",
+    "test:browser": "node scripts/browser-acceptance.mjs",
     "check": "npm run build && node --test --test-concurrency=2 tests/*.test.mjs",
     "virtual-device": "node scripts/virtual-device.mjs",
     "sim:generate": "npm run build && node scripts/generate-sim-assets.mjs",
