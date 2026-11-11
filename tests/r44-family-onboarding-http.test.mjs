@@ -122,6 +122,22 @@ test('R44 真实 HTTP 家庭首次使用：家长建立独立身份+默认拒绝
    cookie:parent});
   assert.equal(parentJourney.status,200,JSON.stringify(parentJourney.body));
   assert.equal(parentJourney.body.report.recentSessionId,createdSession.body.session.id);
+  const another=await req(server.base,'/api/profiles',{cookie:parent,data:{
+   nickname:'第二个孩子',ageBand:'9-12',interests:[]}});
+  assert.equal(another.status,200);
+  const otherId=another.body.profile.id;
+  assert.equal((await req(server.base,'/api/learning/journey?profileId='+otherId,{
+   cookie:learner.cookie})).status,403);
+  const otherJourney=await req(server.base,'/api/learning/journey?profileId='+otherId,{
+   cookie:parent});
+  assert.equal(otherJourney.status,200);
+  assert.deepEqual(otherJourney.body.report.sessions,[]);
+  assert.deepEqual(otherJourney.body.report.plans,[]);
+  const disallowedDevice=await req(server.base,'/api/gateway/dispatch',{
+   cookie:learner.cookie,data:{deviceId:'dev-11111111-1111-4111-8111-111111111111',
+    capability:'sim.navigation.goto',params:{destination:'study_desk'},requestId:'r46child1'}});
+  assert.notEqual(disallowedDevice.status,200);
+
   assert.equal((await req(server.base,'/api/family/onboarding',{cookie:learner.cookie})).status,403);
   assert.equal((await req(server.base,'/api/learner/privacy?profileId='+profileId,{
    cookie:learner.cookie})).status,403);
