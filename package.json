@@ -9,6 +9,7 @@
     "start": "node scripts/server.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:wal-risks": "node scripts/wal-recovery-risks.mjs",
+    "release:skill-compat": "node scripts/skill-state-compat.mjs",
     "release:stage-audit": "node scripts/recovery-stage-audit.mjs",
     "dev": "npm run build && npm run start",
     "test": "npm run build && node --test --test-concurrency=2 tests/*.test.mjs",

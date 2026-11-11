@@ -5,6 +5,7 @@ import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {verifyOfflineBackup} from './offline-state-backup.mjs';
 import {inspectWalRecoveryRisks} from './wal-recovery-risks.mjs';
+import {inspectSkillStateCompatibility} from './skill-state-compat.mjs';
 
 const FILES=Object.freeze({
  STATE_FILE:'state.json',
@@ -113,6 +114,18 @@ export async function inspectReleasePreflight({
    journal.status==='manual-review-required'
     ?'有 '+journal.pending+' 项 prepared 事务，升级前需验证恢复结果':
     journal.status==='absent'?'未找到该 WAL；新安装可以为空':'未发现待处理事务；未验证完整哈希链'));
+ }
+ // JSON 可解析不代表 Registry 历史链、签名及安装 pin 能被正式加载器接受。
+ const skillState=await inspectSkillStateCompatibility({stateDir:root,env});
+ for(const item of skillState.checks){
+  checks.push(issue('SKILL_'+item.id,
+   item.status==='blocked'?'blocked':
+   item.status==='manual-review-required'?'manual-required':'pass',
+   item.status==='blocked'?'Skill 状态加载或已安装版本签名检查未通过':
+   item.status==='manual-review-required'
+    ?'历史 Registry v1 仅内存兼容读取；需另行规划版本迁移'
+    :item.status==='absent'?'未发现对应状态文件，只有全新安装才可接受'
+    :'使用正式模块完成只读加载/签名校验，不代表实际恢复验收'));
  }
  if(env.AUTH_MODE!=='local')
   checks.push(issue('FAMILY_AUTH','blocked','家庭试用必须启用 AUTH_MODE=local'));
