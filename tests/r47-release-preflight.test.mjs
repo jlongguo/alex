@@ -127,3 +127,15 @@ test('R47 同一状态文件被多个存储配置重复指向时拒绝升级预�
   assert.ok(r.blocked.includes('DUPLICATE_STORAGE_PATH'));
  }finally{await f.close();}
 });
+
+test('R48 未明确启用对话持久化时发布预检必须提示无法跨重启恢复历史会话',async()=>{
+ const f=await fixture();try{
+  const off=await inspectReleasePreflight({stateDir:f.source,env:auth()});
+  assert.ok(off.manual.includes('CONVERSATION_PERSISTENCE'));
+  assert.equal(off.releaseApproved,false);
+  const on=await inspectReleasePreflight({stateDir:f.source,env:{
+   ...auth(),ALEX_CONVERSATION_PERSIST:'1'}});
+  assert.equal(on.checks.find(c=>c.id==='CONVERSATION_PERSISTENCE').status,'pass');
+  assert.ok(on.manual.includes('REAL_USER_ACCEPTANCE'));
+ }finally{await f.close();}
+});
