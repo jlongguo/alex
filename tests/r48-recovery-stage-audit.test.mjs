@@ -29,7 +29,7 @@ test('R48 只读核验备份恢复副本完整性，不能冒充业务加载',as
 });
 test('R48 已复制的隔离文件被修改必须拒绝恢复验收',async()=>{
  const f=await dirs();try{
-  await writeFile(join(f.stage,'profiles.json'),'{"version":1,"profiles":[1]}');
+  await writeFile(join(f.stage,'profiles.json'),'{"version":2,"profiles":[]}');
   await assert.rejects(auditIsolatedRecovery({
    backupDir:f.backup,stageDir:f.stage
   }),/RECOVERY_AUDIT_DIGEST_MISMATCH/);
