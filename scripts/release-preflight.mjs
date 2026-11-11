@@ -110,6 +110,11 @@ export async function inspectReleasePreflight({
   Number(process.versions.node.split('.')[0])<20)
   checks.push(issue('NODE_RUNTIME','blocked','Node.js 运行版本不满足 >=20'));
  else checks.push(issue('NODE_RUNTIME','pass','Node.js 运行环境符合最低版本'));
+ // 会话仅在家长显式启用持久化后才写入备份；默认内存会话不可能跨重启恢复。
+ checks.push(issue('CONVERSATION_PERSISTENCE',env.ALEX_CONVERSATION_PERSIST==='1'?'pass':'manual-required',
+  env.ALEX_CONVERSATION_PERSIST==='1'
+   ?'已启用本地对话持久化，仍需在隔离恢复副本中实测加载'
+   :'对话持久化未开启，重启后原内存会话不可恢复；需家长决定是否留存文字记录'));
  checks.push(issue('REAL_USER_ACCEPTANCE','manual-required',
   '此工具没有测试浏览器、云端音频、真实 ROS2/Nav2、安全与升级后业务加载'));
  const blocked=checks.filter(c=>c.status==='blocked').map(c=>c.id);
