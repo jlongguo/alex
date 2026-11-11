@@ -52,7 +52,9 @@ export async function inspectReleasePreflight({
  const storage=Object.entries(FILES).map(([variable,name])=>({
   variable,name,path:resolve(env[variable]||join(root,name))
  }));
- const outside=storage.filter(f=>dirname(f.path)!==root);
+ // R43 只收集源目录顶层命名受限的 JSON/JSONL 文件；自定义文件名同目录也可能漏备份。
+ const backupName=/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}\\.(?:json|jsonl)$/;
+ const outside=storage.filter(f=>dirname(f.path)!==root||!backupName.test(f.path.slice(root.length+1)));
  const optional=OPTIONAL.filter(k=>env[k]).map(variable=>({variable,path:resolve(env[variable])}));
  if(outside.length||optional.length){
   checks.push(issue('BACKUP_SCOPE','blocked',
@@ -67,7 +69,7 @@ export async function inspectReleasePreflight({
  try{await lstat(lock);lockPresent=true;}catch(error){if(error?.code!=='ENOENT')throw error;}
  checks.push(issue('SERVER_STOPPED',lockPresent?'blocked':'pass',
   lockPresent?'写入锁存在；禁止执行离线升级或备份':'未检测到该路径写入锁；不能代替进程停机核验'));
- let nonJson=0,invalid=0,unsupported=0,unsafe=0;
+ let invalid=0,unsupported=0,unsafe=0;
  const filesSeen=new Set();
  for(const item of storage){
   if(filesSeen.has(item.path)){checks.push(issue('DUPLICATE_STORAGE_PATH','blocked','多个存储绑定了同一个文件'));break;}
