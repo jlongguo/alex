@@ -1759,6 +1759,34 @@ async function restoreCompanion(id) {
  return session;
 }
 $('companion-progress-scope').addEventListener('change',()=>void refreshCompanionProgress());
+// R46 只读旅程：儿童只能看到自己的会话元数据，不能触发设备动作。
+async function refreshLearnerJourney(){
+ const status=$('learner-journey-status'),list=$('learner-journey-plans');
+ if(authorizedActor!=='child'||!companionActor?.startsWith('learner:')){
+  status.textContent='请使用独立学习者账号登录后查看自己的学习旅程。';
+  list.replaceChildren();return;
+ }
+ try{
+  const response=await fetch('/api/learning/journey',{cache:'no-store'});
+  if(!response.ok)throw Error('无法读取当前学习者的旅程');
+  const {report}=await response.json();
+  const course=curriculum.find(c=>c.id===report.nextCourseId);
+  status.textContent='已有 '+report.sessions.length+' 个可恢复会话 · 文字练习记录 '+
+   report.completedTextExercises+' 次。'+(course?'建议继续：'+course.title:'目前没有待完成的学习计划。');
+  list.innerHTML=report.plans.map(plan=>{
+   const title=curriculum.find(c=>c.id===plan.courseId)?.title??plan.courseId;
+   return '<p>'+esc(title)+' · '+esc(plan.status)+
+    ' · 完成 '+esc(plan.completed)+'/'+esc(plan.targetCompletions)+'</p>';
+  }).join('');
+  // 仅提示当前会话 ID；继续操作仍要经过现有服务端会话所有权校验。
+  if(report.recentSessionId){
+   const item=document.createElement('p');
+   item.textContent='最近对话可以通过上方「我的历史会话」选择并继续。';
+   list.append(item);
+  }
+ }catch(error){status.textContent=error.message;list.replaceChildren();}
+}
+$('learner-journey-refresh').addEventListener('click',()=>void refreshLearnerJourney());
 $('companion-history').addEventListener('change',async()=>{
  if(!authorizedActor||companionBusy)return;
  const id=$('companion-history').value;
