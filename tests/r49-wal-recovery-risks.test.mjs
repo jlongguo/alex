@@ -62,7 +62,7 @@ test('R49 结构正确但伪造哈希的终态不可冒充完整加密链验证�
   forged.records[0].hash=digest;
   await writeFile(join(dir,'skill-transactions.json'),JSON.stringify(forged));
   const scan=await inspectWalRecoveryRisks({stateDir:dir,env:auth});
-  assert.equal(scan.checks[0].status,'pass');
+  assert.equal(scan.checks[0].status,'blocked');
   assert.equal(scan.hashChainCryptographicallyVerified,false);
   assert.equal(scan.approvedForUpgrade,false);
  }finally{await rm(dir,{recursive:true,force:true});}
