@@ -1284,7 +1284,7 @@ $('learner-pin-form').addEventListener('submit',async e=>{
   const result=await api('/api/learners/set-pin',{profileId,pin});
   $('learner-pin').value='';
   lastFamilyPoll=0;await refreshFamily();
-  notify('学习者专属登录代码：'+result.learner.code+'。请私下保存，PIN 不会再次显示。');
+  notify('学习者专属登录代码：'+result.learner.code+'。请私下保存；旧登录及其活动会话已停止，PIN 不会再次显示。');
  }catch(error){notify(error.message,true);}
  finally{familyBusy=false;}
 });
@@ -1296,7 +1296,7 @@ $('learner-access-list').addEventListener('click',async event=>{
  try{
   await api('/api/learners/revoke',{profileId:button.dataset.revokeLearner});
   lastFamilyPoll=0;await refreshFamily();
-  notify('已撤销此学习者专属登录凭据。');
+  notify('已撤销此学习者登录凭据，并停止该孩子的进行中对话、录音和语音播放。');
  }catch(error){notify(error.message,true);}
  finally{familyBusy=false;}
 });
