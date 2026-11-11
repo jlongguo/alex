@@ -100,7 +100,7 @@ test('R49 两种已结束 WAL 均按无 pending 处理，但不构成发布许�
   await writeFile(join(dir,'skill-transactions.json'),JSON.stringify(single('blocked')));
   await writeFile(join(dir,'skill-batch-wal.json'),JSON.stringify(batch('abandoned')));
   const report=await inspectReleasePreflight({stateDir:dir,env:auth});
-  assert.equal(report.checks.find(c=>c.id==='WAL_SINGLE').status,'pass');
+  assert.equal(report.checks.find(c=>c.id==='WAL_SINGLE').status,'pass',JSON.stringify(report.checks));
   assert.equal(report.checks.find(c=>c.id==='WAL_BATCH').status,'pass');
   assert.equal(report.releaseApproved,false);
   assert.ok(report.manual.includes('REAL_USER_ACCEPTANCE'));
