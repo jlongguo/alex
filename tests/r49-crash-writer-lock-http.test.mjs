@@ -46,7 +46,7 @@ async function waitForReady(child,port){
  throw Error('R49_SERVER_NOT_READY');
 }
 async function killSpawnedProcess(child){
- if(!child||child.exitCode!==null)return;
+ if(!child||child.exitCode!==null||child.signalCode!==null)return;
  const done=once(child,'exit');
  child.kill('SIGKILL');
  await done;
