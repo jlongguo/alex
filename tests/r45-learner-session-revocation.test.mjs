@@ -50,3 +50,17 @@ test('R45 缺少核心取消能力时失败关闭，不能只做部分注销',()
   /INVALID_LEARNER_REVOCATION_CONFIG/);
  assert.deepEqual(calls,[]);
 });
+
+test('R45 任一中间取消器失败时其他全部取消器仍执行，错误必须上报',()=>{
+ const {calls,options}=fixture();
+ options.audioIngress.erasePrincipal=principal=>{
+  calls.push({name:'audio-ingress-failed',principal});
+  throw Error('AUDIO_INGRESS_SHUTDOWN_FAILED');
+ };
+ assert.throws(()=>revokeLearnerRuntime(options),error=>
+  error instanceof AggregateError&&
+  error.message==='LEARNER_RUNTIME_REVOCATION_INCOMPLETE'&&
+  error.errors.some(x=>x.message==='AUDIO_INGRESS_SHUTDOWN_FAILED'));
+ assert.deepEqual(calls.map(x=>x.name),[
+  'auth','chat','audio-gate','audio-ingress-failed','realtime','playback','voice-turn']);
+});
