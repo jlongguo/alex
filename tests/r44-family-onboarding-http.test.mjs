@@ -99,6 +99,45 @@ test('R44 真实 HTTP 家庭首次使用：家长建立独立身份+默认拒绝
   const learner=(await req(server.base,'/api/auth/login',{data:{
    role:'learner',code:credential.body.learner.code,secret:'647219'}}));
   assert.equal(learner.status,200,JSON.stringify(learner.body));
+  // R46：真实 HTTP 会话只能访问自己的旅程，且不会附带对话原文。
+  assert.equal((await req(server.base,'/api/learning/journey')).status,401);
+  assert.equal((await req(server.base,'/api/learning/journey',{cookie:child})).status,403);
+  assert.equal((await req(server.base,'/api/learning/journey',{cookie:parent})).status,400);
+  const createdSession=await req(server.base,'/api/companion/open',{
+   cookie:learner.cookie,data:{mode:'english',lessonId:'english.a1.intro'}});
+  assert.equal(createdSession.status,200,JSON.stringify(createdSession.body));
+  const assigned=await req(server.base,'/api/learning/assign',{
+   cookie:parent,data:{profileId,courseId:'english.a1.intro',targetCompletions:2}});
+  assert.equal(assigned.status,200,JSON.stringify(assigned.body));
+  const journey=await req(server.base,'/api/learning/journey',{cookie:learner.cookie});
+  assert.equal(journey.status,200,JSON.stringify(journey.body));
+  assert.equal(journey.body.report.recentSessionId,createdSession.body.session.id);
+  assert.equal(journey.body.report.nextCourseId,'english.a1.intro');
+  assert.equal(journey.body.report.plans[0].remaining,2);
+  assert.equal(journey.body.report.deviceControlAllowed,false);
+  assert.equal(JSON.stringify(journey.body).includes('messages'),false);
+  assert.equal((await req(server.base,'/api/learning/journey?profileId='+profileId,{
+   cookie:learner.cookie})).status,403);
+  const parentJourney=await req(server.base,'/api/learning/journey?profileId='+profileId,{
+   cookie:parent});
+  assert.equal(parentJourney.status,200,JSON.stringify(parentJourney.body));
+  assert.equal(parentJourney.body.report.recentSessionId,createdSession.body.session.id);
+  const another=await req(server.base,'/api/profiles',{cookie:parent,data:{
+   nickname:'第二个孩子',ageBand:'9-12',interests:[]}});
+  assert.equal(another.status,200);
+  const otherId=another.body.profile.id;
+  assert.equal((await req(server.base,'/api/learning/journey?profileId='+otherId,{
+   cookie:learner.cookie})).status,403);
+  const otherJourney=await req(server.base,'/api/learning/journey?profileId='+otherId,{
+   cookie:parent});
+  assert.equal(otherJourney.status,200);
+  assert.deepEqual(otherJourney.body.report.sessions,[]);
+  assert.deepEqual(otherJourney.body.report.plans,[]);
+  const disallowedDevice=await req(server.base,'/api/gateway/dispatch',{
+   cookie:learner.cookie,data:{deviceId:'dev-11111111-1111-4111-8111-111111111111',
+    capability:'sim.navigation.goto',params:{destination:'study_desk'},requestId:'r46child1'}});
+  assert.notEqual(disallowedDevice.status,200);
+
   assert.equal((await req(server.base,'/api/family/onboarding',{cookie:learner.cookie})).status,403);
   assert.equal((await req(server.base,'/api/learner/privacy?profileId='+profileId,{
    cookie:learner.cookie})).status,403);

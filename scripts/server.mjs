@@ -11,6 +11,7 @@ import {FamilyMemory} from './family-memory.mjs';
 import {DeviceRegistry} from './device-registry.mjs';
 import {FamilyProfiles} from './family-profiles.mjs';
 import {familyOnboardingStatus} from './family-onboarding.mjs';
+import {projectLearnerJourney} from './learner-journey.mjs';
 import {revokeLearnerRuntime} from './learner-session-revocation.mjs';
 import {LearnerCredentials} from './learner-credentials.mjs';
 import {DeviceGateway} from './device-gateway.mjs';
@@ -1003,6 +1004,28 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
     const plansForOwner=owner==='child'?[]:
       learningPlans.list(owner,requested??undefined);
     send(res,200,{plans:plansForOwner});return;
+  }
+  if(req.method==='GET' && pathname==='/api/learning/journey'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    const principal=principalFor(req);
+    // 家长只能显式选择现存档案；儿童一律只能读取自己的学习记录。
+    const requested=new URL(req.url,`http://${incomingHost}`).searchParams.get('profileId');
+    if(principal!=='parent'&&requested!==null){
+      send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;
+    }
+    if(principal==='parent'&&(!requested||!profiles.list().some(p=>p.id===requested))){
+      send(res,400,{ok:false,error:'UNKNOWN_LEARNER_PROFILE'});return;
+    }
+    if(principal==='child'){
+      send(res,403,{ok:false,error:'INDEPENDENT_LEARNER_LOGIN_REQUIRED'});return;
+    }
+    const owner=principal==='parent'?'learner:'+requested:principal;
+    const report=projectLearnerJourney({
+      principal:owner,sessions:conversations.list(owner),
+      plans:learningPlans.list(principal,owner.slice('learner:'.length)),
+      progress:conversations.progress(principal==='parent'?'parent':principal,owner)
+    });
+    send(res,200,{ok:true,report});return;
   }
   if(req.method==='GET' && pathname==='/api/learning/overview'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
