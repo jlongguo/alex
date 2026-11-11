@@ -11,6 +11,7 @@ import {SkillBatchTransactions} from '../scripts/skill-batch-transactions.mjs';
 import {inspectWalRecoveryRisks} from '../scripts/wal-recovery-risks.mjs';
 import {inspectSkillStateCompatibility} from '../scripts/skill-state-compat.mjs';
 import {inspectReleasePreflight} from '../scripts/release-preflight.mjs';
+import {inspectSkillRecoveryEvidence} from '../scripts/skill-recovery-evidence.mjs';
 import {
  createOfflineBackup,verifyOfflineBackup,stageOfflineRestore
 } from '../scripts/offline-state-backup.mjs';
@@ -95,6 +96,11 @@ test('R52 真实 Ed25519 单包 WAL：prepared→备份→隔离恢复→重放�
   initial.registry.install=originalInstall;
   const before=await report(f.source);
   assert.deepEqual(before.wal.pending,['single']);
+  const proofBefore=await inspectSkillRecoveryEvidence({stateDir:f.source,env:auth});
+  assert.equal(proofBefore.status,'manual-review-required');
+  assert.equal(proofBefore.pending,1);
+  assert.equal(proofBefore.proofRejected,0);
+  assert.equal(proofBefore.replayExecuted,false);
   assert.ok(before.release.blocked.includes('WAL_SINGLE'));
   assert.equal(before.compat.checks.find(c=>c.id==='TRUST').status,'pass');
   assert.equal(before.release.releaseApproved,false);
@@ -109,6 +115,7 @@ test('R52 真实 Ed25519 单包 WAL：prepared→备份→隔离恢复→重放�
   assert.equal(restarted.registry.list('parent').history.length,historyLength);
   const after=await report(f.stage);
   assert.deepEqual(after.wal.pending,[]);
+  assert.equal((await inspectSkillRecoveryEvidence({stateDir:f.stage,env:auth})).status,'pass');
   assert.deepEqual(after.compat.blocked,[]);
   assert.deepEqual(after.release.blocked,[]);
   assert.equal(after.release.releaseApproved,false);
@@ -132,6 +139,10 @@ test('R52 双包真实签名批量安装：Registry 已提交而 WAL commit 失�
   assert.deepEqual(initial.registry.list('parent').installed,ids.map(pin));
   const pending=await report(f.source);
   assert.deepEqual(pending.wal.pending,['batch']);
+  const pendingProof=await inspectSkillRecoveryEvidence({stateDir:f.source,env:auth});
+  assert.equal(pendingProof.pending,1);
+  assert.equal(pendingProof.proofRejected,0);
+  assert.equal(pendingProof.status,'manual-review-required');
   assert.deepEqual(pending.compat.blocked,[]);
   assert.ok(pending.release.blocked.includes('WAL_BATCH'));
   const originals=await restore(f);
@@ -173,6 +184,11 @@ test('R52 证书撤销后不能自动重放 prepared；日志及安装引用保�
   assert.deepEqual(await snapshot(f.stage),before);
   const verification=await report(f.stage);
   assert.deepEqual(verification.wal.pending,['batch']);
+  const rejected=await inspectSkillRecoveryEvidence({stateDir:f.stage,env:auth});
+  assert.equal(rejected.status,'blocked');
+  assert.equal(rejected.proofRejected,1);
+  assert.deepEqual(rejected.blockers,['PENDING_PROVENANCE_INVALID']);
+  assert.ok(verification.release.blocked.includes('SKILL_PENDING_PROOFS'));
   assert.ok(verification.release.blocked.includes('WAL_BATCH'));
   assert.equal(verification.release.releaseApproved,false);
   assert.deepEqual(await snapshot(f.source),originals);
