@@ -69,6 +69,16 @@ export async function inspectSkillStateCompatibility({stateDir='.local',env=proc
    checks.push({id:item.id,status:'blocked',reason:'OFFICIAL_LOADER_REJECTED'});
   }
  }
+ // 存在的包目录与已丢失的信任数据库不能当成全新安装处理。
+ if(ready.REGISTRY&&ready.TRUST){
+  const catalog=registry.list('parent').packages.length;
+  const attestations=trust.list('parent').attestations.length;
+  if(entries[1].status==='absent'&&catalog>0||
+   entries[0].status==='absent'&&attestations>0){
+   checks.push({id:'STATE_PAIR',status:'blocked',
+    reason:'REGISTRY_TRUST_BACKUP_INCOMPLETE'});
+  }else checks.push({id:'STATE_PAIR',status:'pass',reason:'STATE_PAIR_COVERED'});
+ }
  if(ready.REGISTRY&&ready.TRUST){
   const current=registry.list('parent'),installed=current.installed;
   const packages=current.packages;
