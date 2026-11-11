@@ -19,7 +19,8 @@ const intent={operationId:'r49-single-01',id:'family.sample',version:'1.0.0',
 const pin={id:'family.sample',version:'1.0.0'};
 const single=(phase='prepared')=>{
  const requestHash=sha(intent);
- const row={seq:1,phase,prevHash:prev,requestHash,intent};
+ // 每个测试记录必须拥有独立意图；脱敏/篡改测试不得污染后续用例。
+ const row={seq:1,phase,prevHash:prev,requestHash,intent:structuredClone(intent)};
  return {schemaVersion:1,records:[{...row,hash:sha(row)}]};
 };
 const batch=(phase='prepared')=>{
@@ -90,6 +91,7 @@ test('R49 输出只包含有界元数据，不暴露操作 ID 和儿童敏感字
  const dir=await fixture();try{
   const input=single();
   input.records[0].intent.privacy='child-name-not-for-output';
+  assert.equal(Object.hasOwn(single('blocked').records[0].intent,'privacy'),false);
   await writeFile(join(dir,'skill-transactions.json'),JSON.stringify(input));
   const report=await inspectWalRecoveryRisks({stateDir:dir,env:auth});
   assert.ok(!JSON.stringify(report).includes('child-name-not-for-output'));
@@ -102,7 +104,7 @@ test('R49 两种已结束 WAL 均按无 pending 处理，但不构成发布许�
   await writeFile(join(dir,'skill-transactions.json'),JSON.stringify(single('blocked')));
   await writeFile(join(dir,'skill-batch-wal.json'),JSON.stringify(batch('abandoned')));
   const report=await inspectReleasePreflight({stateDir:dir,env:auth});
-  assert.equal(report.checks.find(c=>c.id==='WAL_SINGLE').status,'pass',JSON.stringify(report.checks));
+  assert.equal(report.checks.find(c=>c.id==='WAL_SINGLE').status,'pass');
   assert.equal(report.checks.find(c=>c.id==='WAL_BATCH').status,'pass');
   assert.equal(report.releaseApproved,false);
   assert.ok(report.manual.includes('REAL_USER_ACCEPTANCE'));
