@@ -142,3 +142,33 @@ test('R51 CLI 只输出统计数据、不泄露元数据或家长认证配置',a
   assert.equal(report.trustModified,false);
  }finally{await f.cleanup();}
 });
+
+test('R51 未安装的历史包若丢失 Trust 文件，也不能冒充全新安装',async()=>{
+ const f=await fixture();try{
+  await f.registry.submit('parent',manifest);
+  const report=await inspectSkillStateCompatibility({stateDir:f.dir,env:auth});
+  assert.ok(report.blocked.includes('STATE_PAIR'));
+  assert.equal(report.counts.installed,0);
+  assert.equal(report.counts.packages,1);
+  assert.equal(report.releaseApproved,false);
+ }finally{await f.cleanup();}
+});
+test('R51 发行者被撤销后，已安装包不再满足发布证明',async()=>{
+ const f=await fixture();try{
+  await install(f);await attest(f);
+  await f.trust.revoke('parent',{publisherId:'family.r51'});
+  const report=await inspectSkillStateCompatibility({stateDir:f.dir,env:auth});
+  assert.equal(report.checks.find(c=>c.id==='TRUST').status,'pass');
+  assert.ok(report.blocked.includes('INSTALLED_PROVENANCE'));
+  assert.equal(report.checks.find(c=>c.id==='INSTALLED_PROVENANCE').rejected,1);
+ }finally{await f.cleanup();}
+});
+test('R51 禁止使用符号链接作为 Registry 数据源',async()=>{
+ const f=await fixture();try{
+  const {symlink}=await import('node:fs/promises');
+  await symlink(join(f.dir,'outside.json'),f.registryFile);
+  const report=await inspectSkillStateCompatibility({stateDir:f.dir,env:auth});
+  assert.ok(report.blocked.includes('REGISTRY'));
+  assert.ok(report.blocked.includes('INSTALLED_PROVENANCE'));
+ }finally{await f.cleanup();}
+});
