@@ -4,6 +4,7 @@ import {lstat,readdir,readFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {verifyOfflineBackup} from './offline-state-backup.mjs';
+import {inspectWalRecoveryRisks} from './wal-recovery-risks.mjs';
 
 const FILES=Object.freeze({
  STATE_FILE:'state.json',
@@ -101,6 +102,18 @@ export async function inspectReleasePreflight({
    checks.push(issue('BACKUP_INTEGRITY','blocked','离线备份无法通过清单和文件摘要验证'));
   }
  }else checks.push(issue('BACKUP_INTEGRITY','manual-required','未提供离线备份；升级前必须另行验证'));
+ // 两套 WAL 都需单独处理：合法待恢复事务不等于空闲、结构损坏也不能跳过。
+ const wal=await inspectWalRecoveryRisks({stateDir:root,env});
+ for(const journal of wal.checks){
+  const state=journal.status==='blocked'?'blocked':
+   journal.status==='manual-review-required'?'blocked':
+   journal.status==='absent'?'pass':'pass';
+  checks.push(issue('WAL_'+journal.id.toUpperCase(),state,
+   journal.status==='blocked'?'事务日志结构异常或可能损坏，须由正式加载器核对':
+   journal.status==='manual-review-required'
+    ?'有 '+journal.pending+' 项 prepared 事务，升级前需验证恢复结果':
+    journal.status==='absent'?'未找到该 WAL；新安装可以为空':'未发现待处理事务；未验证完整哈希链'));
+ }
  if(env.AUTH_MODE!=='local')
   checks.push(issue('FAMILY_AUTH','blocked','家庭试用必须启用 AUTH_MODE=local'));
  else if(typeof env.ALEX_PARENT_PASSWORD!=='string'||env.ALEX_PARENT_PASSWORD.length<12)
