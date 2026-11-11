@@ -10,6 +10,7 @@ import {
  createOfflineBackup,verifyOfflineBackup,planOfflineRestore,stageOfflineRestore
 } from '../scripts/offline-state-backup.mjs';
 import {inspectReleasePreflight} from '../scripts/release-preflight.mjs';
+import {auditIsolatedRecovery} from '../scripts/recovery-stage-audit.mjs';
 
 const cwd=resolve(import.meta.dirname,'..');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -133,6 +134,10 @@ test('R48 真实 Node 家庭恢复演练：家长/双儿童身份、对话、课
   const staged=await stageOfflineRestore({directory:backup,targetDir:stage});
   assert.equal(staged.status,'staged');
   assert.equal(staged.productionRestored,false);
+  const audited=await auditIsolatedRecovery({backupDir:backup,stageDir:stage});
+  assert.equal(audited.status,'staging-copy-verified');
+  assert.equal(audited.businessLoadVerified,false);
+  assert.equal(audited.releaseApproved,false);
   assert.deepEqual(await digestState(source),original);
   assert.deepEqual(await digestState(stage),original);
 
