@@ -1687,6 +1687,8 @@ async function refreshCompanionProgress(){
  }catch(error){companionNotice(error.message,true);}
 }
 async function refreshCompanionInfo(){
+ const identity=companionActor,epoch=companionIdentityEpoch;
+ const stillCurrent=()=>identity===companionActor&&epoch===companionIdentityEpoch&&!!authorizedActor;
  if(!authorizedActor){
   $('companion-provider').textContent='需登录';
   $('companion-privacy').textContent='需要本地家长/儿童身份认证；演示模式不会开启私密会话。';
@@ -1696,12 +1698,19 @@ async function refreshCompanionInfo(){
   const r=await fetch('/api/companion/sessions',{cache:'no-store'});
   if(!r.ok)throw new Error('无法获取对话服务');
   const data=await r.json();
+  if(!stillCurrent())return;
   await refreshCompanionPrivacy(true);
+  if(!stillCurrent())return;
   const courseResponse=await fetch('/api/learning/catalog',{cache:'no-store'});
-  if(courseResponse.ok)curriculum=(await courseResponse.json()).courses;
+  if(courseResponse.ok){
+   const courses=(await courseResponse.json()).courses;
+   if(!stillCurrent())return;
+   curriculum=courses;
+  }
   fillLessonOptions($('companion-mode').value);
   const assigned=await fetch('/api/learning/overview',{cache:'no-store'});
   const assignedPlans=assigned.ok?(await assigned.json()).overview:[];
+  if(!stillCurrent())return;
   $('companion-assignments').replaceChildren();
   for(const plan of assignedPlans.filter(p=>p.status==='active')){
     const course=curriculum.find(c=>c.id===plan.courseId);
@@ -1734,6 +1743,7 @@ async function refreshCompanionInfo(){
    const profilesResponse=await fetch('/api/profiles',{cache:'no-store'});
    if(profilesResponse.ok){
     const learnerProfiles=(await profilesResponse.json()).profiles;
+    if(!stillCurrent())return;
     for(const profile of learnerProfiles)
       scopes.push({value:'learner:'+profile.id,text:'学习者：'+profile.nickname});
    }
@@ -1748,11 +1758,15 @@ async function refreshCompanionInfo(){
    if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();}
    else{
     const response=await fetch('/api/companion/session?id='+encodeURIComponent(companionSessionId),{cache:'no-store'});
-    if(response.ok)showCompanion((await response.json()).session);
+    if(response.ok){
+     const loaded=(await response.json()).session;
+     if(!stillCurrent())return;
+     if(loaded?.id===companionSessionId)showCompanion(loaded);
+    }
    }
   }
-  await refreshCompanionProgress();
- }catch(err){companionNotice(err.message,true);}
+  if(stillCurrent())await refreshCompanionProgress();
+ }catch(err){if(stillCurrent())companionNotice(err.message,true);}
 }
 async function restoreCompanion(id) {
  const identity=companionActor,epoch=companionIdentityEpoch;
