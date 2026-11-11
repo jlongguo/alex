@@ -107,3 +107,23 @@ test('R47 只输出检查聚合结果，不包含家长密码或任何家庭记�
   assert.ok(!text.includes('儿童隐私测试记录禁止回显'));
  }finally{await f.close();}
 });
+
+test('R47 自定义同目录文件名不在 R43 允许列表时阻断备份覆盖判断',async()=>{
+ const f=await fixture();try{
+  const custom=join(f.source,'state.data');
+  await writeFile(custom,'{"schemaVersion":1}');
+  const r=await inspectReleasePreflight({stateDir:f.source,env:{
+   ...auth(),STATE_FILE:custom}});
+  assert.ok(r.blocked.includes('BACKUP_SCOPE'));
+  assert.equal(r.storage.outsideDefaultBackup,1);
+ }finally{await f.close();}
+});
+test('R47 同一状态文件被多个存储配置重复指向时拒绝升级预演',async()=>{
+ const f=await fixture();try{
+  const path=join(f.source,'shared.json');
+  await writeFile(path,'{"version":1}');
+  const r=await inspectReleasePreflight({stateDir:f.source,env:{
+   ...auth(),PROFILES_FILE:path,MEMORY_FILE:path}});
+  assert.ok(r.blocked.includes('DUPLICATE_STORAGE_PATH'));
+ }finally{await f.close();}
+});
