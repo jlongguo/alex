@@ -86,3 +86,20 @@ test('R53 前端脚本加载顺序、显式按钮、双异步边界与身份归�
  assert.match(app,/if\(identity!==companionActor\|\|epoch!==companionIdentityEpoch\|\|!authorizedActor\)/);
  assert.match(app,/session\.id!==id/);
 });
+
+test('R53 历史列表与课程进度响应必须在身份未变化时才更新页面',()=>{
+ const app=readFileSync(resolve(import.meta.dirname,'../public/app.js'),'utf8');
+ const start=app.indexOf('async function refreshCompanionProgress(){');
+ const end=app.indexOf('async function restoreCompanion(',start);
+ assert.ok(start>0&&end>start);
+ const section=app.slice(start,end);
+ assert.match(section,/const identity=companionActor,epoch=companionIdentityEpoch/);
+ assert.match(section,/if\(!stillCurrent\(\)\)return/);
+ assert.match(section,/if\(identity!==companionActor\|\|epoch!==companionIdentityEpoch\|\|!authorizedActor\)return/);
+ assert.match(section,/if\(loaded\?\.id===companionSessionId\)showCompanion\(loaded\)/);
+});
+test('R53 HTTP 静态文件映射包含恢复脚本，且没有开放任意路径读取',()=>{
+ const server=readFileSync(resolve(import.meta.dirname,'../scripts/server.mjs'),'utf8');
+ assert.ok(server.includes("'/learner-resume.js':'learner-resume.js'"));
+ assert.match(server,/if\(req.method!=='GET'\|\|!\(pathname in assets\)\)/);
+});
