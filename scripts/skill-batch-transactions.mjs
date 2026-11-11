@@ -50,7 +50,12 @@ function rehash(state){
  let previous='0'.repeat(64);
  for(const r of state.records){r.prevHash=previous;r.hash=recordHash(r);previous=r.hash;}
 }
-// 只读复用正式加载器校验：避免发布预检另造一套不一致的 WAL 协议。\nexport function inspectSkillBatchWalState(value){\n validate(value);\n return {records:value.records.length,pending:value.records.filter(r=>r.phase==='prepared').length};\n}\nexport class SkillBatchTransactions {
+// 只读复用正式加载器校验：避免发布预检另造一套不一致的 WAL 协议。
+export function inspectSkillBatchWalState(value){
+ validate(value);
+ return {records:value.records.length,pending:value.records.filter(r=>r.phase==='prepared').length};
+}
+export class SkillBatchTransactions {
  #state={schemaVersion:1,records:[]};
  #queue=Promise.resolve();
  constructor({file,registry,trust}={}){
