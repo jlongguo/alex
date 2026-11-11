@@ -79,6 +79,14 @@ test('R53 真实 HTTP 浏览器流程接口：双儿童登录、对话、刷新�
  try{
   const env=envFor(dir,60000+Math.floor(Math.random()*2500));
   running=await boot(env);
+  // 页面脚本必须能从正式 HTTP 白名单加载，否则浏览器恢复按钮无法工作。
+  const script=await fetch(running.base+'/learner-resume.js');
+  assert.equal(script.status,200);
+  assert.match(script.headers.get('content-type')??'',/javascript/);
+  assert.match(await script.text(),/createLearnerResumeState/);
+  const page=await fetch(running.base+'/');
+  assert.equal(page.status,200);
+  assert.match(await page.text(),/learner-journey-resume/);
   const parent=await login(running.base,'parent',env.ALEX_PARENT_PASSWORD);
   const children=[];
   for(const [i,name] of ['甲同学','乙同学'].entries()){
