@@ -17,11 +17,11 @@ const validHash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const sha=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const pin=p=>p&&Object.keys(p).sort().join(',')==='id,version'&&
  typeof p.id==='string'&&/^[a-z][a-z0-9.-]{2,79}$/.test(p.id)&&
- typeof p.version==='string'&&/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(p.version);
+ typeof p.version==='string'&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(p.version);
 const uniquePins=rows=>Array.isArray(rows)&&rows.every(pin)&&
  new Set(rows.map(p=>p.id)).size===rows.length;
 const safeVersion=v=>v===null||typeof v==='string'&&
- /^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(v);
+ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v);
 const singleIntent=intent=>intent&&
  Object.keys(intent).sort().join(',')===
  'artifactSha256,expectedCurrentVersion,id,manifestSha256,operationId,publisherId,version'&&
