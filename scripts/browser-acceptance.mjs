@@ -221,6 +221,7 @@ async function acceptance(){
  let server=null,chrome=null,cdp=null;
  const stages=[];
  try{
+  await mkdir(join(root,'alex-state'));
   server=await startAlex(join(root,'alex-state'));
   chrome=await startChrome(root);
   cdp=await connectCdp(chrome.target);
