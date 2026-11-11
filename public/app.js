@@ -1,6 +1,8 @@
 const $ = id => document.getElementById(id);
 let state=null,lastTask=null,busy=false,refreshInFlight=false;
 let companionActor=null,companionSessionId=null,companionBusy=false,companionProvider='offline';
+const learnerResume=window.AlexLearnerResume.createLearnerResumeState();
+let companionIdentityEpoch=0;
 let curriculum=[],currentLearningPlans=[];
 let lastProviderBillingPoll=0,providerBillingBusy=false;
 const deniedVoice={voiceInputAllowed:false,voiceOutputAllowed:false,cloudTextAllowed:false};
@@ -96,6 +98,7 @@ function refreshCurrentView(force=false){
 function launchConsole(){
  void refresh();
  void refreshCompanionInfo();
+ void refreshLearnerJourney();
  refreshCurrentView(true);
  if(refreshTimer===null)refreshTimer=setInterval(()=>{void refresh();refreshCurrentView();},1800);
  if(!eventStream){
@@ -143,7 +146,10 @@ function openAuthDialog(session){
 function applySession(session){
  authorizedActor=session.mode==='local'&&session.authenticated?session.actor:null;
  const companionIdentity=session.learnerId?'learner:'+session.learnerId:authorizedActor;
+ learnerResume.switchOwner(companionIdentity);
+ $('learner-journey-resume').disabled=true;
  if(companionActor!==companionIdentity) {
+  companionIdentityEpoch++;
   voiceBridge.interrupt('identity-changed');
   cloudAudioBridge.interrupt('identity-changed');
   streamingAudioBridge.interrupt('identity-changed');
@@ -1660,6 +1666,7 @@ function speakCompanion(text,mode){
  }catch(err){companionNotice(err.message,true);companionState('error');}
 }
 async function refreshCompanionProgress(){
+ const identity=companionActor,epoch=companionIdentityEpoch;
  if(!authorizedActor){$('companion-progress-summary').textContent='请登录后查看学习记录。';return;}
  try{
   const selector=$('companion-progress-scope');
@@ -1667,6 +1674,7 @@ async function refreshCompanionProgress(){
   const res=await fetch('/api/companion/progress?scope='+encodeURIComponent(scope),{cache:'no-store'});
   if(!res.ok)throw new Error('学习记录暂时不可用');
   const progress=(await res.json()).progress;
+  if(identity!==companionActor||epoch!==companionIdentityEpoch||!authorizedActor)return;
   $('companion-progress-summary').textContent='A1 文字练习完成 '+progress.englishTextExercisesCompleted
     +' 次；分支故事完成 '+progress.storyBranchesCompleted
     +' 次；科学文字问答完成 '+(progress.scienceTextQuizzesCompleted??0)
@@ -1678,9 +1686,14 @@ async function refreshCompanionProgress(){
    line.textContent=course.title+'：'+times+' 次文本练习完成';
    $('companion-course-progress').append(line);
   }
- }catch(error){companionNotice(error.message,true);}
+ }catch(error){
+  if(identity===companionActor&&epoch===companionIdentityEpoch&&authorizedActor)
+   companionNotice(error.message,true);
+ }
 }
 async function refreshCompanionInfo(){
+ const identity=companionActor,epoch=companionIdentityEpoch;
+ const stillCurrent=()=>identity===companionActor&&epoch===companionIdentityEpoch&&!!authorizedActor;
  if(!authorizedActor){
   $('companion-provider').textContent='需登录';
   $('companion-privacy').textContent='需要本地家长/儿童身份认证；演示模式不会开启私密会话。';
@@ -1690,12 +1703,19 @@ async function refreshCompanionInfo(){
   const r=await fetch('/api/companion/sessions',{cache:'no-store'});
   if(!r.ok)throw new Error('无法获取对话服务');
   const data=await r.json();
+  if(!stillCurrent())return;
   await refreshCompanionPrivacy(true);
+  if(!stillCurrent())return;
   const courseResponse=await fetch('/api/learning/catalog',{cache:'no-store'});
-  if(courseResponse.ok)curriculum=(await courseResponse.json()).courses;
+  if(courseResponse.ok){
+   const courses=(await courseResponse.json()).courses;
+   if(!stillCurrent())return;
+   curriculum=courses;
+  }
   fillLessonOptions($('companion-mode').value);
   const assigned=await fetch('/api/learning/overview',{cache:'no-store'});
   const assignedPlans=assigned.ok?(await assigned.json()).overview:[];
+  if(!stillCurrent())return;
   $('companion-assignments').replaceChildren();
   for(const plan of assignedPlans.filter(p=>p.status==='active')){
     const course=curriculum.find(c=>c.id===plan.courseId);
@@ -1728,6 +1748,7 @@ async function refreshCompanionInfo(){
    const profilesResponse=await fetch('/api/profiles',{cache:'no-store'});
    if(profilesResponse.ok){
     const learnerProfiles=(await profilesResponse.json()).profiles;
+    if(!stillCurrent())return;
     for(const profile of learnerProfiles)
       scopes.push({value:'learner:'+profile.id,text:'学习者：'+profile.nickname});
    }
@@ -1742,16 +1763,28 @@ async function refreshCompanionInfo(){
    if(!owned){companionSessionId=null;$('companion-messages').replaceChildren();}
    else{
     const response=await fetch('/api/companion/session?id='+encodeURIComponent(companionSessionId),{cache:'no-store'});
-    if(response.ok)showCompanion((await response.json()).session);
+    if(response.ok){
+     const loaded=(await response.json()).session;
+     if(!stillCurrent())return;
+     if(loaded?.id===companionSessionId)showCompanion(loaded);
+    }
    }
   }
-  await refreshCompanionProgress();
- }catch(err){companionNotice(err.message,true);}
+  if(stillCurrent())await refreshCompanionProgress();
+ }catch(err){if(stillCurrent())companionNotice(err.message,true);}
 }
 async function restoreCompanion(id) {
+ const identity=companionActor,epoch=companionIdentityEpoch;
  const res=await fetch('/api/companion/session?id='+encodeURIComponent(id),{cache:'no-store'});
- if(!res.ok)throw new Error('无法读取当前身份的历史会话');
+ if(identity!==companionActor||epoch!==companionIdentityEpoch||!authorizedActor)
+  throw new Error('SESSION_IDENTITY_CHANGED');
+ if(!res.ok)throw new Error(res.status===401||res.status===403
+  ?'会话权限已失效，请重新登录':'无法读取当前身份的历史会话');
  const session=(await res.json()).session;
+ // 响应可能在切换儿童期间返回；只允许仍然同一身份的结果更新页面。
+ if(identity!==companionActor||epoch!==companionIdentityEpoch||!authorizedActor)
+  throw new Error('SESSION_IDENTITY_CHANGED');
+ if(!session||session.id!==id)throw new Error('INVALID_COMPANION_SESSION_RESPONSE');
  companionSessionId=session.id;
  $('companion-mode').value=session.mode;
  fillLessonOptions(session.mode,session.lessonId);
@@ -1762,14 +1795,22 @@ $('companion-progress-scope').addEventListener('change',()=>void refreshCompanio
 // R46 只读旅程：儿童只能看到自己的会话元数据，不能触发设备动作。
 async function refreshLearnerJourney(){
  const status=$('learner-journey-status'),list=$('learner-journey-plans');
- if(authorizedActor!=='child'||!companionActor?.startsWith('learner:')){
+ const button=$('learner-journey-resume');
+ const identity=companionActor,token=learnerResume.token();
+ button.disabled=true;
+ if(authorizedActor!=='child'||!identity?.startsWith('learner:')){
   status.textContent='请使用独立学习者账号登录后查看自己的学习旅程。';
   list.replaceChildren();return;
  }
  try{
   const response=await fetch('/api/learning/journey',{cache:'no-store'});
-  if(!response.ok)throw Error('无法读取当前学习者的旅程');
+  if(!learnerResume.current(identity,token))return;
+  if(!response.ok)throw Error(response.status===401||response.status===403
+   ?'学习者登录已失效，请重新登录':'学习旅程暂不可用，请检查本地服务连接');
   const {report}=await response.json();
+  if(!learnerResume.current(identity,token))return;
+  if(!learnerResume.acceptJourney(identity,token,report))
+   throw Error('学习旅程身份或会话数据验证失败');
   const course=curriculum.find(c=>c.id===report.nextCourseId);
   status.textContent='已有 '+report.sessions.length+' 个可恢复会话 · 文字练习记录 '+
    report.completedTextExercises+' 次。'+(course?'建议继续：'+course.title:'目前没有待完成的学习计划。');
@@ -1778,15 +1819,38 @@ async function refreshLearnerJourney(){
    return '<p>'+esc(title)+' · '+esc(plan.status)+
     ' · 完成 '+esc(plan.completed)+'/'+esc(plan.targetCompletions)+'</p>';
   }).join('');
-  // 仅提示当前会话 ID；继续操作仍要经过现有服务端会话所有权校验。
-  if(report.recentSessionId){
-   const item=document.createElement('p');
-   item.textContent='最近对话可以通过上方「我的历史会话」选择并继续。';
-   list.append(item);
-  }
- }catch(error){status.textContent=error.message;list.replaceChildren();}
+  button.disabled=!learnerResume.latest(identity,token);
+ }catch(error){
+  if(!learnerResume.current(identity,token))return;
+  learnerResume.forget();
+  status.textContent=error.message;
+  list.replaceChildren();button.disabled=true;
+ }
 }
 $('learner-journey-refresh').addEventListener('click',()=>void refreshLearnerJourney());
+$('learner-journey-resume').addEventListener('click',async()=>{
+ if(companionBusy||authorizedActor!=='child')return;
+ const identity=companionActor,token=learnerResume.token();
+ const id=learnerResume.latest(identity,token);
+ if(!id||!learnerResume.owns(identity,token,id))return;
+ companionBusy=true;
+ $('learner-journey-resume').disabled=true;
+ try{
+  const session=await restoreCompanion(id);
+  if(!learnerResume.current(identity,token))return;
+  $('companion-history').value=session.id;
+  companionNotice('已恢复最近的学习会话，可继续输入。');
+  $('companion-text').focus();
+ }catch(error){
+  if(learnerResume.current(identity,token)){
+   companionNotice(error.message,true);
+   await refreshLearnerJourney();
+  }
+ }finally{
+  companionBusy=false;
+  $('learner-journey-resume').disabled=!learnerResume.latest(companionActor,learnerResume.token());
+ }
+});
 $('companion-history').addEventListener('change',async()=>{
  if(!authorizedActor||companionBusy)return;
  const id=$('companion-history').value;
