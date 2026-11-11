@@ -33,6 +33,11 @@ function validate(state){
   prev=r.hash;ids.add(r.intent.operationId);
  }
 }
+// 只读复用正式加载器校验：避免发布预检另造一套不一致的 WAL 协议。
+export function inspectSkillPackageWalState(value){
+ validate(value);
+ return {records:value.records.length,pending:value.records.filter(r=>r.phase==='prepared').length};
+}
 export class SkillPackageTransactions {
  #state={schemaVersion:1,records:[]};
  #queue=Promise.resolve();

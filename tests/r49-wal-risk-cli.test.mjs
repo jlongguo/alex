@@ -4,6 +4,8 @@ import {spawnSync} from 'node:child_process';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
+import {createHash} from 'node:crypto';
+import {canonicalJson} from '../scripts/skill-package-trust.mjs';
 const script=resolve(import.meta.dirname,'../scripts/wal-recovery-risks.mjs');
 const fixture=async()=>mkdtemp(join(tmpdir(),'alex-r49-wal-cli-'));
 const run=(dir)=>spawnSync(process.execPath,[script,dir],{
@@ -15,18 +17,20 @@ test('R49 WAL CLI 空目录只读扫描退出 0，状态仍不具备自动发布
   assert.equal(r.status,0,r.stderr);
   const value=JSON.parse(r.stdout);
   assert.equal(value.approvedForUpgrade,false);
-  assert.equal(value.hashChainCryptographicallyVerified,false);
+  assert.equal(value.hashChainCryptographicallyVerified,true);
   assert.equal(value.recoveryExecuted,false);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 test('R49 WAL CLI 碰到 prepared 或结构损坏即退出 1，且不修改原文件',async()=>{
  const dir=await fixture();try{
   const file=join(dir,'skill-transactions.json');
-  const content=JSON.stringify({schemaVersion:1,records:[{
-   seq:1,phase:'prepared',prevHash:'0'.repeat(64),
-   hash:'a'.repeat(64),requestHash:'b'.repeat(64),
-   intent:{operationId:'r49-cli-001'}
-  }]});
+  const sha=x=>createHash('sha256').update(canonicalJson(x)).digest('hex');
+  const intent={operationId:'r49-cli-001',id:'family.sample',version:'1.0.0',
+   expectedCurrentVersion:null,publisherId:'family.publisher',
+   manifestSha256:'a'.repeat(64),artifactSha256:'b'.repeat(64)};
+  const row={seq:1,phase:'prepared',prevHash:'0'.repeat(64),
+   requestHash:sha(intent),intent};
+  const content=JSON.stringify({schemaVersion:1,records:[{...row,hash:sha(row)}]});
   await writeFile(file,content);
   const r=run(dir);
   assert.equal(r.status,1,r.stderr);
