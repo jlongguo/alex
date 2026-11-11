@@ -12,13 +12,24 @@ export function revokeLearnerRuntime({
   typeof audioIngress?.erasePrincipal!=='function')
   throw Error('INVALID_LEARNER_REVOCATION_CONFIG');
  const principal='learner:'+profileId;
- const revokedSessions=auth.revokeLearner(profileId);
- // 先取消正在进行的模型请求，再销毁录音及播放上下文。
- abortCompanion(principal);
- audioGate.cancel(principal);
- audioIngress.erasePrincipal(principal);
- realtimeSessions?.erasePrincipal(principal);
- speechPlayback?.erasePrincipal(principal);
- voiceTurns?.erasePrincipal(principal);
+ // 取消处理器彼此独立：一个供应商出错不能阻止其他音频和模型任务终止。
+ // 收集全部失败并抛出 AggregateError，既执行完整清理，也不吞掉异常。
+ const steps=[
+  ['auth',()=>auth.revokeLearner(profileId)],
+  ['chat',()=>abortCompanion(principal)],
+  ['audio-gate',()=>audioGate.cancel(principal)],
+  ['audio-ingress',()=>audioIngress.erasePrincipal(principal)],
+  ...(realtimeSessions?[['realtime',()=>realtimeSessions.erasePrincipal(principal)]]:[]),
+  ...(speechPlayback?[['speech',()=>speechPlayback.erasePrincipal(principal)]]:[]),
+  ...(voiceTurns?[['voice-turn',()=>voiceTurns.erasePrincipal(principal)]]:[])
+ ];
+ let revokedSessions=0;
+ const errors=[];
+ for(const [name,run] of steps){
+  try{const result=run();if(name==='auth')revokedSessions=result;}
+  catch(error){errors.push({name,error});}
+ }
+ if(errors.length)throw new AggregateError(errors.map(x=>x.error),
+  'LEARNER_RUNTIME_REVOCATION_INCOMPLETE');
  return {revokedSessions,principalStopped:true};
 }
