@@ -35,15 +35,16 @@ async function createProcess(env){
  return {child,getError:()=>stderr};
 }
 async function waitForReady(child,port){
+ let lastError=null;
  for(let i=0;i<120;i++){
   if(child.exitCode!==null)throw Error('R49_SERVER_EXIT_EARLY');
   try{
    const response=await fetch('http://127.0.0.1:'+port+'/api/health');
    if(response.ok)return;
-  }catch{}
+  }catch(error){lastError=error;}
   await sleep(50);
  }
- throw Error('R49_SERVER_NOT_READY');
+ throw Error('R49_SERVER_NOT_READY:'+String(lastError?.message??'unknown'));
 }
 async function killSpawnedProcess(child){
  if(!child||child.exitCode!==null||child.signalCode!==null)return;
