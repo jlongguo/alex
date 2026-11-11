@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../scripts/skill-package-trust.mjs';
 import {inspectWalRecoveryRisks} from '../scripts/wal-recovery-risks.mjs';
+import {inspectSkillPackageWalState} from '../scripts/skill-package-transactions.mjs';
 import {inspectReleasePreflight} from '../scripts/release-preflight.mjs';
 
 const fixture=async()=>mkdtemp(join(tmpdir(),'alex-r49-wal-'));
@@ -97,6 +98,7 @@ test('R49 输出只包含有界元数据，不暴露操作 ID 和儿童敏感字
 });
 test('R49 两种已结束 WAL 均按无 pending 处理，但不构成发布许可',async()=>{
  const dir=await fixture();try{
+  assert.deepEqual(inspectSkillPackageWalState(single('blocked')),{records:1,pending:0});
   await writeFile(join(dir,'skill-transactions.json'),JSON.stringify(single('blocked')));
   await writeFile(join(dir,'skill-batch-wal.json'),JSON.stringify(batch('abandoned')));
   const report=await inspectReleasePreflight({stateDir:dir,env:auth});
