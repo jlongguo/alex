@@ -287,9 +287,11 @@ async function acceptance(){
   stages.push('switch-back-and-resume-ui');
 
   const profiles=await (await fetch(server.base+'/api/profiles',{headers:{Cookie:parent}})).json();
-  assert.equal(profiles.profiles.length,1);
+  assert.equal(profiles.profiles.length,2);
+  const firstProfile=profiles.profiles.find(profile=>profile.nickname==='R54模拟小朋友');
+  assert.ok(firstProfile,'首次表单创建的孩子档案不存在');
   await parentAction(server.base,parent,'/api/learners/set-pin',{
-   profileId:profiles.profiles[0].id,pin:'738291'
+   profileId:firstProfile.id,pin:'738291'
   });
   // 旧浏览器 Cookie 已被服务端废止；定时刷新必须清除原儿童对话界面。
   await eventually(cdp,`document.getElementById('auth-session-status').textContent.includes('未登录')&&
