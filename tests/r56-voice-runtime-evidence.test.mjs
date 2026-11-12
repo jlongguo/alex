@@ -65,8 +65,8 @@ const validReal=()=>({
  run_id:RUN,status:'passed',provider_mode:'real',
  input:{source:'synthetic-provider-tts',acoustic_capture_verified:false},
  checks:[
-  'real_https_seed_tts','real_https_asr','real_https_llm_stream',
-  'real_https_pcm_tts','real_provider_revocation','provider_usage_aggregate'
+  'https_seed_tts','https_asr','https_llm_stream',
+  'https_pcm_tts','provider_revocation','provider_usage_aggregate'
  ],
  stages:{
   seed_tts:{status:'pass',elapsed_ms:10,audio_bytes:256},
