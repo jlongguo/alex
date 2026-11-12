@@ -1,0 +1,38 @@
+# R56 手动真实语音供应商验收。通用 PR CI 不读取云端凭据，也不会自动消费供应商额度。
+name: Voice Provider Runtime Acceptance (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  voice-provider:
+    if: ${{ vars.ALEX_VOICE_ACCEPTANCE_APPROVED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run real ASR -> streamed LLM -> PCM TTS acceptance
+        env:
+          ALEX_RUN_VOICE_PROVIDER_ACCEPTANCE: '1'
+          ALEX_VOICE_PROVIDER_BASE_URL: ${{ secrets.ALEX_VOICE_PROVIDER_BASE_URL }}
+          ALEX_VOICE_PROVIDER_API_KEY: ${{ secrets.ALEX_VOICE_PROVIDER_API_KEY }}
+          ALEX_VOICE_ASR_MODEL: ${{ secrets.ALEX_VOICE_ASR_MODEL }}
+          ALEX_VOICE_TTS_MODEL: ${{ secrets.ALEX_VOICE_TTS_MODEL }}
+          ALEX_CHAT_PROVIDER_BASE_URL: ${{ secrets.ALEX_CHAT_PROVIDER_BASE_URL }}
+          ALEX_CHAT_PROVIDER_API_KEY: ${{ secrets.ALEX_CHAT_PROVIDER_API_KEY }}
+          ALEX_CHAT_MODEL: ${{ secrets.ALEX_CHAT_MODEL }}
+        run: npm run voice:accept -- --report .local/voice/runtime-report.json
+      - name: Verify privacy-safe runtime evidence
+        run: npm run voice:verify -- --report .local/voice/runtime-report.json
+      - name: Upload aggregate evidence only
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alex-voice-provider-runtime-evidence
+          if-no-files-found: warn
+          path: .local/voice/runtime-report.json
