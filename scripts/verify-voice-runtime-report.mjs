@@ -4,8 +4,8 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const REQUIRED_CHECKS=new Set([
-  'real_https_seed_tts','real_https_asr','real_https_llm_stream',
-  'real_https_pcm_tts','real_provider_revocation','provider_usage_aggregate'
+  'https_seed_tts','https_asr','https_llm_stream',
+  'https_pcm_tts','provider_revocation','provider_usage_aggregate'
 ]);
 const RUN_ID=/^[0-9a-f-]{36}$/;
 const integer=(value,min,max)=>Number.isSafeInteger(value)&&value>=min&&value<=max;
