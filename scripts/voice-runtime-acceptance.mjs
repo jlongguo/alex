@@ -117,7 +117,7 @@ export async function runVoiceRuntimeAcceptance({
     report.stages.seed_tts=stage('pass',{
       elapsed_ms:elapsed(now,started),audio_bytes:seed.audio.byteLength
     });
-    report.checks.push('real_https_seed_tts');
+    report.checks.push('https_seed_tts');
 
     started=now();
     report.provider_calls.asr++;
@@ -131,7 +131,7 @@ export async function runVoiceRuntimeAcceptance({
       transcript_chars:transcript.text.length,
       seed_match:true
     });
-    report.checks.push('real_https_asr');
+    report.checks.push('https_asr');
 
     started=now();
     report.provider_calls.llm_stream++;
@@ -147,7 +147,7 @@ export async function runVoiceRuntimeAcceptance({
       reply_chars:reply.length,
       streamed_chars:provisionalChars
     });
-    report.checks.push('real_https_llm_stream');
+    report.checks.push('https_llm_stream');
 
     started=now();
     report.provider_calls.streaming_tts++;
@@ -169,7 +169,7 @@ export async function runVoiceRuntimeAcceptance({
       elapsed_ms:elapsed(now,started),
       response_bytes:responseBytes,frames
     });
-    report.checks.push('real_https_pcm_tts');
+    report.checks.push('https_pcm_tts');
 
     started=now();
     report.provider_calls.streaming_tts++;
@@ -198,7 +198,7 @@ export async function runVoiceRuntimeAcceptance({
     });
     if(!report.stages.revocation.provider_session_cancelled)
       throw Error('VOICE_RUNTIME_PROVIDER_CANCEL_NOT_RECORDED');
-    report.checks.push('real_provider_revocation');
+    report.checks.push('provider_revocation');
 
     const usage=journal.summary();
     if(usage.requests!==2||usage.completed!==1||usage.cancelled!==1
