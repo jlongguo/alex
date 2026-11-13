@@ -58,7 +58,7 @@ export async function runNav2FaultContract({
    isCancelled:()=>cancelled
   });
   const safeReason=typeof value.reason==='string'
-   &&/^[A-Z0-9_]+$/.test(value.reason)?value.reason:null;
+   &&/^(?:[A-Z][A-Z0-9_]*|rejected|cancelled)$/.test(value.reason)?value.reason:null;
   report.scenarios[id]={
    status:value.status,
    reason:safeReason,
