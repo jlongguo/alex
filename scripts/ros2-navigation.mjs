@@ -37,7 +37,7 @@ export function toGridPose(p){
 
 export class Nav2SimulationBridge {
   constructor({simulationOnly=false,python='python3',scriptPath=DEFAULT_SCRIPT,spawnProcess=spawn,
-    startupMs=10000,goalTimeoutMs=55000,cancelGraceMs=5000}={}){
+    startupMs=20000,goalTimeoutMs=55000,cancelGraceMs=5000}={}){
     if(simulationOnly!==true)throw new Error('ROS2_SIMULATION_ONLY_FLAG_REQUIRED');
     if(!between(startupMs,500,30000)||!between(goalTimeoutMs,1000,300000)||!between(cancelGraceMs,100,10000))throw new Error('INVALID_NAV2_TIMEOUT');
     this.python=python;this.scriptPath=scriptPath;this.spawnProcess=spawnProcess;
