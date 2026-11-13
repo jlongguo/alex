@@ -103,11 +103,17 @@ if ! kill -0 "$launcher" 2>/dev/null; then
   exit 1
 fi
 if [[ "$runner_kind" == bridge ]]; then
-  node scripts/nav2-bridge-live-acceptance.mjs --run --report "$report"
-  acceptance_status=$?
+  if node scripts/nav2-bridge-live-acceptance.mjs --run --report "$report"; then
+    acceptance_status=0
+  else
+    acceptance_status=$?
+  fi
 else
-  npm run sim:smoke -- "$smoke_mode" --timeout 120 --goal-timeout 180 --report "$report"
-  acceptance_status=$?
+  if npm run sim:smoke -- "$smoke_mode" --timeout 120 --goal-timeout 180 --report "$report"; then
+    acceptance_status=0
+  else
+    acceptance_status=$?
+  fi
 fi
 if (( acceptance_status == 0 )); then
   :
