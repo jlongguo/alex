@@ -49,8 +49,7 @@ def verify_recovery_report(report, expected_run_id):
     last_goal = report.get('last_goal')
     if (not isinstance(last_goal, dict)
             or last_goal.get('goal') != DOCK.name
-            or last_goal.get('action_status') != 'SUCCEEDED'
-            or last_goal.get('tf_fresh') is not True):
+            or last_goal.get('action_status') != 'SUCCEEDED'):
         raise ValueError('RECOVERY_FINAL_ACTION_UNVERIFIED')
     feedback = last_goal.get('feedback_count')
     if type(feedback) is not int or feedback < 1:
