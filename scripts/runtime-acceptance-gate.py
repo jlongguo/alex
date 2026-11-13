@@ -34,6 +34,8 @@ def audit(
     ros_run_id=None,
     voice_report=None,
     voice_run_id=None,
+    nav2_fault_report=None,
+    nav2_fault_run_id=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -44,11 +46,17 @@ def audit(
     if voice_run_id is not None and not _valid_run_id(voice_run_id):
         raise ValueError('INVALID_VOICE_RUN_ID')
 
+    if (nav2_fault_report is None) != (nav2_fault_run_id is None):
+        raise ValueError('NAV2_FAULT_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if nav2_fault_run_id is not None and not _valid_run_id(nav2_fault_run_id):
+        raise ValueError('INVALID_NAV2_FAULT_RUN_ID')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
         'ros_runtime': 'not_run',
         'voice_real_provider': 'not_run',
+        'nav2_fault_contract': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -88,10 +96,20 @@ def audit(
         if ok:
             result['remaining'].remove('REAL_ASR_LLM_TTS_PROVIDER_E2E')
 
+    if nav2_fault_report is not None:
+        # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
+        validator = Path(__file__).with_name('verify-nav2-fault-contract.mjs')
+        ok = _run_validator([
+            'node', str(validator), '--report', str(nav2_fault_report),
+            '--run-id', nav2_fault_run_id,
+        ])
+        result['nav2_fault_contract'] = 'verified-injected' if ok else 'invalid'
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
         or result['voice_real_provider'] == 'invalid'
+        or result['nav2_fault_contract'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -103,6 +121,8 @@ def main():
     parser.add_argument('--ros-run-id')
     parser.add_argument('--voice-report', type=Path)
     parser.add_argument('--voice-run-id')
+    parser.add_argument('--nav2-fault-report', type=Path)
+    parser.add_argument('--nav2-fault-run-id')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -115,6 +135,8 @@ def main():
             args.ros_run_id,
             args.voice_report,
             args.voice_run_id,
+            args.nav2_fault_report,
+            args.nav2_fault_run_id,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)

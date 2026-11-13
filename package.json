@@ -22,6 +22,8 @@
     "sim:launch": "bash scripts/launch-ros-sim.sh",
     "sim:smoke": "python3 robotics/ros2/alex_sim/scripts/ros_smoke.py",
     "sim:accept": "bash scripts/run-ros-acceptance.sh",
+    "sim:fault-contract": "npm run build && node scripts/nav2-fault-contract.mjs",
+    "sim:verify-fault-contract": "node scripts/verify-nav2-fault-contract.mjs",
     "voice:accept": "node scripts/voice-runtime-acceptance.mjs",
     "voice:verify": "node scripts/verify-voice-runtime-report.mjs",
     "release:runtime-evidence": "python3 scripts/runtime-acceptance-gate.py",
