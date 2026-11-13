@@ -65,6 +65,8 @@ def verify_bridge_report(report, expected_run_id=None):
             or report.get('release_approved') is not False
             or report.get('independent_tf_verified') is not False):
         fail('NAV2_BRIDGE_OVERCLAIMED_EVIDENCE')
+    if report.get('execution_class') != 'live-gazebo':
+        fail('NAV2_BRIDGE_NOT_LIVE_GAZEBO')
     if report.get('runtime_chain') != 'node->python-rclpy->nav2-action':
         fail('NAV2_BRIDGE_WRONG_RUNTIME_CHAIN')
     run_id = report.get('run_id')
