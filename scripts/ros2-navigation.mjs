@@ -27,7 +27,7 @@ export function toGridPose(p){
 
 export class Nav2SimulationBridge {
   constructor({simulationOnly=false,python='python3',scriptPath=DEFAULT_SCRIPT,spawnProcess=spawn,
-    startupMs=10000,goalTimeoutMs=55000,cancelGraceMs=2000}={}){
+    startupMs=10000,goalTimeoutMs=55000,cancelGraceMs=5000}={}){
     if(simulationOnly!==true)throw new Error('ROS2_SIMULATION_ONLY_FLAG_REQUIRED');
     if(!between(startupMs,500,30000)||!between(goalTimeoutMs,1000,300000)||!between(cancelGraceMs,100,10000))throw new Error('INVALID_NAV2_TIMEOUT');
     this.python=python;this.scriptPath=scriptPath;this.spawnProcess=spawnProcess;
@@ -39,7 +39,7 @@ export class Nav2SimulationBridge {
     const goal=toNav2Goal(destination),target=targetFor(destination);
     if(isCancelled())return {status:'cancelled',pose:{...this.pose}};
     this.active=true;
-    let child,buffer='',settled=false,seq=0,started=false,cancelSent=false,lastPose=null,lastProgress=0;
+    let child,buffer='',settled=false,seq=0,started=false,cancelSent=false,cancelCause=null,lastPose=null,lastProgress=0;
     let resolveFinal;const done=new Promise(resolve=>resolveFinal=resolve);
     const finish=(status,reason)=>{if(settled)return;settled=true;resolveFinal({status,pose:{...this.pose},...(reason?{reason}:{})});};
     const write=obj=>{try{if(child?.stdin?.writable)child.stdin.write(JSON.stringify(obj)+'\n');}catch{}};
@@ -60,11 +60,15 @@ export class Nav2SimulationBridge {
       if(msg.type==='result'){
         if(!['succeeded','failed','cancelled','rejected'].includes(msg.status))return finish('failed','INVALID_NAV2_RESULT');
         if(msg.status==='succeeded'){
-          if(cancelSent||isCancelled())return finish(isCancelled()?'cancelled':'failed','NAV2_COMPLETED_AFTER_CANCELLATION');
+          // 成功终态与取消请求竞争时，既非“到达”，也非“取消已确认”。
+          if(cancelSent||isCancelled())return finish('failed','NAV2_COMPLETED_AFTER_CANCELLATION');
           // Never invent a final location: a successful action alone is not proof of arrival.
           if(!lastPose||Math.hypot(lastPose.x-target.x,lastPose.y-target.y)>0.5)return finish('failed','NAV2_GOAL_POSE_NOT_VERIFIED');
           emit({phase:'arrived',progress:100,pose:{...lastPose}});
           feedbackSerial.then(()=>finish('arrived'),e=>finish('failed',e.message));
+        }else if(msg.status==='cancelled'&&cancelCause==='timeout'){
+          // 目标超时属于失败，即使 Python 已确认取消也不得归为用户主动取消。
+          finish('failed','NAV2_GOAL_TIMEOUT_CANCELLED');
         }else finish(msg.status==='cancelled'?'cancelled':'failed',String(msg.reason??msg.status).slice(0,120));
       }
     };
@@ -87,11 +91,16 @@ export class Nav2SimulationBridge {
       const start=Date.now();let cancelAt=0;
       while(!settled){
         const elapsed=Date.now()-start;
-        if(!cancelSent&&(isCancelled()||elapsed>this.goalTimeoutMs)){
-          cancelSent=true;cancelAt=Date.now();write({type:'cancel'});
+        if(!cancelSent){
+          const requestedByUser=isCancelled();
+          if(requestedByUser||elapsed>this.goalTimeoutMs){
+            cancelSent=true;cancelCause=requestedByUser?'user':'timeout';
+            cancelAt=Date.now();write({type:'cancel'});
+          }
         }
         if(!started&&elapsed>this.startupMs)finish('failed','NAV2_STARTUP_TIMEOUT');
-        if(cancelSent&&Date.now()-cancelAt>this.cancelGraceMs)finish(isCancelled()?'cancelled':'failed','NAV2_CANCEL_UNCONFIRMED');
+        // 取消 ACK/终态无证据时必须失败；不能为了响应用户取消而谎报已停止。
+        if(cancelSent&&Date.now()-cancelAt>this.cancelGraceMs)finish('failed','NAV2_CANCEL_UNCONFIRMED');
         if(!settled)await Promise.race([done,delay(25)]);
       }
       await feedbackSerial.catch(()=>{});
