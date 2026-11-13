@@ -92,11 +92,11 @@ function reports(){
   legs:[
    {goal:'study_desk',status:'arrived',verified:true,elapsed_ms:1200,
     feedback_count:3,moving_feedback_count:1,arrived_feedback_count:1,
-    first_sequence:1,last_sequence:3,max_progress:100,
+    first_sequence:1,last_sequence:3,max_progress:100,map_version:'alex-home-grid-v1',
     final_pose:{x:17,y:16,heading:0}},
    {goal:'dock',status:'arrived',verified:true,elapsed_ms:1300,
     feedback_count:3,moving_feedback_count:1,arrived_feedback_count:1,
-    first_sequence:1,last_sequence:3,max_progress:100,
+    first_sequence:1,last_sequence:3,max_progress:100,map_version:'alex-home-grid-v1',
     final_pose:{x:7,y:28,heading:0}}
   ],
   bridge:{active:false,stop_unconfirmed:false,final_pose:{x:7,y:28,heading:0}}
