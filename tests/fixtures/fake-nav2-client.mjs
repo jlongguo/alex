@@ -5,6 +5,7 @@ let started=false;
 for await(const line of lines){
   let msg;try{msg=JSON.parse(line);}catch{continue;}
   if(msg.type==='cancel'){
+    if(process.env.ALEX_TEST_NAV2_MODE==='ignore-cancel')continue;
     process.stdout.write(JSON.stringify({type:'result',status:'cancelled'})+'\n');
     break;
   }
@@ -12,7 +13,8 @@ for await(const line of lines){
     started=true;
     process.stdout.write(JSON.stringify({type:'ready'})+'\n');
     const mode=process.env.ALEX_TEST_NAV2_MODE??'success';
-    if(mode==='hold')continue;
+    // 故障注入时可以选择不回复取消请求，验证宿主端有界超时。
+    if(mode==='hold'||mode==='ignore-cancel')continue;
     if(mode==='reject'){
       process.stdout.write(JSON.stringify({type:'result',status:'rejected'})+'\n');
       break;
