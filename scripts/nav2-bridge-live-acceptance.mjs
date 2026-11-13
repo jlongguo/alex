@@ -101,10 +101,18 @@ async function runLeg(bridge,goal){
   const outcome=await bridge.navigate(goal,{
     onFeedback:async event=>{
       if(!event||typeof event!=='object')throw Error('NAV2_BRIDGE_INVALID_FEEDBACK');
+      if(!Number.isSafeInteger(event.sequence)||event.sequence<1
+        ||!['planning','moving','arrived'].includes(event.phase)
+        ||!finite(event.progress)||event.progress<0||event.progress>100
+        ||event.mapVersion!=='alex-home-grid-v1')
+        throw Error('NAV2_BRIDGE_INVALID_FEEDBACK');
+      if(feedback.length&&event.sequence!==feedback.at(-1).sequence+1)
+        throw Error('NAV2_BRIDGE_FEEDBACK_SEQUENCE_INVALID');
       feedback.push({
         sequence:event.sequence,
         phase:event.phase,
         progress:event.progress,
+        map_version:event.mapVersion,
         pose:sanitizePose(event.pose)
       });
       if(feedback.length>10000)throw Error('NAV2_BRIDGE_FEEDBACK_OVERFLOW');
@@ -135,6 +143,7 @@ async function runLeg(bridge,goal){
     first_sequence:feedback[0].sequence,
     last_sequence:feedback.at(-1).sequence,
     max_progress:Math.max(...feedback.map(x=>x.progress)),
+    map_version:'alex-home-grid-v1',
     final_pose:sanitizePose(outcome.pose)
   };
 }
