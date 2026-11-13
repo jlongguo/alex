@@ -8,7 +8,7 @@ jobs:
   nav2-simulation:
     if: ${{ vars.ALEX_SIM_RUNNER_APPROVED == 'true' }}
     runs-on: [self-hosted, linux, x64, alex-ros-sim]
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,6 +42,18 @@ jobs:
           set -euo pipefail
           source /opt/ros/jazzy/setup.bash
           npm run sim:accept-cancel
+      - name: Prove real Nav2 action timeout then two-leg recovery in fresh Gazebo
+        shell: bash
+        env:
+          ALEX_ROS_SIMULATION_ONLY: '1'
+          ALEX_RUN_ROS_INTEGRATION: '1'
+          ALEX_GZ_HEADLESS_RENDERING: '1'
+          ROS_DOMAIN_ID: '77'
+          ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          npm run sim:accept-timeout-recovery
       - name: Upload acceptance report and launch logs even on failure
         uses: actions/upload-artifact@v4
         if: always()
@@ -57,3 +69,7 @@ jobs:
             .local/ros/cancel-acceptance-launch.log
             .local/ros/cancel-preflight.json
             .local/ros/cancel-diagnostics.json
+            .local/ros/timeout-recovery-report.json
+            .local/ros/timeout-recovery-launch.log
+            .local/ros/timeout-recovery-preflight.json
+            .local/ros/timeout-recovery-diagnostics.json
