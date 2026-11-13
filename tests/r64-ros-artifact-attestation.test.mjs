@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,writeFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -46,7 +46,7 @@ async function temp(fn){
  try{
   const folder=join(dir,'ros');
   const attestation=join(dir,'artifact-attestation.json');
-  await import('node:fs/promises').then(fs=>fs.mkdir(folder,{recursive:true}));
+  await mkdir(folder,{recursive:true});
   for(let i=0;i<FILES.length;i++){
    await writeFile(join(folder,FILES[i]),JSON.stringify({
     fixture:'r64-structure-only',index:i,file:FILES[i]
