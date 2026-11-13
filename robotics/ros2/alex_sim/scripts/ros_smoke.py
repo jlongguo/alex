@@ -66,6 +66,10 @@ def main():
                        else 'navigate' if args.navigate else 'graph'),
               'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
               'run_id': os.environ.get('ALEX_ROS_ACCEPTANCE_RUN_ID') or __import__('uuid').uuid4().hex}
+    if args.cancel_probe:
+        # 取消验收只针对 Gazebo 模拟，明确禁止声称物理安全/发布认证。
+        report['physical_safety_certified'] = False
+        report['release_approved'] = False
     save_report(report, args.report)
     rclpy.init()
     node = rclpy.create_node('alex_ros_sim_acceptance', parameter_overrides=[Parameter('use_sim_time', value=True)])
@@ -440,8 +444,9 @@ def main():
             if handle is not None and handle.accepted and not cancel_attempted:
                 try:
                     handle.cancel_goal_async()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    report['cancel_cleanup_error'] = type(exc).__name__
+                    save_report(report, args.report)
 
     def run_goal(goal):
         require_active_navigator()
