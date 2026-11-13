@@ -11,6 +11,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      # 自托管工作区可能保留上次 PASS：在任何新执行开始之前先让 Bundle 失效。
+      - name: Invalidate previous ROS workflow evidence
+        run: python3 scripts/ros-workflow-evidence-bundle.py --reset
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -54,6 +57,11 @@ jobs:
           set -euo pipefail
           source /opt/ros/jazzy/setup.bash
           npm run sim:accept-recovery
+      - name: Bind three scenarios to this Actions run and verify evidence checksums
+        run: |
+          set -euo pipefail
+          npm run sim:bundle-collect
+          npm run sim:bundle-verify -- --expect-run-id "$GITHUB_RUN_ID" --expect-sha "$GITHUB_SHA" --expect-attempt "$GITHUB_RUN_ATTEMPT"
       - name: Upload acceptance report and launch logs even on failure
         uses: actions/upload-artifact@v4
         if: always()
@@ -73,3 +81,4 @@ jobs:
             .local/ros/recovery-acceptance-launch.log
             .local/ros/recovery-preflight.json
             .local/ros/recovery-diagnostics.json
+            .local/ros/workflow-evidence-bundle.json
