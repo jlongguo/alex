@@ -164,6 +164,8 @@ test('R62 子进程反馈处理异常导致 failed，而非假到达',{timeout:5
 test('R62 默认取消 Grace 超过 Python Action 客户端确认上限',{timeout:5000},async()=>{
  const bridge=new Nav2SimulationBridge({simulationOnly:true});
  assert.equal(bridge.cancelGraceMs,5000);
+ assert.equal(bridge.startupMs,20000);
+ assert.ok(bridge.startupMs>16000,'Python 最多等待 8 秒时钟与 8 秒 Action 服务就绪');
  assert.ok(bridge.cancelGraceMs>3000);
  assert.throws(()=>new Nav2SimulationBridge({simulationOnly:true,cancelGraceMs:0}),/INVALID_NAV2_TIMEOUT/);
 });
