@@ -92,7 +92,8 @@ def verify_bridge_report(report, expected_run_id=None):
         expected_keys = {
             'goal', 'status', 'verified', 'elapsed_ms', 'feedback_count',
             'moving_feedback_count', 'arrived_feedback_count',
-            'first_sequence', 'last_sequence', 'max_progress', 'final_pose'
+            'first_sequence', 'last_sequence', 'max_progress',
+            'map_version', 'final_pose'
         }
         if set(leg) != expected_keys:
             fail('NAV2_BRIDGE_INVALID_LEG_FIELDS')
@@ -101,7 +102,7 @@ def verify_bridge_report(report, expected_run_id=None):
         if leg.get('verified') is not True:
             fail('NAV2_BRIDGE_UNVERIFIED_LEG')
         elapsed = leg.get('elapsed_ms')
-        if type(elapsed) is not int or not 0 <= elapsed <= 300_000:
+        if type(elapsed) is not int or not 1 <= elapsed <= 300_000:
             fail('NAV2_BRIDGE_INVALID_ELAPSED')
         feedback = leg.get('feedback_count')
         moving = leg.get('moving_feedback_count')
@@ -112,7 +113,7 @@ def verify_bridge_report(report, expected_run_id=None):
         if (type(feedback) is not int or feedback < 3 or feedback > 10000
                 or type(moving) is not int or moving < 1 or moving >= feedback
                 or arrived != 1 or first != 1 or last != feedback
-                or progress != 100):
+                or progress != 100 or leg.get('map_version') != 'alex-home-grid-v1'):
             fail('NAV2_BRIDGE_INVALID_FEEDBACK_EVIDENCE')
         verify_pose(leg.get('final_pose'), x, y)
 
