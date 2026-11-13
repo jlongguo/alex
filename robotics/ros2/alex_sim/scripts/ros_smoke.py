@@ -30,12 +30,17 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--navigate', action='store_true', help='One goal: dock to study desk')
     modes.add_argument('--route', action='store_true', help='Three goals: desk -> story -> dock')
+    modes.add_argument('--cancel-probe', action='store_true', help='Live Nav2 cancel and post-cancel stop proof')
     parser.add_argument('--timeout', type=float, default=110.0, help='ROS graph readiness deadline in wall seconds')
     parser.add_argument('--goal-timeout', type=float, default=150.0, help='Per-goal wall time budget')
     parser.add_argument('--report', default='.local/ros/acceptance-report.json')
     args = parser.parse_args()
     if not (10 <= args.timeout <= 600) or not (15 <= args.goal_timeout <= 600):
         raise SystemExit('Invalid acceptance timeouts')
+    # 即便绕过封装 Shell 直接调用 Python，取消探针也必须使用本机独立模拟域。
+    if args.cancel_probe and (os.environ.get('ROS_DOMAIN_ID') != '77'
+                              or os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE') != 'LOCALHOST'):
+        raise SystemExit('NAV2_CANCEL_REQUIRES_ISOLATED_SIMULATION_DOMAIN')
 
     from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
                                      verify_graph, graph_readiness_snapshot, GRAPH_TOPICS,
@@ -59,9 +64,16 @@ def main():
     from alex_sim.gz_pose import query_gz_model_pose
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
-    report = {'schema': 'alex.dev/ros-acceptance/v1', 'mode': 'route' if args.route else 'navigate' if args.navigate else 'graph',
+    report = {'schema': ('alex.dev/ros-cancel-acceptance/v1' if args.cancel_probe
+                         else 'alex.dev/ros-acceptance/v1'),
+              'mode': ('cancel-probe' if args.cancel_probe else 'route' if args.route
+                       else 'navigate' if args.navigate else 'graph'),
               'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
               'run_id': os.environ.get('ALEX_ROS_ACCEPTANCE_RUN_ID') or __import__('uuid').uuid4().hex}
+    if args.cancel_probe:
+        # 取消验收只针对 Gazebo 模拟，明确禁止声称物理安全/发布认证。
+        report['physical_safety_certified'] = False
+        report['release_approved'] = False
     save_report(report, args.report)
     rclpy.init()
     node = rclpy.create_node('alex_ros_sim_acceptance', parameter_overrides=[Parameter('use_sim_time', value=True)])
@@ -332,6 +344,114 @@ def main():
             evidence['reason'] = type(exc).__name__
         return evidence
 
+    def run_cancel_probe():
+        """真实 Gazebo 的取消验收；必须同时证明取消终态与停止后位移。
+
+        只发送 Nav2 Action 目标/取消，不直接控制速度或电机。
+        """
+        require_active_navigator()
+        pose, fresh = current_tf_pose()
+        if not fresh or pose is None:
+            raise RuntimeError('NAV2_CANCEL_INITIAL_TF_UNAVAILABLE')
+        if math.hypot(DESK.x - pose[0], DESK.y - pose[1]) < 0.5:
+            raise RuntimeError('NAV2_CANCEL_GOAL_TOO_CLOSE')
+        _, qz, qw = goal_arrival_heading(pose, DESK)
+        nav_goal = NavigateToPose.Goal()
+        nav_goal.pose = PoseStamped()
+        nav_goal.pose.header.frame_id = 'map'
+        nav_goal.pose.header.stamp = node.get_clock().now().to_msg()
+        nav_goal.pose.pose.position.x = DESK.x
+        nav_goal.pose.pose.position.y = DESK.y
+        nav_goal.pose.pose.orientation.z = qz
+        nav_goal.pose.pose.orientation.w = qw
+        evidence = {
+            'goal': DESK.name, 'goal_accepted': False,
+            'cancel_request_sent': False, 'cancel_acknowledged': False,
+            'terminal_status': None, 'tf_fresh': False,
+            'odom_advanced': False, 'position_drift_m': None,
+            'observation_seconds': None, 'nonzero_velocity_commands': None,
+        }
+        report['cancel'] = evidence
+        save_report(report, args.report)
+        handle = None
+        cancel_attempted = False
+        try:
+            submission = action.send_goal_async(nav_goal)
+            spin_until(lambda: submission.done(), 10, stage='NAV2_CANCEL_SUBMISSION')
+            handle = submission.result()
+            if handle is None or not handle.accepted:
+                raise RuntimeError('NAV2_CANCEL_GOAL_REJECTED')
+            evidence['goal_accepted'] = True
+            result = handle.get_result_async()
+            # 从已接受的 Nav2 Action 发出真实 cancel_goal_async 请求。
+            # 拒绝仅凭调用成功或 future.done() 就判定取消已生效。
+            cancel_attempted = True
+            cancellation = handle.cancel_goal_async()
+            evidence['cancel_request_sent'] = True
+            save_report(report, args.report)
+            spin_until(lambda: cancellation.done(), 5, stage='NAV2_CANCEL_ACK')
+            response = cancellation.result()
+            if (response is None or response.return_code != 0
+                    or len(response.goals_canceling) == 0):
+                raise RuntimeError('NAV2_CANCEL_NOT_ACKNOWLEDGED')
+            evidence['cancel_acknowledged'] = True
+            report['checks'].append('nav2_cancel_acknowledged')
+            save_report(report, args.report)
+            spin_until(lambda: result.done(), 12, stage='NAV2_CANCEL_TERMINAL')
+            terminal = result.result()
+            if terminal is None or terminal.status != GoalStatus.STATUS_CANCELED:
+                raise RuntimeError('NAV2_CANCEL_TERMINAL_NOT_CANCELED')
+            evidence['terminal_status'] = 'CANCELED'
+            report['checks'].append('nav2_cancel_terminal')
+            save_report(report, args.report)
+
+            # 取消确认之后给予控制管线短暂消退时间；随后观察独立 TF、
+            # odom 时间戳和 cmd_vel 订阅，拒绝仅凭 Action 状态声称机器人已停。
+            settle_deadline = time.monotonic() + 0.4
+            spin_until(lambda: time.monotonic() >= settle_deadline, 1.0,
+                       stage='NAV2_CANCEL_SETTLE')
+            before, fresh = current_tf_pose()
+            if before is None or not fresh or not latest_odom:
+                raise RuntimeError('NAV2_CANCEL_STOP_OBSERVATION_UNAVAILABLE')
+            odom_stamp = latest_odom[-1].header.stamp
+            odom_ns = odom_stamp.sec * 1_000_000_000 + odom_stamp.nanosec
+            nonzero_before = sum(
+                sample['nonzero_messages'] for sample in command_samples.values())
+            start = time.monotonic()
+            before_clock = clock_times[-1]
+            spin_until(lambda: time.monotonic() - start >= 1.5, 2.5,
+                       stage='NAV2_CANCEL_STOP_WINDOW')
+            after, fresh = current_tf_pose()
+            if after is None or not fresh or not latest_odom:
+                raise RuntimeError('NAV2_CANCEL_FINAL_TF_UNAVAILABLE')
+            latest_stamp = latest_odom[-1].header.stamp
+            latest_odom_ns = latest_stamp.sec * 1_000_000_000 + latest_stamp.nanosec
+            delta = math.hypot(after[0] - before[0], after[1] - before[1])
+            nonzero_after = sum(
+                sample['nonzero_messages'] for sample in command_samples.values())
+            evidence.update(
+                tf_fresh=True,
+                odom_advanced=latest_odom_ns > odom_ns,
+                position_drift_m=round(delta, 4),
+                observation_seconds=round(time.monotonic() - start, 3),
+                nonzero_velocity_commands=nonzero_after - nonzero_before,
+            )
+            save_report(report, args.report)
+            if (not evidence['odom_advanced'] or clock_times[-1] <= before_clock
+                    or delta > 0.08 or evidence['nonzero_velocity_commands'] != 0):
+                raise RuntimeError('NAV2_CANCEL_STOP_NOT_VERIFIED')
+            report['checks'].append('post_cancel_stop_observed')
+            save_report(report, args.report)
+        finally:
+            # 正常通过时终态已取消；异常路径仍尽力撤销可能在途的目标。
+            # 子进程清理与 Gazebo 进程组回收由外层验收脚本负责。
+            if handle is not None and handle.accepted and not cancel_attempted:
+                try:
+                    handle.cancel_goal_async()
+                except Exception as exc:
+                    report['cancel_cleanup_error'] = type(exc).__name__
+                    save_report(report, args.report)
+
     def run_goal(goal):
         require_active_navigator()
         # Probe Gazebo's actual 6-DoF model pose before each leg. Map TF and
@@ -528,6 +648,8 @@ def main():
         goals = ACCEPTANCE_ROUTE if args.route else (DESK,) if args.navigate else ()
         for goal in goals:
             run_goal(goal)
+        if args.cancel_probe:
+            run_cancel_probe()
         report['status'] = 'passed'
         return 0
     except Exception as exc:

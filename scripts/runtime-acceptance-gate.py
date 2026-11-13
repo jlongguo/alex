@@ -36,6 +36,8 @@ def audit(
     voice_run_id=None,
     nav2_fault_report=None,
     nav2_fault_run_id=None,
+    ros_cancel_report=None,
+    ros_cancel_run_id=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -51,17 +53,24 @@ def audit(
     if nav2_fault_run_id is not None and not _valid_run_id(nav2_fault_run_id):
         raise ValueError('INVALID_NAV2_FAULT_RUN_ID')
 
+    if (ros_cancel_report is None) != (ros_cancel_run_id is None):
+        raise ValueError('ROS_CANCEL_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if ros_cancel_run_id is not None and not _valid_run_id(ros_cancel_run_id):
+        raise ValueError('INVALID_ROS_CANCEL_RUN_ID')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
         'ros_runtime': 'not_run',
         'voice_real_provider': 'not_run',
         'nav2_fault_contract': 'not_run',
+        'ros_cancel_runtime': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
+            'GAZEBO_NAV2_CANCEL_RUNTIME',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -105,11 +114,23 @@ def audit(
         ])
         result['nav2_fault_contract'] = 'verified-injected' if ok else 'invalid'
 
+    if ros_cancel_report is not None:
+        # 必须单独验证本次 Gazebo Nav2 取消终态与停止窗口，不能由伪 peer 证据代替。
+        validator = Path(__file__).with_name('verify-ros-cancel-report.py')
+        ok = _run_validator([
+            sys.executable, str(validator), '--report', str(ros_cancel_report),
+            '--run-id', ros_cancel_run_id,
+        ])
+        result['ros_cancel_runtime'] = 'verified' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('GAZEBO_NAV2_CANCEL_RUNTIME')
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
         or result['voice_real_provider'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
+        or result['ros_cancel_runtime'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -123,6 +144,8 @@ def main():
     parser.add_argument('--voice-run-id')
     parser.add_argument('--nav2-fault-report', type=Path)
     parser.add_argument('--nav2-fault-run-id')
+    parser.add_argument('--ros-cancel-report', type=Path)
+    parser.add_argument('--ros-cancel-run-id')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -137,6 +160,8 @@ def main():
             args.voice_run_id,
             args.nav2_fault_report,
             args.nav2_fault_run_id,
+            args.ros_cancel_report,
+            args.ros_cancel_run_id,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)

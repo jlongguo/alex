@@ -3,9 +3,26 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-report="${ALEX_ROS_REPORT:-$ROOT/.local/ros/acceptance-report.json}"
-log="${ALEX_ROS_LOG:-$ROOT/.local/ros/acceptance-launch.log}"
-preflight="${ALEX_ROS_PREFLIGHT:-$ROOT/.local/ros/preflight.json}"
+mode="${ALEX_ROS_ACCEPTANCE_MODE:-route}"
+# 只接受现有三段路线或新增真实 Nav2 取消探针，杜绝任意 CLI 动作。
+if [[ "$mode" != route && "$mode" != cancel-probe ]]; then
+  echo 'Invalid ALEX_ROS_ACCEPTANCE_MODE; expected route or cancel-probe' >&2
+  exit 2
+fi
+if [[ "$mode" == cancel-probe ]]; then
+  report="${ALEX_ROS_REPORT:-$ROOT/.local/ros/cancel-acceptance-report.json}"
+  log="${ALEX_ROS_LOG:-$ROOT/.local/ros/cancel-acceptance-launch.log}"
+  preflight="${ALEX_ROS_PREFLIGHT:-$ROOT/.local/ros/cancel-preflight.json}"
+  export ALEX_ROS_DIAGNOSTICS="${ALEX_ROS_DIAGNOSTICS:-$ROOT/.local/ros/cancel-diagnostics.json}"
+  smoke_mode=--cancel-probe
+  validator=scripts/verify-ros-cancel-report.py
+else
+  report="${ALEX_ROS_REPORT:-$ROOT/.local/ros/acceptance-report.json}"
+  log="${ALEX_ROS_LOG:-$ROOT/.local/ros/acceptance-launch.log}"
+  preflight="${ALEX_ROS_PREFLIGHT:-$ROOT/.local/ros/preflight.json}"
+  smoke_mode=--route
+  validator=scripts/verify-ros-report.py
+fi
 mkdir -p "$(dirname "$report")" "$(dirname "$log")" "$(dirname "$preflight")"
 # Overwrite any stale success before checking even the simulation opt-in flags.
 python3 scripts/ros-evidence.py --report "$report" --status blocked --reason 'PREFLIGHT_PENDING'
@@ -59,7 +76,7 @@ if ! kill -0 "$launcher" 2>/dev/null; then
   tail -40 "$log" >&2 || true
   exit 1
 fi
-if npm run sim:smoke -- --route --timeout 120 --goal-timeout 180 --report "$report"; then
+if npm run sim:smoke -- "$smoke_mode" --timeout 120 --goal-timeout 180 --report "$report"; then
   :
 else
   smoke_status=$?
@@ -76,7 +93,7 @@ else
   exit "$smoke_status"
 fi
 # Never accept a graph-only, single-leg or malformed / stale report as success.
-if ! python3 scripts/verify-ros-report.py --report "$report" --run-id "$ALEX_ROS_ACCEPTANCE_RUN_ID"; then
+if ! python3 "$validator" --report "$report" --run-id "$ALEX_ROS_ACCEPTANCE_RUN_ID"; then
   python3 scripts/ros-evidence.py --report "$report" --status failed --reason 'REPORT_VERIFICATION_FAILED' --if-status passed >/dev/null || true
   exit 1
 fi
