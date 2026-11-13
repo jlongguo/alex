@@ -27,7 +27,7 @@ const cases=[
  // 场景、预计终态、原因码、退出码。纯 Python mock，不进入实际 ROS DDS 域。
  ['success','succeeded',null,0],
  ['goal_rejected','rejected','NAV2_GOAL_REJECTED',1],
- ['action_failed','failed','NAV2_ACTION_FAILED',0],
+ ['action_failed','failed','NAV2_ACTION_FAILED',2],
  ['clock_missing','failed','SIMULATION_CLOCK_MISSING',2],
  ['action_missing','failed','NAV2_ACTION_UNAVAILABLE',2],
  ['goal_stall','failed','NAV2_GOAL_SUBMISSION_UNCONFIRMED',2],
