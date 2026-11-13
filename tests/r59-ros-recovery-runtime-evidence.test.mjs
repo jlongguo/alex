@@ -103,7 +103,7 @@ test('R59 拒绝错误顺序、缺少停止观察和虚假的返回码头声明'
    doc=>{doc.legs.push(leg('story_corner',4.9,1.7));},
    doc=>{doc.last_goal.action_status='CANCELED';},
    doc=>{doc.last_goal.goal='study_desk';},
-   doc=>{doc.last_goal.tf_fresh=false;},
+   doc=>{doc.last_goal.feedback_count=false;},
    doc=>{doc.cancel.terminal_status='SUCCEEDED';},
    doc=>{doc.cancel.cancel_acknowledged=false;},
    doc=>{doc.cancel.position_drift_m=0.09;},
