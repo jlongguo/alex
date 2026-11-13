@@ -37,6 +37,10 @@ def main():
     args = parser.parse_args()
     if not (10 <= args.timeout <= 600) or not (15 <= args.goal_timeout <= 600):
         raise SystemExit('Invalid acceptance timeouts')
+    # 即便绕过封装 Shell 直接调用 Python，取消探针也必须使用本机独立模拟域。
+    if args.cancel_probe and (os.environ.get('ROS_DOMAIN_ID') != '77'
+                              or os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE') != 'LOCALHOST'):
+        raise SystemExit('NAV2_CANCEL_REQUIRES_ISOLATED_SIMULATION_DOMAIN')
 
     from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
                                      verify_graph, graph_readiness_snapshot, GRAPH_TOPICS,
