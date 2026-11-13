@@ -57,7 +57,19 @@ jobs:
           set -euo pipefail
           source /opt/ros/jazzy/setup.bash
           npm run sim:accept-recovery
-      - name: Bind three scenarios to this Actions run and verify evidence checksums
+      - name: Run live Node to Python to Nav2 bridge acceptance in a fresh isolated Gazebo session
+        shell: bash
+        env:
+          ALEX_ROS_SIMULATION_ONLY: '1'
+          ALEX_RUN_ROS_INTEGRATION: '1'
+          ALEX_GZ_HEADLESS_RENDERING: '1'
+          ROS_DOMAIN_ID: '77'
+          ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          npm run sim:accept-bridge
+      - name: Bind four scenarios to this Actions run and verify evidence checksums
         run: |
           set -euo pipefail
           npm run sim:bundle-collect
@@ -81,4 +93,8 @@ jobs:
             .local/ros/recovery-acceptance-launch.log
             .local/ros/recovery-preflight.json
             .local/ros/recovery-diagnostics.json
+            .local/ros/bridge-acceptance-report.json
+            .local/ros/bridge-acceptance-launch.log
+            .local/ros/bridge-preflight.json
+            .local/ros/bridge-diagnostics.json
             .local/ros/workflow-evidence-bundle.json

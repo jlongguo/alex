@@ -40,6 +40,8 @@ def audit(
     ros_cancel_run_id=None,
     ros_recovery_report=None,
     ros_recovery_run_id=None,
+    ros_bridge_report=None,
+    ros_bridge_run_id=None,
     ros_workflow_bundle=None,
     ros_workflow_run_id=None,
     ros_workflow_sha=None,
@@ -68,6 +70,11 @@ def audit(
     if ros_recovery_run_id is not None and not _valid_run_id(ros_recovery_run_id):
         raise ValueError('INVALID_ROS_RECOVERY_RUN_ID')
 
+    if (ros_bridge_report is None) != (ros_bridge_run_id is None):
+        raise ValueError('ROS_BRIDGE_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if ros_bridge_run_id is not None and not _valid_run_id(ros_bridge_run_id):
+        raise ValueError('INVALID_ROS_BRIDGE_RUN_ID')
+
     workflow_supplied = [ros_workflow_bundle, ros_workflow_run_id, ros_workflow_sha]
     if any(value is not None for value in workflow_supplied) and not all(
             value is not None for value in workflow_supplied):
@@ -90,6 +97,7 @@ def audit(
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
+        'ros_bridge_runtime': 'not_run',
         'ros_workflow_bundle': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
@@ -98,6 +106,7 @@ def audit(
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
+            'GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
             'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
             'PHYSICAL_SAFETY_REVIEW',
         ],
@@ -164,6 +173,18 @@ def audit(
         if ok:
             result['remaining'].remove('GAZEBO_NAV2_RECOVERY_RUNTIME')
 
+    if ros_bridge_report is not None:
+        # 生产 Node 桥实际调用 Python/rclpy/Nav2 的 Gazebo 证据独立核验；
+        # 不能替代三段路线中的独立 TF/odom 到达证明。
+        validator = Path(__file__).with_name('verify-nav2-bridge-live-report.py')
+        ok = _run_validator([
+            sys.executable, str(validator), '--report', str(ros_bridge_report),
+            '--run-id', ros_bridge_run_id,
+        ])
+        result['ros_bridge_runtime'] = 'verified' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME')
+
     if ros_workflow_bundle is not None:
         # SHA-256 仅证明传入文件与报告清单一致；Runner 身份仍需外部核对。
         validator = Path(__file__).with_name('ros-workflow-evidence-bundle.py')
@@ -184,6 +205,7 @@ def audit(
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
+        or result['ros_bridge_runtime'] == 'invalid'
         or result['ros_workflow_bundle'] == 'invalid'
         else 'manual-review-required'
     )
@@ -202,6 +224,8 @@ def main():
     parser.add_argument('--ros-cancel-run-id')
     parser.add_argument('--ros-recovery-report', type=Path)
     parser.add_argument('--ros-recovery-run-id')
+    parser.add_argument('--ros-bridge-report', type=Path)
+    parser.add_argument('--ros-bridge-run-id')
     parser.add_argument('--ros-workflow-bundle', type=Path)
     parser.add_argument('--ros-workflow-run-id')
     parser.add_argument('--ros-workflow-sha')
@@ -223,6 +247,8 @@ def main():
             args.ros_cancel_run_id,
             args.ros_recovery_report,
             args.ros_recovery_run_id,
+            args.ros_bridge_report,
+            args.ros_bridge_run_id,
             args.ros_workflow_bundle,
             args.ros_workflow_run_id,
             args.ros_workflow_sha,
