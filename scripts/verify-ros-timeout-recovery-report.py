@@ -12,7 +12,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'robotics/ros2/alex_sim'))
-from alex_sim.acceptance import DESK, DOCK  # noqa: E402
+from alex_sim.acceptance import DESK, DOCK
 import importlib.util  # 标准库按路径加载脚本，避免改变现有校验器文件名。
 CANCEL_VALIDATOR = Path(__file__).with_name('verify-ros-cancel-report.py')
 _spec = importlib.util.spec_from_file_location('alex_ros_cancel_validator', CANCEL_VALIDATOR)
