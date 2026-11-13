@@ -31,6 +31,7 @@
     "sim:bundle-verify": "python3 scripts/ros-workflow-evidence-bundle.py --verify",
     "sim:artifact-attest": "python3 scripts/write-ros-artifact-attestation.py",
     "sim:artifact-verify": "python3 scripts/verify-ros-artifact-attestation.py",
+    "sim:evidence-set-verify": "python3 scripts/verify-ros-evidence-set.py",
     "sim:verify-cancel-report": "python3 scripts/verify-ros-cancel-report.py",
     "sim:fault-contract": "npm run build && node scripts/nav2-fault-contract.mjs",
     "sim:verify-fault-contract": "node scripts/verify-nav2-fault-contract.mjs",
