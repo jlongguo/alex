@@ -29,7 +29,7 @@ export async function runNav2FaultContract({
  if(!safeRunId(runId))fail('NAV2_FAULT_INVALID_RUN_ID');
  let mode='reject',cancelled=false;
  const children=new Set();
- const bridge=new Nav2SimulationBridge({
+ const createBridge=()=>new Nav2SimulationBridge({
   simulationOnly:true,startupMs:500,goalTimeoutMs:1000,cancelGraceMs:120,
   spawnProcess:(_cmd,_args,options)=>{
    const child=spawn(process.execPath,[FIXTURE],{
@@ -49,6 +49,9 @@ export async function runNav2FaultContract({
   scenarios:{},checks:[]
  };
  async function scenario(id,modeName,options={}){
+  // 故障测试完全是伪子进程：前一个取消未确认后须使用新桥实例。
+  // 不能把这种模拟隔离当成真实 Nav2 目标已经停止的证据。
+  const bridge=createBridge();
   mode=modeName;
   cancelled=false;
   if(options.cancelAfterMs!==undefined)
