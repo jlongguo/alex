@@ -81,6 +81,7 @@ jobs:
         with:
           name: alex-ros-gazebo-acceptance
           if-no-files-found: warn
+          include-hidden-files: true
           path: |
             .local/ros/acceptance-report.json
             .local/ros/acceptance-launch.log
@@ -122,4 +123,5 @@ jobs:
         with:
           name: alex-ros-gazebo-attestation
           if-no-files-found: error
+          include-hidden-files: true
           path: .local/ros/artifact-attestation.json
