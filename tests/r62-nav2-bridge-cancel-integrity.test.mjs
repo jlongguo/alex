@@ -12,7 +12,7 @@ function bridgeFor(mode,settings={}){
  const bridge=new Nav2SimulationBridge({
   simulationOnly:true,startupMs:500,goalTimeoutMs:1000,cancelGraceMs:150,
   ...settings,
-  spawnProcess:(_command,_argv,options)=>{
+  spawnProcess:settings.spawnProcess??((_command,_argv,options)=>{
    // 测试仅启动内置 JSONL 伪客户端；不载入 rclpy 或接入 ROS DDS。
    const child=spawn(process.execPath,[fixture],{
     stdio:options.stdio,shell:false,
@@ -20,7 +20,7 @@ function bridgeFor(mode,settings={}){
    });
    children.push(child);
    return child;
-  }
+  })
  });
  return {bridge,children};
 }
