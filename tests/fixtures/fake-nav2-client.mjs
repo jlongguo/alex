@@ -35,7 +35,10 @@ for await(const line of lines){
     started=true;lastGoal=msg.goal;
     process.stdout.write(JSON.stringify({type:'ready'})+'\n');
     const mode=process.env.ALEX_TEST_NAV2_MODE??'success';
-    if(mode==='exit-after-ready'){process.exitCode=3;break;}
+    if(mode==='exit-after-ready'){
+      // 此模式必须模拟进程立刻终止；仅设置 exitCode 不会关闭打开的 stdin。
+      process.exit(3);
+    }
     if(mode==='invalid-json'){process.stdout.write('not-json\n');break;}
     if(mode==='invalid-feedback'){
       process.stdout.write(JSON.stringify({
