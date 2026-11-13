@@ -10,6 +10,7 @@ import {Nav2SimulationBridge} from './ros2-navigation.mjs';
 const SCHEMA='alex.dev/nav2-bridge-live-acceptance/v1';
 const MODE='bridge-probe';
 const SOURCE='node-python-nav2-live';
+const INJECTED_SOURCE='node-python-nav2-injected-test';
 const REQUIRED_CHECKS=[
   'node_bridge_study_desk_arrived',
   'node_bridge_dock_arrived',
@@ -42,11 +43,15 @@ async function readObject(path){
     throw Error('NAV2_BRIDGE_REPORT_INVALID');
   return value;
 }
-function baseReport(runId,status,reason){
+function baseReport(runId,status,reason,{
+  source='node-python-nav2-pending',executionClass='pending',
+  runtimeChain=null
+}={}){
   return {
-    schema:SCHEMA,mode:MODE,status,source:SOURCE,
+    schema:SCHEMA,mode:MODE,status,source,
     simulation_only:true,physical_safety_certified:false,release_approved:false,
-    runtime_chain:'node->python-rclpy->nav2-action',
+    execution_class:executionClass,
+    runtime_chain:runtimeChain,
     independent_tf_verified:false,
     run_id:runId,reason,
     created_at:now(),updated_at:now(),
@@ -143,8 +148,13 @@ export async function runAcceptance(path,{Bridge=Nav2SimulationBridge}={}){
   const expected=process.env.ALEX_ROS_ACCEPTANCE_RUN_ID;
   if(!safeRunId(expected)||expected!==prior.run_id)
     throw Error('NAV2_BRIDGE_RUN_ID_MISMATCH');
+  const injected=Bridge!==Nav2SimulationBridge;
   const report={
-    ...baseReport(prior.run_id,'running','NODE_BRIDGE_RUNTIME_STARTED'),
+    ...baseReport(prior.run_id,'running','NODE_BRIDGE_RUNTIME_STARTED',{
+      source:injected?INJECTED_SOURCE:SOURCE,
+      executionClass:injected?'injected-test':'live-gazebo',
+      runtimeChain:injected?'injected-bridge-test':'node->python-rclpy->nav2-action'
+    }),
     created_at:prior.created_at,
     updated_at:now()
   };
