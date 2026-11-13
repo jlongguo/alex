@@ -186,11 +186,13 @@ def main():
             return 0
         if output.status == GoalStatus.STATUS_CANCELED:
             send({"type": "result", "status": "cancelled"})
-        elif output.status == GoalStatus.STATUS_SUCCEEDED and getattr(output.result, "error_code", 0) == 0:
+            return 1
+        if (output.status == GoalStatus.STATUS_SUCCEEDED
+                and getattr(output.result, "error_code", 0) == 0):
             send({"type": "result", "status": "succeeded"})
-        else:
-            send({"type": "result", "status": "failed", "reason": "NAV2_ACTION_FAILED"})
-        return 0
+            return 0
+        send({"type": "result", "status": "failed", "reason": "NAV2_ACTION_FAILED"})
+        return 2
     finally:
         node.destroy_subscription(sub)
         node.destroy_node()
