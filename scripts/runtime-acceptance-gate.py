@@ -40,6 +40,9 @@ def audit(
     ros_cancel_run_id=None,
     ros_recovery_report=None,
     ros_recovery_run_id=None,
+    ros_workflow_bundle=None,
+    ros_workflow_run_id=None,
+    ros_workflow_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -65,6 +68,20 @@ def audit(
     if ros_recovery_run_id is not None and not _valid_run_id(ros_recovery_run_id):
         raise ValueError('INVALID_ROS_RECOVERY_RUN_ID')
 
+    workflow_supplied = [ros_workflow_bundle, ros_workflow_run_id, ros_workflow_sha]
+    if any(value is not None for value in workflow_supplied) and not all(
+            value is not None for value in workflow_supplied):
+        raise ValueError('ROS_WORKFLOW_BUNDLE_RUN_ID_AND_SHA_REQUIRED_TOGETHER')
+    if ros_workflow_run_id is not None and not (
+            isinstance(ros_workflow_run_id, str)
+            and ros_workflow_run_id.isascii() and ros_workflow_run_id.isdigit()
+            and 0 < int(ros_workflow_run_id) < 10**20):
+        raise ValueError('INVALID_ROS_WORKFLOW_RUN_ID')
+    if ros_workflow_sha is not None and not (
+            isinstance(ros_workflow_sha, str) and len(ros_workflow_sha) == 40
+            and all(ch in '0123456789abcdef' for ch in ros_workflow_sha)):
+        raise ValueError('INVALID_ROS_WORKFLOW_SHA')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
@@ -73,6 +90,7 @@ def audit(
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
+        'ros_workflow_bundle': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -80,6 +98,7 @@ def audit(
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
+            'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -145,6 +164,19 @@ def audit(
         if ok:
             result['remaining'].remove('GAZEBO_NAV2_RECOVERY_RUNTIME')
 
+    if ros_workflow_bundle is not None:
+        # SHA-256 仅证明传入文件与报告清单一致；Runner 身份仍需外部核对。
+        validator = Path(__file__).with_name('ros-workflow-evidence-bundle.py')
+        ok = _run_validator([
+            sys.executable, str(validator), '--verify',
+            '--bundle', str(ros_workflow_bundle),
+            '--expect-run-id', ros_workflow_run_id,
+            '--expect-sha', ros_workflow_sha,
+        ])
+        result['ros_workflow_bundle'] = 'verified-structure' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE')
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
@@ -152,6 +184,7 @@ def audit(
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
+        or result['ros_workflow_bundle'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -169,6 +202,9 @@ def main():
     parser.add_argument('--ros-cancel-run-id')
     parser.add_argument('--ros-recovery-report', type=Path)
     parser.add_argument('--ros-recovery-run-id')
+    parser.add_argument('--ros-workflow-bundle', type=Path)
+    parser.add_argument('--ros-workflow-run-id')
+    parser.add_argument('--ros-workflow-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -187,6 +223,9 @@ def main():
             args.ros_cancel_run_id,
             args.ros_recovery_report,
             args.ros_recovery_run_id,
+            args.ros_workflow_bundle,
+            args.ros_workflow_run_id,
+            args.ros_workflow_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
