@@ -77,10 +77,34 @@ function reports(){
    feedback_count:12,odom_distance_m:1.4
   }
  };
+ const bridge={
+  schema:'alex.dev/nav2-bridge-live-acceptance/v1',
+  mode:'bridge-probe',status:'passed',source:'node-python-nav2-live',
+  simulation_only:true,physical_safety_certified:false,release_approved:false,
+  runtime_chain:'node->python-rclpy->nav2-action',
+  independent_tf_verified:false,run_id:'44444444-4444-4444-8444-444444444444',
+  reason:null,
+  checks:[
+   'node_bridge_study_desk_arrived','node_bridge_dock_arrived',
+   'node_bridge_feedback_observed','node_bridge_same_instance_reused'
+  ],
+  legs:[
+   {goal:'study_desk',status:'arrived',verified:true,elapsed_ms:1200,
+    feedback_count:3,moving_feedback_count:1,arrived_feedback_count:1,
+    first_sequence:1,last_sequence:3,max_progress:100,
+    final_pose:{x:17,y:16,heading:0}},
+   {goal:'dock',status:'arrived',verified:true,elapsed_ms:1300,
+    feedback_count:3,moving_feedback_count:1,arrived_feedback_count:1,
+    first_sequence:1,last_sequence:3,max_progress:100,
+    final_pose:{x:7,y:28,heading:0}}
+  ],
+  bridge:{active:false,stop_unconfirmed:false,final_pose:{x:7,y:28,heading:0}}
+ };
  return [
   ['acceptance-report.json',route],
   ['cancel-acceptance-report.json',cancel],
-  ['recovery-acceptance-report.json',recovery]
+  ['recovery-acceptance-report.json',recovery],
+  ['bridge-acceptance-report.json',bridge]
  ];
 }
 async function withDir(fn){
@@ -116,8 +140,8 @@ test('R60 三份独立 Nav2 验收报告绑定同一工作流、commit、三种�
   assert.equal(manifest.context.commit_sha,SHA);
   assert.equal(manifest.release_approved,false);
   assert.equal(manifest.physical_safety_certified,false);
-  assert.deepEqual(manifest.reports.map(x=>x.kind),['route','cancel','recovery']);
-  assert.equal(new Set(manifest.reports.map(x=>x.run_id)).size,3);
+  assert.deepEqual(manifest.reports.map(x=>x.kind),['route','cancel','recovery','bridge']);
+  assert.equal(new Set(manifest.reports.map(x=>x.run_id)).size,4);
   for(const item of manifest.reports){
    assert.match(item.sha256,/^[0-9a-f]{64}$/);
    assert.ok(item.size_bytes>0);
@@ -239,6 +263,8 @@ test('R60 runtime gate 只把 Bundle 视为结构对账，仍需每项 ROS 与�
   assert.equal(result.ros_runtime,'not_run');
   assert.equal(result.ros_cancel_runtime,'not_run');
   assert.equal(result.ros_recovery_runtime,'not_run');
+  assert.equal(result.ros_bridge_runtime,'not_run');
+  assert.ok(result.remaining.includes('GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME'));
   assert.ok(result.remaining.includes('GAZEBO_NAV2_THREE_LEG_RUNTIME'));
   assert.ok(result.remaining.includes('GAZEBO_NAV2_CANCEL_RUNTIME'));
   assert.ok(result.remaining.includes('GAZEBO_NAV2_RECOVERY_RUNTIME'));
@@ -264,6 +290,7 @@ test('R60 手动工作流先失效旧报告、后校验 Bundle、失败也上传
   'npm run sim:accept',
   'npm run sim:accept-cancel',
   'npm run sim:accept-recovery',
+  'npm run sim:accept-bridge',
   'npm run sim:bundle-collect',
   'npm run sim:bundle-verify',
   'Upload acceptance report and launch logs even on failure'
