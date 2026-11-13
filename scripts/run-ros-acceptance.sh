@@ -5,11 +5,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mode="${ALEX_ROS_ACCEPTANCE_MODE:-route}"
 # 只接受现有三段路线或新增真实 Nav2 取消探针，杜绝任意 CLI 动作。
-if [[ "$mode" != route && "$mode" != cancel-probe ]]; then
-  echo 'Invalid ALEX_ROS_ACCEPTANCE_MODE; expected route or cancel-probe' >&2
+if [[ "$mode" != route && "$mode" != cancel-probe && "$mode" != timeout-recovery ]]; then
+  echo 'Invalid ALEX_ROS_ACCEPTANCE_MODE; expected route, cancel-probe or timeout-recovery' >&2
   exit 2
 fi
-if [[ "$mode" == cancel-probe ]]; then
+if [[ "$mode" == timeout-recovery ]]; then
+  report="${ALEX_ROS_REPORT:-$ROOT/.local/ros/timeout-recovery-report.json}"
+  log="${ALEX_ROS_LOG:-$ROOT/.local/ros/timeout-recovery-launch.log}"
+  preflight="${ALEX_ROS_PREFLIGHT:-$ROOT/.local/ros/timeout-recovery-preflight.json}"
+  export ALEX_ROS_DIAGNOSTICS="${ALEX_ROS_DIAGNOSTICS:-$ROOT/.local/ros/timeout-recovery-diagnostics.json}"
+  smoke_mode=--timeout-recovery
+  validator=scripts/verify-ros-timeout-recovery-report.py
+elif [[ "$mode" == cancel-probe ]]; then
   report="${ALEX_ROS_REPORT:-$ROOT/.local/ros/cancel-acceptance-report.json}"
   log="${ALEX_ROS_LOG:-$ROOT/.local/ros/cancel-acceptance-launch.log}"
   preflight="${ALEX_ROS_PREFLIGHT:-$ROOT/.local/ros/cancel-preflight.json}"
