@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {
  runNav2FaultContract,verifyNav2FaultContract
 } from '../scripts/nav2-fault-contract.mjs';
@@ -49,5 +50,30 @@ test('R57 run ID、缺失故障、状态造假、过度发布声明全部 fail c
   assert.throws(()=>verifyNav2FaultContract(overclaim,RUN),/NAV2_FAULT_INVALID_REPORT/);
   const release=copy(report);release.release_approved=true;
   assert.throws(()=>verifyNav2FaultContract(release,RUN),/NAV2_FAULT_INVALID_REPORT/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('R57 故障注入证据可进入 runtime gate，但真实三段 Nav2 仍被阻断',{timeout:15000},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'alex-r57-gate-'));
+ const file=join(dir,'fault.json');
+ try{
+  await runNav2FaultContract({reportPath:file,makeRunId:()=>RUN});
+  const gate=resolve(import.meta.dirname,'../scripts/runtime-acceptance-gate.py');
+  const checked=spawnSync('python3',[
+   gate,'--nav2-fault-report',file,'--nav2-fault-run-id',RUN
+  ],{encoding:'utf8',timeout:12000});
+  assert.equal(checked.status,0,checked.stderr);
+  const report=JSON.parse(checked.stdout);
+  assert.equal(report.nav2_fault_contract,'verified-injected');
+  assert.equal(report.ros_runtime,'not_run');
+  assert.ok(report.remaining.includes('GAZEBO_NAV2_THREE_LEG_RUNTIME'));
+  assert.equal(report.release_approved,false);
+
+  const wrong=spawnSync('python3',[
+   gate,'--nav2-fault-report',file,'--nav2-fault-run-id',
+   '99999999-9999-4999-8999-999999999999'
+  ],{encoding:'utf8',timeout:12000});
+  assert.equal(wrong.status,1,wrong.stderr);
+  assert.equal(JSON.parse(wrong.stdout).nav2_fault_contract,'invalid');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
