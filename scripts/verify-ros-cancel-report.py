@@ -28,8 +28,8 @@ def verify_cancel_report(report, expected_run_id):
     if report.get('status') != 'passed' or report.get('mode') != 'cancel-probe':
         raise ValueError('CANCEL_PROBE_NOT_PASSED')
     if (report.get('simulation_only') is not True
-            or report.get('physical_safety_certified') is True
-            or report.get('release_approved') is True):
+            or report.get('physical_safety_certified') is not False
+            or report.get('release_approved') is not False):
         raise ValueError('INVALID_CANCEL_SCOPE')
     run_id = report.get('run_id')
     if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
