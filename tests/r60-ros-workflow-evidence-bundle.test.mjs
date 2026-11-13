@@ -196,7 +196,7 @@ test('R60 检测报告篡改、删除与错误 run ID/commit/attempt',{timeout:1
  });
 });
 
-test('R60 拒绝同一个模拟运行 ID 冒充三个独立场景',{timeout:15000},async()=>{
+test('R60/R63 拒绝同一个运行 ID 冒充四个独立场景',{timeout:15000},async()=>{
  await withDir(async({dir,bundle})=>{
   assert.equal(reset(bundle).status,0);
   const docs=reports();
