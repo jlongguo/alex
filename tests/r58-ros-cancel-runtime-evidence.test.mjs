@@ -183,3 +183,16 @@ test('R58 ROS 脚本 Python 语法、Action 取消与独立 TF 停止检查保�
  assert.match(files.stdout,/latest_odom_ns > odom_ns/);
  assert.match(files.stdout,/current_tf_pose\(\)/);
 });
+
+test('R58 直接调用 ROS Python 入口也必须限制为独立 LOCALHOST 模拟域',{timeout:15000},()=>{
+ const source='robotics/ros2/alex_sim/scripts/ros_smoke.py';
+ const checked=run('python3',[source,'--cancel-probe'],{
+  ALEX_ROS_SIMULATION_ONLY:'1',
+  ALEX_RUN_ROS_INTEGRATION:'1',
+  ROS_DISTRO:'jazzy',
+  ROS_DOMAIN_ID:'0',
+  ROS_AUTOMATIC_DISCOVERY_RANGE:'LOCALHOST'
+ });
+ assert.notEqual(checked.status,0);
+ assert.match(checked.stderr,/NAV2_CANCEL_REQUIRES_ISOLATED_SIMULATION_DOMAIN/);
+});
