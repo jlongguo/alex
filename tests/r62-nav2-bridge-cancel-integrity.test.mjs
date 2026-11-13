@@ -194,3 +194,18 @@ test('R62 取消 ACK 被拒绝或成功终态竞争也必须隔离旧桥',{timeo
   await assert.rejects(()=>bridge.navigate('dock'),/NAV2_STOP_UNCONFIRMED/);
  }
 });
+
+test('R62 子进程突然退出、协议格式错误或反馈非法时，桥必须隔离停止状态未知的目标',{timeout:5000},async()=>{
+ for(const [mode,reason] of [
+  ['exit-after-ready','NAV2_PROCESS_EXIT'],
+  ['invalid-json','INVALID_NAV2_JSON'],
+  ['invalid-feedback','INVALID_NAV2_FEEDBACK']
+ ]){
+  const {bridge}=bridgeFor(mode);
+  const outcome=await bridge.navigate('study_desk');
+  assert.equal(outcome.status,'failed',mode);
+  assert.equal(outcome.reason,reason,mode);
+  assert.equal(bridge.stopUnconfirmed,true,mode);
+  await assert.rejects(()=>bridge.navigate('dock'),/NAV2_STOP_UNCONFIRMED/);
+ }
+});
