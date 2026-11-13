@@ -28,7 +28,7 @@ CANCEL_SCENARIOS = {
     'cancel_ack_stall', 'cancel_happy', 'late_success',
     'cancel_ack_after_terminal', 'result_before_ack_reject'
 }
-RESULT_STALL = {'result_stall', 'cancel_ack_stall', 'cancel_ack_rejected'}
+RESULT_STALL = {'cancel_ack_stall', 'cancel_ack_rejected'}
 CANCEL_RESULT = {
     'cancel_happy', 'cancel_pending', 'cancel_ack_after_terminal',
     'result_before_ack_reject', 'cancel_ack_rejected'
@@ -150,7 +150,7 @@ def spin_once(_node, timeout_sec=0.1):
     time.sleep(0.005)
     if SCENARIO != 'clock_missing' and state['subscription'] is not None:
         state['subscription'](None)
-    if SCENARIO == 'ros_disconnected' and state['ticks'] >= 9:
+    if SCENARIO == 'ros_disconnected' and state['ticks'] >= 4:
         state['shutdown'] = True
 
 
