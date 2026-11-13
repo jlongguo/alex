@@ -4,6 +4,7 @@
 import {randomUUID} from 'node:crypto';
 import {mkdir,readFile,rename,writeFile} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {Nav2SimulationBridge} from './ros2-navigation.mjs';
 
 const SCHEMA='alex.dev/nav2-bridge-live-acceptance/v1';
@@ -206,7 +207,7 @@ function parseArgs(argv){
     throw Error('NAV2_BRIDGE_INVALID_ARGS');
   return args;
 }
-if(import.meta.url===new URL('file://'+resolve(process.argv[1])).href){
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   try{
     const args=parseArgs(process.argv.slice(2));
     if(args.reset){
