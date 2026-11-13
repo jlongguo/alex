@@ -90,33 +90,52 @@ test('R62 Nav2 ACK 拒绝与 Action 终态不匹配均 fail closed',{timeout:500
  }
 });
 
-test('R62 取消故障结束后可接收下一次任务，但不会把之前错误带入新目标',{timeout:5000},async()=>{
- let mode='ignore-cancel';
+test('R62 取消状态未知后当前桥隔离，不允许下一任务覆盖潜在运行的 Action',{timeout:5000},async()=>{
  let cancelled=false;
- const {bridge}=bridgeFor(mode,{
-  spawnProcess:(_command,_argv,options)=>spawn(process.execPath,[fixture],{
-   stdio:options.stdio,shell:false,
-   env:{...options.env,ALEX_TEST_NAV2_MODE:mode}
-  })
- });
+ const {bridge}=bridgeFor('ignore-cancel');
  const first=bridge.navigate('study_desk',{isCancelled:()=>cancelled});
  setTimeout(()=>{cancelled=true;},60);
  const failure=await first;
  assert.equal(failure.status,'failed');
  assert.equal(failure.reason,'NAV2_CANCEL_UNCONFIRMED');
  assert.equal(bridge.active,false);
+ assert.equal(bridge.stopUnconfirmed,true);
+ await assert.rejects(()=>bridge.navigate('story_corner'),/NAV2_STOP_UNCONFIRMED/);
+});
 
- mode='success';
- cancelled=false;
+test('R62 完整隔离的全新模拟进程允许后续任务，但不抹除旧实例隔离标记',{timeout:5000},async()=>{
+ let cancelled=false;
+ const {bridge:unsafe}=bridgeFor('ignore-cancel');
+ const first=unsafe.navigate('study_desk',{isCancelled:()=>cancelled});
+ setTimeout(()=>{cancelled=true;},60);
+ await first;
+ assert.equal(unsafe.stopUnconfirmed,true);
+
+ // 测试前后都仅有 JSONL 假客户端；真实 Nav2 恢复必须先验证旧目标终态。
+ const {bridge:clean}=bridgeFor('success');
  const phases=[];
- const success=await bridge.navigate('study_desk',{
+ const success=await clean.navigate('study_desk',{
   onFeedback:async x=>{phases.push(x.phase);}
  });
  assert.equal(success.status,'arrived');
- assert.equal(bridge.active,false);
+ assert.equal(clean.active,false);
+ assert.equal(clean.stopUnconfirmed,false);
+ assert.equal(unsafe.stopUnconfirmed,true);
  assert.ok(phases.includes('planning'));
  assert.ok(phases.includes('moving'));
  assert.ok(phases.includes('arrived'));
+});
+
+test('R62 已确认拒绝或取消不会触发不必要的桥隔离',{timeout:5000},async()=>{
+ for(const mode of ['reject','hold']){
+  let cancelled=false;
+  const {bridge}=bridgeFor(mode);
+  const first=bridge.navigate('study_desk',{isCancelled:()=>cancelled});
+  if(mode==='hold')setTimeout(()=>{cancelled=true;},60);
+  const result=await first;
+  assert.equal(result.status,mode==='hold'?'cancelled':'failed');
+  assert.equal(bridge.stopUnconfirmed,false);
+ }
 });
 
 test('R62 已激活任务不能并发启动第二个 Nav2 Action',{timeout:5000},async()=>{
@@ -160,5 +179,18 @@ test('R62 目标拒绝、位置未经证实的成功和正常到达，行为不�
   assert.equal(r.status,status,mode);
   assert.equal(r.reason,reason,mode);
   assert.equal(bridge.active,false,mode);
+ }
+});
+
+test('R62 取消 ACK 被拒绝或成功终态竞争也必须隔离旧桥',{timeout:5000},async()=>{
+ for(const mode of ['cancel-rejected','cancel-terminal-mismatch','success-after-cancel']){
+  let cancelled=false;
+  const {bridge}=bridgeFor(mode);
+  const job=bridge.navigate('study_desk',{isCancelled:()=>cancelled});
+  setTimeout(()=>{cancelled=true;},60);
+  const result=await job;
+  assert.equal(result.status,'failed',mode);
+  assert.equal(bridge.stopUnconfirmed,true,mode);
+  await assert.rejects(()=>bridge.navigate('dock'),/NAV2_STOP_UNCONFIRMED/);
  }
 });
