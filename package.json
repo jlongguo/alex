@@ -23,6 +23,8 @@
     "sim:smoke": "python3 robotics/ros2/alex_sim/scripts/ros_smoke.py",
     "sim:accept": "bash scripts/run-ros-acceptance.sh",
     "sim:accept-cancel": "ALEX_ROS_ACCEPTANCE_MODE=cancel-probe bash scripts/run-ros-acceptance.sh",
+    "sim:accept-recovery": "ALEX_ROS_ACCEPTANCE_MODE=recover-probe bash scripts/run-ros-acceptance.sh",
+    "sim:verify-recovery-report": "python3 scripts/verify-ros-recovery-report.py",
     "sim:verify-cancel-report": "python3 scripts/verify-ros-cancel-report.py",
     "sim:fault-contract": "npm run build && node scripts/nav2-fault-contract.mjs",
     "sim:verify-fault-contract": "node scripts/verify-nav2-fault-contract.mjs",

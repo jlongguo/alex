@@ -31,6 +31,7 @@ def main():
     modes.add_argument('--navigate', action='store_true', help='One goal: dock to study desk')
     modes.add_argument('--route', action='store_true', help='Three goals: desk -> story -> dock')
     modes.add_argument('--cancel-probe', action='store_true', help='Live Nav2 cancel and post-cancel stop proof')
+    modes.add_argument('--recover-probe', action='store_true', help='Live cancel, re-navigate and return to dock')
     parser.add_argument('--timeout', type=float, default=110.0, help='ROS graph readiness deadline in wall seconds')
     parser.add_argument('--goal-timeout', type=float, default=150.0, help='Per-goal wall time budget')
     parser.add_argument('--report', default='.local/ros/acceptance-report.json')
@@ -38,11 +39,11 @@ def main():
     if not (10 <= args.timeout <= 600) or not (15 <= args.goal_timeout <= 600):
         raise SystemExit('Invalid acceptance timeouts')
     # 即便绕过封装 Shell 直接调用 Python，取消探针也必须使用本机独立模拟域。
-    if args.cancel_probe and (os.environ.get('ROS_DOMAIN_ID') != '77'
+    if (args.cancel_probe or args.recover_probe) and (os.environ.get('ROS_DOMAIN_ID') != '77'
                               or os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE') != 'LOCALHOST'):
         raise SystemExit('NAV2_CANCEL_REQUIRES_ISOLATED_SIMULATION_DOMAIN')
 
-    from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
+    from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, DOCK, summarize_leg,
                                      verify_graph, graph_readiness_snapshot, GRAPH_TOPICS,
                                      goal_arrival_heading)
     import rclpy
@@ -64,14 +65,15 @@ def main():
     from alex_sim.gz_pose import query_gz_model_pose
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
-    report = {'schema': ('alex.dev/ros-cancel-acceptance/v1' if args.cancel_probe
+    report = {'schema': ('alex.dev/ros-recovery-acceptance/v1' if args.recover_probe
+                         else 'alex.dev/ros-cancel-acceptance/v1' if args.cancel_probe
                          else 'alex.dev/ros-acceptance/v1'),
-              'mode': ('cancel-probe' if args.cancel_probe else 'route' if args.route
-                       else 'navigate' if args.navigate else 'graph'),
+              'mode': ('recover-probe' if args.recover_probe else 'cancel-probe' if args.cancel_probe
+                       else 'route' if args.route else 'navigate' if args.navigate else 'graph'),
               'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
               'run_id': os.environ.get('ALEX_ROS_ACCEPTANCE_RUN_ID') or __import__('uuid').uuid4().hex}
-    if args.cancel_probe:
-        # 取消验收只针对 Gazebo 模拟，明确禁止声称物理安全/发布认证。
+    if args.cancel_probe or args.recover_probe:
+        # 取消与恢复验收只针对 Gazebo 模拟，不构成物理安全或发布认证。
         report['physical_safety_certified'] = False
         report['release_approved'] = False
     save_report(report, args.report)
@@ -650,6 +652,31 @@ def main():
             run_goal(goal)
         if args.cancel_probe:
             run_cancel_probe()
+        if args.recover_probe:
+            # 必须在同一 ROS Node / Nav2 ActionClient / Gazebo 会话内进行恢复，
+            # 不能由另一次独立成功的导航报告冒充取消后的恢复能力。
+            run_cancel_probe()
+            required_cancel = {'nav2_cancel_acknowledged', 'nav2_cancel_terminal',
+                               'post_cancel_stop_observed'}
+            if not required_cancel.issubset(report['checks']):
+                raise RuntimeError('NAV2_RECOVERY_CANCEL_NOT_VERIFIED')
+            report['recovery'] = {
+                'source': 'same-gazebo-session',
+                'cancel_verified': True,
+                'recovery_goals': [],
+                'return_to_dock_verified': False,
+            }
+            save_report(report, args.report)
+            for index, goal in enumerate((DESK, DOCK)):
+                run_goal(goal)
+                # run_goal 只有在 Action 成功、fresh TF 和 odom 运动经验证后才返回。
+                report['recovery']['recovery_goals'].append(goal.name)
+                report['checks'].append(
+                    'post_cancel_recovery_desk_verified' if index == 0
+                    else 'post_cancel_return_dock_verified')
+                save_report(report, args.report)
+            report['recovery']['return_to_dock_verified'] = True
+            save_report(report, args.report)
         report['status'] = 'passed'
         return 0
     except Exception as exc:
