@@ -81,6 +81,7 @@ function reports(){
   schema:'alex.dev/nav2-bridge-live-acceptance/v1',
   mode:'bridge-probe',status:'passed',source:'node-python-nav2-live',
   simulation_only:true,physical_safety_certified:false,release_approved:false,
+  execution_class:'live-gazebo',
   runtime_chain:'node->python-rclpy->nav2-action',
   independent_tf_verified:false,run_id:'44444444-4444-4444-8444-444444444444',
   reason:null,
