@@ -75,6 +75,7 @@ jobs:
           npm run sim:bundle-collect
           npm run sim:bundle-verify -- --expect-run-id "$GITHUB_RUN_ID" --expect-sha "$GITHUB_SHA" --expect-attempt "$GITHUB_RUN_ATTEMPT"
       - name: Upload acceptance report and launch logs even on failure
+        id: ros_evidence_upload
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -98,3 +99,27 @@ jobs:
             .local/ros/bridge-preflight.json
             .local/ros/bridge-diagnostics.json
             .local/ros/workflow-evidence-bundle.json
+      - name: Bind immutable artifact ID and digest to this successful ROS run
+        if: success()
+        env:
+          ALEX_ROS_ARTIFACT_ID: ${{ steps.ros_evidence_upload.outputs.artifact-id }}
+          ALEX_ROS_ARTIFACT_DIGEST: ${{ steps.ros_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-ros-artifact-attestation.py
+          python3 scripts/verify-ros-artifact-attestation.py \
+            --attestation .local/ros/artifact-attestation.json \
+            --folder .local/ros \
+            --artifact-id "$ALEX_ROS_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ROS_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Upload ROS artifact attestation separately
+        id: ros_attestation_upload
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alex-ros-gazebo-attestation
+          if-no-files-found: error
+          path: .local/ros/artifact-attestation.json
