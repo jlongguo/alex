@@ -14,21 +14,12 @@ sys.path.insert(0, str(ROOT / 'robotics/ros2/alex_sim'))
 from alex_sim.acceptance import ACCEPTANCE_ROUTE  # noqa: E402
 
 
-def verify_report(report, expected_run_id=None):
-    if not isinstance(report, dict) or report.get('schema') != 'alex.dev/ros-acceptance/v1':
-        raise ValueError('INVALID_ACCEPTANCE_SCHEMA')
-    if report.get('status') != 'passed' or report.get('mode') != 'route':
-        raise ValueError('ROUTE_NOT_PASSED')
-    if expected_run_id is not None and (not expected_run_id or report.get('run_id') != expected_run_id):
-        raise ValueError('ACCEPTANCE_RUN_ID_MISMATCH')
-    if report.get('simulation_only') is not True:
-        raise ValueError('NOT_SIMULATION_ONLY')
-    if 'clock_scan_odom_map_tf_nav2_ready' not in report.get('checks', []):
-        raise ValueError('MISSING_ROS_GRAPH_PROOF')
+def verify_navigation_legs(legs, goals):
+    """复用相同的 TF/odom/路径误差门槛，避免恢复流程使用宽松阈值。"""
     legs = report.get('legs')
-    if not isinstance(legs, list) or len(legs) != len(ACCEPTANCE_ROUTE):
+    if not isinstance(legs, list) or len(legs) != len(goals):
         raise ValueError('INCOMPLETE_NAVIGATION_ROUTE')
-    for goal, leg in zip(ACCEPTANCE_ROUTE, legs):
+    for goal, leg in zip(goals, legs):
         if not isinstance(leg, dict) or leg.get('goal') != goal.name or leg.get('verified') is not True:
             raise ValueError('UNVERIFIED_GOAL:' + goal.name)
         if not (leg.get('x') == goal.x and leg.get('y') == goal.y):
@@ -48,6 +39,20 @@ def verify_report(report, expected_run_id=None):
         if hypot(x - goal.x, y - goal.y) > 0.12:
             raise ValueError('POSE_DISAGREES_WITH_REPORTED_ERROR:' + goal.name)
     return True
+
+
+def verify_report(report, expected_run_id=None):
+    if not isinstance(report, dict) or report.get('schema') != 'alex.dev/ros-acceptance/v1':
+        raise ValueError('INVALID_ACCEPTANCE_SCHEMA')
+    if report.get('status') != 'passed' or report.get('mode') != 'route':
+        raise ValueError('ROUTE_NOT_PASSED')
+    if expected_run_id is not None and (not expected_run_id or report.get('run_id') != expected_run_id):
+        raise ValueError('ACCEPTANCE_RUN_ID_MISMATCH')
+    if report.get('simulation_only') is not True:
+        raise ValueError('NOT_SIMULATION_ONLY')
+    if 'clock_scan_odom_map_tf_nav2_ready' not in report.get('checks', []):
+        raise ValueError('MISSING_ROS_GRAPH_PROOF')
+    return verify_navigation_legs(report.get('legs'), ACCEPTANCE_ROUTE)
 
 
 def main():
