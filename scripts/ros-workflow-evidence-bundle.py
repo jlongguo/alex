@@ -14,6 +14,7 @@ import re
 from runpy import run_path
 import sys
 from tempfile import NamedTemporaryFile
+from time import time_ns
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
@@ -141,18 +142,32 @@ def atomically_write(path, data):
             temporary.unlink(missing_ok=True)
 
 
-def reset(bundle):
-    # 先无条件覆盖上一次已组装的报告，防止新工作流失败时上传旧 PASS。
+def reset(bundle, env):
+    # 在测试启动前绑定具体 Actions Run，而不是收尾时才读取可变的环境信息。
+    context = action_context(env)
     atomically_write(bundle, {
         'schema': SCHEMA, 'status': 'blocked',
         'source': SOURCE, 'simulation_only': True,
         'release_approved': False, 'physical_safety_certified': False,
         'reason': 'WORKFLOW_ACCEPTANCE_PENDING', 'reports': [],
+        'context': context, 'started_at_ns': time_ns(),
     })
 
 
 def collect(bundle, env):
     context = action_context(env)
+    prior = json_object(read_bounded(bundle, 32 * 1024))
+    reject(prior.get('schema') == SCHEMA and prior.get('status') == 'blocked'
+           and prior.get('reason') == 'WORKFLOW_ACCEPTANCE_PENDING'
+           and prior.get('context') == context
+           and type(prior.get('started_at_ns')) is int
+           and prior['started_at_ns'] > 0,
+           'EVIDENCE_WORKFLOW_NOT_RESET')
+    # 自托管 Runner 工作区可持久化：必须排除上一个 Workflow Run 遗留的 PASS。
+    for _, filename, _, _, _, _ in CASES:
+        reject((bundle.parent / filename).is_file()
+               and (bundle.parent / filename).stat().st_mtime_ns > prior['started_at_ns'],
+               'EVIDENCE_STALE_SCENARIO_REPORT')
     entries = [validate_report(case, bundle.parent) for case in CASES]
     ids = [entry['run_id'] for entry in entries]
     reject(len(set(ids)) == len(CASES), 'EVIDENCE_REUSED_SCENARIO_RUN_ID')
@@ -221,7 +236,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.reset:
-            reset(args.bundle)
+            reset(args.bundle, os.environ)
             print('ROS_WORKFLOW_BUNDLE_BLOCKED')
         elif args.collect:
             reject(args.expect_run_id is None and args.expect_sha is None,
