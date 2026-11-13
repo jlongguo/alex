@@ -92,6 +92,7 @@ async function createStructuralLiveFixture(report){
   data.source='node-python-nav2-live';
   data.execution_class='live-gazebo';
   data.runtime_chain='node->python-rclpy->nav2-action';
+  for(const leg of data.legs)leg.elapsed_ms=Math.max(1,leg.elapsed_ms);
   await writeFile(report,JSON.stringify(data));
   return data;
 }
@@ -117,6 +118,7 @@ test('R63 报告生成器要求同一 Node 桥连续完成 desk -> dock，并保
       assert.equal(leg.first_sequence,1);
       assert.equal(leg.last_sequence,3);
       assert.equal(leg.max_progress,100);
+      assert.equal(leg.map_version,'alex-home-grid-v1');
     }
     assert.deepEqual(data.bridge,{
       active:false,stop_unconfirmed:false,final_pose:{x:7,y:28,heading:2.2}
@@ -143,6 +145,8 @@ test('R63 Python 验证器接受结构正确报告并拒绝 run ID、终点、�
       doc=>{doc.legs[0].final_pose.x=18;},
       doc=>{doc.legs[0].moving_feedback_count=0;},
       doc=>{doc.legs[1].last_sequence=99;},
+      doc=>{doc.legs[0].map_version='wrong-map';},
+      doc=>{doc.legs[0].elapsed_ms=0;},
       doc=>{doc.bridge.stop_unconfirmed=true;},
       doc=>{doc.checks.pop();},
       doc=>{doc.status='running';}
