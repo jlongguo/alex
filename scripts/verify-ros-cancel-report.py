@@ -22,10 +22,14 @@ def number(value, low, high):
             and low <= value <= high)
 
 
-def verify_cancel_report(report, expected_run_id):
-    if not isinstance(report, dict) or report.get('schema') != 'alex.dev/ros-cancel-acceptance/v1':
+def verify_cancel_report(report, expected_run_id, *, recovery=False):
+    # 恢复验收复用取消证据契约，但必须使用不同 schema/mode，不能交叉替代。
+    expected_schema = ('alex.dev/ros-recovery-acceptance/v1' if recovery
+                       else 'alex.dev/ros-cancel-acceptance/v1')
+    expected_mode = 'recover-probe' if recovery else 'cancel-probe'
+    if not isinstance(report, dict) or report.get('schema') != expected_schema:
         raise ValueError('INVALID_CANCEL_SCHEMA')
-    if report.get('status') != 'passed' or report.get('mode') != 'cancel-probe':
+    if report.get('status') != 'passed' or report.get('mode') != expected_mode:
         raise ValueError('CANCEL_PROBE_NOT_PASSED')
     if (report.get('simulation_only') is not True
             or report.get('physical_safety_certified') is not False
@@ -36,7 +40,7 @@ def verify_cancel_report(report, expected_run_id):
         raise ValueError('INVALID_CANCEL_RUN_ID')
     if not expected_run_id or run_id != expected_run_id:
         raise ValueError('CANCEL_RUN_ID_MISMATCH')
-    if report.get('legs') != []:
+    if not recovery and report.get('legs') != []:
         raise ValueError('CANCEL_PROBE_IS_NOT_ROUTE')
     checks = report.get('checks')
     if not isinstance(checks, list) or not REQUIRED_CHECKS.issubset(set(
