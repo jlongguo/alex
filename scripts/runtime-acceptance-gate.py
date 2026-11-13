@@ -38,6 +38,8 @@ def audit(
     nav2_fault_run_id=None,
     ros_cancel_report=None,
     ros_cancel_run_id=None,
+    ros_timeout_report=None,
+    ros_timeout_run_id=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -58,6 +60,11 @@ def audit(
     if ros_cancel_run_id is not None and not _valid_run_id(ros_cancel_run_id):
         raise ValueError('INVALID_ROS_CANCEL_RUN_ID')
 
+    if (ros_timeout_report is None) != (ros_timeout_run_id is None):
+        raise ValueError('ROS_TIMEOUT_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if ros_timeout_run_id is not None and not _valid_run_id(ros_timeout_run_id):
+        raise ValueError('INVALID_ROS_TIMEOUT_RUN_ID')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
@@ -65,12 +72,14 @@ def audit(
         'voice_real_provider': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
+        'ros_timeout_recovery': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
+            'GAZEBO_NAV2_TIMEOUT_RECOVERY_RUNTIME',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -125,12 +134,24 @@ def audit(
         if ok:
             result['remaining'].remove('GAZEBO_NAV2_CANCEL_RUNTIME')
 
+    if ros_timeout_report is not None:
+        # 只接受实际 Gazebo 探针结构证据；伪 peer、单独取消和路线报告均不能代替。
+        validator = Path(__file__).with_name('verify-ros-timeout-recovery-report.py')
+        ok = _run_validator([
+            sys.executable, str(validator), '--report', str(ros_timeout_report),
+            '--run-id', ros_timeout_run_id,
+        ])
+        result['ros_timeout_recovery'] = 'verified' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('GAZEBO_NAV2_TIMEOUT_RECOVERY_RUNTIME')
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
         or result['voice_real_provider'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
+        or result['ros_timeout_recovery'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -146,6 +167,8 @@ def main():
     parser.add_argument('--nav2-fault-run-id')
     parser.add_argument('--ros-cancel-report', type=Path)
     parser.add_argument('--ros-cancel-run-id')
+    parser.add_argument('--ros-timeout-report', type=Path)
+    parser.add_argument('--ros-timeout-run-id')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -162,6 +185,8 @@ def main():
             args.nav2_fault_run_id,
             args.ros_cancel_report,
             args.ros_cancel_run_id,
+            args.ros_timeout_report,
+            args.ros_timeout_run_id,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
