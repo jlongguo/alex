@@ -25,7 +25,7 @@ R62 直接修复该桥接器、扩展已有伪 Nav2 客户端、调整 R57 伪�
 
 **禁止**意味着：`Nav2SimulationBridge.stopUnconfirmed=true`，后续 `navigate()` 直接抛出 `NAV2_STOP_UNCONFIRMED`。没有提供无验证的一键清除方法。这个机制仅约束当前桥对象；**重新实例化桥对象不能证明 ROS 服务器上的旧目标已停止**，因此必须由额外的隔离环境验收或人工审核证明旧目标终态后才能在真实仿真运行中重新接入。
 
-Node 的默认 `cancelGraceMs` 更新为 **5000 ms**，给 Python 最长 **3000 ms** 的 ACK/终态检查留出 IPC 及调度余量。Python 的取消 ACK 和 `STATUS_CANCELED` 严格检查保持 R61 原有实现。
+Node 的默认 `startupMs` 更新为 **20000 ms**，覆盖 Python 等待 `/clock` 最长 8 秒、等待 Nav2 Action 服务最长 8 秒及调度余量；默认 `cancelGraceMs` 更新为 **5000 ms**，给 Python 最长 **3000 ms** 的 ACK/终态检查留出 IPC 及调度余量。Python 的取消 ACK 和 `STATUS_CANCELED` 严格检查保持 R61 原有实现。
 
 ## 回归验证
 
