@@ -247,5 +247,7 @@ test('R64 Workflow 先上传 immutable evidence，再生成证明并单独上传
  assert.match(workflow,/steps\.ros_evidence_upload\.outputs\.artifact-id/);
  assert.match(workflow,/steps\.ros_evidence_upload\.outputs\.artifact-digest/);
  assert.equal((workflow.match(/uses: actions\/upload-artifact@v4/g)||[]).length,2);
+ assert.equal((workflow.match(/include-hidden-files: true/g)||[]).length,2,
+  '.local/ros 位于隐藏目录，两个 Artifact 都必须显式允许固定清单中的隐藏路径');
  assert.doesNotMatch(workflow,/actions\/upload-artifact@v[56789]/);
 });
