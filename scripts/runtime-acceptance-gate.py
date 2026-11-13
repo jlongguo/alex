@@ -45,6 +45,13 @@ def audit(
     ros_workflow_bundle=None,
     ros_workflow_run_id=None,
     ros_workflow_sha=None,
+    ros_artifact_attestation=None,
+    ros_artifact_folder=None,
+    ros_artifact_id=None,
+    ros_artifact_digest=None,
+    ros_artifact_run_id=None,
+    ros_artifact_attempt=None,
+    ros_artifact_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -89,6 +96,15 @@ def audit(
             and all(ch in '0123456789abcdef' for ch in ros_workflow_sha)):
         raise ValueError('INVALID_ROS_WORKFLOW_SHA')
 
+    artifact_supplied = [
+        ros_artifact_attestation, ros_artifact_folder, ros_artifact_id,
+        ros_artifact_digest, ros_artifact_run_id, ros_artifact_attempt,
+        ros_artifact_sha,
+    ]
+    if any(value is not None for value in artifact_supplied) and not all(
+            value is not None for value in artifact_supplied):
+        raise ValueError('ROS_ARTIFACT_ATTESTATION_METADATA_REQUIRED_TOGETHER')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
@@ -99,6 +115,7 @@ def audit(
         'ros_recovery_runtime': 'not_run',
         'ros_bridge_runtime': 'not_run',
         'ros_workflow_bundle': 'not_run',
+        'ros_artifact_attestation': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -108,6 +125,7 @@ def audit(
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
             'GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
             'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
+            'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -198,6 +216,24 @@ def audit(
         if ok:
             result['remaining'].remove('GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE')
 
+    if ros_artifact_attestation is not None:
+        # 只有调用方同时提供 GitHub 外部读取到的 Artifact ID/Digest/Run 元数据，
+        # 才能核对 attestation；本地 JSON 自称通过不够。
+        validator = Path(__file__).with_name('verify-ros-artifact-attestation.py')
+        ok = _run_validator([
+            sys.executable, str(validator),
+            '--attestation', str(ros_artifact_attestation),
+            '--folder', str(ros_artifact_folder),
+            '--artifact-id', str(ros_artifact_id),
+            '--artifact-digest', str(ros_artifact_digest),
+            '--run-id', str(ros_artifact_run_id),
+            '--attempt', str(ros_artifact_attempt),
+            '--commit-sha', str(ros_artifact_sha),
+        ])
+        result['ros_artifact_attestation'] = 'verified-metadata' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('GAZEBO_ACTIONS_ARTIFACT_ATTESTATION')
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
@@ -207,6 +243,7 @@ def audit(
         or result['ros_recovery_runtime'] == 'invalid'
         or result['ros_bridge_runtime'] == 'invalid'
         or result['ros_workflow_bundle'] == 'invalid'
+        or result['ros_artifact_attestation'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -229,6 +266,13 @@ def main():
     parser.add_argument('--ros-workflow-bundle', type=Path)
     parser.add_argument('--ros-workflow-run-id')
     parser.add_argument('--ros-workflow-sha')
+    parser.add_argument('--ros-artifact-attestation', type=Path)
+    parser.add_argument('--ros-artifact-folder', type=Path)
+    parser.add_argument('--ros-artifact-id')
+    parser.add_argument('--ros-artifact-digest')
+    parser.add_argument('--ros-artifact-run-id')
+    parser.add_argument('--ros-artifact-attempt', type=int)
+    parser.add_argument('--ros-artifact-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -252,6 +296,13 @@ def main():
             args.ros_workflow_bundle,
             args.ros_workflow_run_id,
             args.ros_workflow_sha,
+            args.ros_artifact_attestation,
+            args.ros_artifact_folder,
+            args.ros_artifact_id,
+            args.ros_artifact_digest,
+            args.ros_artifact_run_id,
+            args.ros_artifact_attempt,
+            args.ros_artifact_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
