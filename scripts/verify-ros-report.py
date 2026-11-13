@@ -16,7 +16,6 @@ from alex_sim.acceptance import ACCEPTANCE_ROUTE  # noqa: E402
 
 def verify_navigation_legs(legs, goals):
     """复用相同的 TF/odom/路径误差门槛，避免恢复流程使用宽松阈值。"""
-    legs = report.get('legs')
     if not isinstance(legs, list) or len(legs) != len(goals):
         raise ValueError('INCOMPLETE_NAVIGATION_ROUTE')
     for goal, leg in zip(goals, legs):
