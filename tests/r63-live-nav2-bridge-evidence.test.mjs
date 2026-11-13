@@ -80,18 +80,29 @@ async function temp(fn){
   finally{await rm(dir,{recursive:true,force:true});}
 }
 
-async function createSyntheticReport(report){
+async function createInjectedReport(report){
   await resetReport(report,{makeRunId:()=>RUN});
   await withEnv(liveEnv(),()=>runAcceptance(report,{Bridge:FakeLiveBridge}));
   return JSON.parse(await readFile(report,'utf8'));
 }
 
+async function createStructuralLiveFixture(report){
+  // 仅用于验证结构校验器；手工改标签并不证明执行过 Gazebo。
+  const data=await createInjectedReport(report);
+  data.source='node-python-nav2-live';
+  data.execution_class='live-gazebo';
+  data.runtime_chain='node->python-rclpy->nav2-action';
+  await writeFile(report,JSON.stringify(data));
+  return data;
+}
+
 test('R63 报告生成器要求同一 Node 桥连续完成 desk -> dock，并保留反馈证据',{timeout:10000},async()=>{
   await temp(async({report})=>{
-    const data=await createSyntheticReport(report);
+    const data=await createInjectedReport(report);
     assert.equal(data.status,'passed');
-    assert.equal(data.source,'node-python-nav2-live');
-    assert.equal(data.runtime_chain,'node->python-rclpy->nav2-action');
+    assert.equal(data.source,'node-python-nav2-injected-test');
+    assert.equal(data.execution_class,'injected-test');
+    assert.equal(data.runtime_chain,'injected-bridge-test');
     assert.equal(data.independent_tf_verified,false);
     assert.equal(data.physical_safety_certified,false);
     assert.equal(data.release_approved,false);
@@ -110,16 +121,21 @@ test('R63 报告生成器要求同一 Node 桥连续完成 desk -> dock，并保
     assert.deepEqual(data.bridge,{
       active:false,stop_unconfirmed:false,final_pose:{x:7,y:28,heading:2.2}
     });
+    const injected=run('python3',[verifier,'--report',report,'--run-id',RUN]);
+    assert.equal(injected.status,1,'注入执行绝不能被 live verifier 接受');
+    assert.match(injected.stderr,/NAV2_BRIDGE_NOT_PASSED|NAV2_BRIDGE_NOT_LIVE_GAZEBO/);
   });
 });
 
 test('R63 Python 验证器接受结构正确报告并拒绝 run ID、终点、过度声明和未知停止',{timeout:10000},async()=>{
   await temp(async({report})=>{
-    const original=await createSyntheticReport(report);
+    const original=await createStructuralLiveFixture(report);
     const good=run('python3',[verifier,'--report',report,'--run-id',RUN]);
     assert.equal(good.status,0,good.stderr);
 
     const mutations=[
+      doc=>{doc.execution_class='injected-test';},
+      doc=>{doc.source='node-python-nav2-injected-test';},
       doc=>{doc.independent_tf_verified=true;},
       doc=>{doc.physical_safety_certified=true;},
       doc=>{doc.release_approved=true;},
@@ -178,7 +194,7 @@ test('R63 直接运行验收缺少仿真隔离环境时 fail closed，不接触 
 
 test('R63 runtime gate 单独核验桥报告，但不能解锁独立 TF、取消、恢复或物理安全门槛',{timeout:10000},async()=>{
   await temp(async({report})=>{
-    await createSyntheticReport(report);
+    await createStructuralLiveFixture(report);
     const checked=run('python3',[gate,
       '--ros-bridge-report',report,'--ros-bridge-run-id',RUN
     ]);
@@ -203,7 +219,7 @@ test('R63 runtime gate 单独核验桥报告，但不能解锁独立 TF、取消
 
 test('R63 shell wrapper 新模式在未授权环境中覆盖旧 PASS 并阻断执行',{timeout:10000},async()=>{
   await temp(async({report,dir})=>{
-    await createSyntheticReport(report);
+    await createInjectedReport(report);
     const checked=run('bash',['scripts/run-ros-acceptance.sh'],{
       ALEX_ROS_ACCEPTANCE_MODE:'bridge-probe',
       ALEX_ROS_SIMULATION_ONLY:'0',
