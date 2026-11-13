@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
+import sys
 
 SCHEMA = 'alex.dev/ros-artifact-attestation/v1'
 SOURCE = 'github-actions-upload-artifact'
@@ -155,7 +156,7 @@ def main():
         code = str(exc)
         if not re.fullmatch(r'ARTIFACT_ATTESTATION_[A-Z0-9_]+', code):
             code = 'ARTIFACT_ATTESTATION_CREATE_FAILED'
-        print(code, file=__import__('sys').stderr)
+        print(code, file=sys.stderr)
         return 1
     print('ROS_ARTIFACT_ATTESTATION_CREATED:' + data['artifact']['id'])
     return 0
