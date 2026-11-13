@@ -5,7 +5,6 @@ import {randomUUID} from 'node:crypto';
 import {mkdir,readFile,rename,writeFile} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {Nav2SimulationBridge} from './ros2-navigation.mjs';
 
 const SCHEMA='alex.dev/nav2-bridge-live-acceptance/v1';
 const MODE='bridge-probe';
@@ -139,7 +138,7 @@ async function runLeg(bridge,goal){
     final_pose:sanitizePose(outcome.pose)
   };
 }
-export async function runAcceptance(path,{Bridge=Nav2SimulationBridge}={}){
+export async function runAcceptance(path,{Bridge=null}={}){
   requireLiveEnvironment();
   const prior=await readObject(path);
   if(prior.schema!==SCHEMA||prior.mode!==MODE||prior.status!=='blocked'
@@ -148,7 +147,9 @@ export async function runAcceptance(path,{Bridge=Nav2SimulationBridge}={}){
   const expected=process.env.ALEX_ROS_ACCEPTANCE_RUN_ID;
   if(!safeRunId(expected)||expected!==prior.run_id)
     throw Error('NAV2_BRIDGE_RUN_ID_MISMATCH');
-  const injected=Bridge!==Nav2SimulationBridge;
+  const injected=Bridge!==null;
+  const BridgeCtor=Bridge??(await import('./ros2-navigation.mjs')).Nav2SimulationBridge;
+  if(typeof BridgeCtor!=='function')throw Error('NAV2_BRIDGE_IMPLEMENTATION_UNAVAILABLE');
   const report={
     ...baseReport(prior.run_id,'running','NODE_BRIDGE_RUNTIME_STARTED',{
       source:injected?INJECTED_SOURCE:SOURCE,
@@ -159,7 +160,7 @@ export async function runAcceptance(path,{Bridge=Nav2SimulationBridge}={}){
     updated_at:now()
   };
   await atomicWrite(path,report);
-  const bridge=new Bridge({simulationOnly:true});
+  const bridge=new BridgeCtor({simulationOnly:true});
   try{
     for(const goal of GOALS){
       const leg=await runLeg(bridge,goal);
