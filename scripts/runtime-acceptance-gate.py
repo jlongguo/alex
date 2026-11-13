@@ -73,7 +73,8 @@ def audit(
             value is not None for value in workflow_supplied):
         raise ValueError('ROS_WORKFLOW_BUNDLE_RUN_ID_AND_SHA_REQUIRED_TOGETHER')
     if ros_workflow_run_id is not None and not (
-            ros_workflow_run_id.isascii() and ros_workflow_run_id.isdigit()
+            isinstance(ros_workflow_run_id, str)
+            and ros_workflow_run_id.isascii() and ros_workflow_run_id.isdigit()
             and 0 < int(ros_workflow_run_id) < 10**20):
         raise ValueError('INVALID_ROS_WORKFLOW_RUN_ID')
     if ros_workflow_sha is not None and not (
