@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R60：将三份独立 Gazebo/Nav2 验收结果绑定到一次手动 CI 执行。
+"""R60/R63：将四份独立 Gazebo/Nav2 验收结果绑定到一次手动 CI 执行。
 
 这里只做文件内容、运行 ID 与工作流上下文的一致性验证。
 JSON 和普通 SHA-256 不能证明执行者可信，必须结合 GitHub Actions 记录审核。
@@ -34,6 +34,8 @@ CASES = (
      'verify-ros-cancel-report.py', 'verify_cancel_report', 192 * 1024),
     ('recovery', 'recovery-acceptance-report.json', 'recover-probe',
      'verify-ros-recovery-report.py', 'verify_recovery_report', 256 * 1024),
+    ('bridge', 'bridge-acceptance-report.json', 'bridge-probe',
+     'verify-nav2-bridge-live-report.py', 'verify_bridge_report', 192 * 1024),
 )
 
 
