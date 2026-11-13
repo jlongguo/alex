@@ -40,7 +40,8 @@ class InputFeed:
         return json.dumps({
             'type': 'navigate',
             'goal': {'destination': 'study_desk', 'frame_id': 'map',
-                     'x': 1.7, 'y': 1.6, 'yaw': 0.0}
+                     'x': True if SCENARIO == 'bool_goal' else 1.7,
+                     'y': 1.6, 'yaw': 0.0}
         }) + '\n'
 
     def __iter__(self):
