@@ -130,7 +130,7 @@ async function assembled(dir,bundle){
  return JSON.parse(await readFile(bundle,'utf8'));
 }
 
-test('R60 三份独立 Nav2 验收报告绑定同一工作流、commit、三种不同 run ID',{timeout:15000},async()=>{
+test('R60/R63 四份独立 Nav2 验收报告绑定同一工作流、commit、四种不同 run ID',{timeout:15000},async()=>{
  await withDir(async({dir,bundle})=>{
   const manifest=await assembled(dir,bundle);
   assert.equal(manifest.status,'assembled');
