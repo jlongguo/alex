@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mode="${ALEX_ROS_ACCEPTANCE_MODE:-route}"
-# 只接受现有三段路线或新增真实 Nav2 取消探针，杜绝任意 CLI 动作。
+# 只允许三个已审查的模拟验收动作，杜绝注入任意导航命令。
 if [[ "$mode" != route && "$mode" != cancel-probe && "$mode" != timeout-recovery ]]; then
   echo 'Invalid ALEX_ROS_ACCEPTANCE_MODE; expected route, cancel-probe or timeout-recovery' >&2
   exit 2
