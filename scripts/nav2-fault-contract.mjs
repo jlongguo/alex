@@ -129,7 +129,7 @@ export function verifyNav2FaultContract(report,expectedRunId=null){
   fail('NAV2_FAULT_INCOMPLETE_SCENARIOS');
  const expected={
   rejected:['failed','rejected'],
-  user_cancelled:['cancelled',null],
+  user_cancelled:['cancelled','cancelled'],
   timeout_unconfirmed:['failed','NAV2_CANCEL_UNCONFIRMED'],
   recovery_after_failure:['arrived',null]
  };
