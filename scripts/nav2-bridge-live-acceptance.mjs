@@ -64,8 +64,8 @@ export async function resetReport(path,{makeRunId=randomUUID}={}){
 export async function failReport(path,reason='ACCEPTANCE_EXITED_BEFORE_RESULT'){
   let report;
   try{report=await readObject(path);}catch{return false;}
-  if(report.schema!==SCHEMA||report.mode!==MODE||report.status!=='running'
-    ||!safeRunId(report.run_id))return false;
+  if(report.schema!==SCHEMA||report.mode!==MODE
+    ||!['running','passed'].includes(report.status)||!safeRunId(report.run_id))return false;
   report.status='failed';
   report.reason=safeReason(reason);
   report.updated_at=now();
