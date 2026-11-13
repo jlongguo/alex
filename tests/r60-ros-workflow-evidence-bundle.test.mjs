@@ -278,3 +278,32 @@ test('R60 手动工作流先失效旧报告、后校验 Bundle、失败也上传
  assert.match(workflow,/vars\.ALEX_SIM_RUNNER_APPROVED == 'true'/);
  assert.match(workflow,/runs-on: \[self-hosted, linux, x64, alex-ros-sim\]/);
 });
+
+test('R60 Bundle 的场景模式、报告证据或目录枚举被伪造时拒绝',{timeout:15000},async()=>{
+ await withDir(async({dir,bundle})=>{
+  assert.equal(reset(bundle).status,0);
+  const candidates=[
+   doc=>{doc.mode='route';},
+   doc=>{doc.status='failed';},
+   doc=>{doc.cancel.terminal_status='SUCCEEDED';},
+   doc=>{doc.cancel.nonzero_velocity_commands=4;},
+   doc=>{doc.graph.missing=['/clock'];}
+  ];
+  const original=reports()[1][1];
+  const target=join(dir,'cancel-acceptance-report.json');
+  await seedReports(dir);
+  for(const change of candidates){
+   const doc=structuredClone(original);change(doc);
+   await writeFile(target,JSON.stringify(doc));
+   const result=collect(bundle);
+   assert.equal(result.status,1,JSON.stringify(doc));
+  }
+  await writeFile(target,JSON.stringify(original));
+  assert.equal(collect(bundle).status,0);
+
+  const manifest=JSON.parse(await readFile(bundle,'utf8'));
+  manifest.reports[0].filename='../wrong-report.json';
+  await writeFile(bundle,JSON.stringify(manifest));
+  assert.equal(verify(bundle).status,1);
+ });
+});
