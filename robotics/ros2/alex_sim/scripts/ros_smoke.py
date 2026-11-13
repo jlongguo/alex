@@ -31,6 +31,7 @@ def main():
     modes.add_argument('--navigate', action='store_true', help='One goal: dock to study desk')
     modes.add_argument('--route', action='store_true', help='Three goals: desk -> story -> dock')
     modes.add_argument('--cancel-probe', action='store_true', help='Live Nav2 cancel and post-cancel stop proof')
+    modes.add_argument('--timeout-recovery', action='store_true', help='Live action deadline, cancel and two-leg recovery')
     parser.add_argument('--timeout', type=float, default=110.0, help='ROS graph readiness deadline in wall seconds')
     parser.add_argument('--goal-timeout', type=float, default=150.0, help='Per-goal wall time budget')
     parser.add_argument('--report', default='.local/ros/acceptance-report.json')
@@ -38,11 +39,11 @@ def main():
     if not (10 <= args.timeout <= 600) or not (15 <= args.goal_timeout <= 600):
         raise SystemExit('Invalid acceptance timeouts')
     # 即便绕过封装 Shell 直接调用 Python，取消探针也必须使用本机独立模拟域。
-    if args.cancel_probe and (os.environ.get('ROS_DOMAIN_ID') != '77'
+    if (args.cancel_probe or args.timeout_recovery) and (os.environ.get('ROS_DOMAIN_ID') != '77'
                               or os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE') != 'LOCALHOST'):
         raise SystemExit('NAV2_CANCEL_REQUIRES_ISOLATED_SIMULATION_DOMAIN')
 
-    from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, summarize_leg,
+    from alex_sim.acceptance import (ACCEPTANCE_ROUTE, DESK, DOCK, summarize_leg,
                                      verify_graph, graph_readiness_snapshot, GRAPH_TOPICS,
                                      goal_arrival_heading)
     import rclpy
@@ -64,14 +65,17 @@ def main():
     from alex_sim.gz_pose import query_gz_model_pose
     from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
-    report = {'schema': ('alex.dev/ros-cancel-acceptance/v1' if args.cancel_probe
+    report = {'schema': ('alex.dev/ros-timeout-recovery/v1' if args.timeout_recovery
+                         else 'alex.dev/ros-cancel-acceptance/v1' if args.cancel_probe
                          else 'alex.dev/ros-acceptance/v1'),
-              'mode': ('cancel-probe' if args.cancel_probe else 'route' if args.route
-                       else 'navigate' if args.navigate else 'graph'),
+              'mode': ('timeout-recovery' if args.timeout_recovery
+                       else 'cancel-probe' if args.cancel_probe
+                       else 'route' if args.route else 'navigate' if args.navigate
+                       else 'graph'),
               'status': 'running', 'legs': [], 'checks': [], 'simulation_only': True,
               'run_id': os.environ.get('ALEX_ROS_ACCEPTANCE_RUN_ID') or __import__('uuid').uuid4().hex}
-    if args.cancel_probe:
-        # 取消验收只针对 Gazebo 模拟，明确禁止声称物理安全/发布认证。
+    if args.cancel_probe or args.timeout_recovery:
+        # 两种故障验收只针对 Gazebo 模拟，不认证实体机器人安全或软件发布。
         report['physical_safety_certified'] = False
         report['release_approved'] = False
     save_report(report, args.report)
@@ -344,7 +348,7 @@ def main():
             evidence['reason'] = type(exc).__name__
         return evidence
 
-    def run_cancel_probe():
+    def run_cancel_probe(force_timeout=False):
         """真实 Gazebo 的取消验收；必须同时证明取消终态与停止后位移。
 
         只发送 Nav2 Action 目标/取消，不直接控制速度或电机。
@@ -372,17 +376,55 @@ def main():
             'observation_seconds': None, 'nonzero_velocity_commands': None,
         }
         report['cancel'] = evidence
+        if force_timeout:
+            report['timeout'] = {
+                'kind': 'controlled_action_deadline',
+                'deadline_seconds': 1.5,
+                'elapsed_seconds': None,
+                'feedback_count': 0,
+                'pending_at_deadline': False,
+            }
         save_report(report, args.report)
         handle = None
         cancel_attempted = False
         try:
-            submission = action.send_goal_async(nav_goal)
+            feedback_observed = {'count': 0}
+
+            def count_feedback(_message):
+                feedback_observed['count'] += 1
+
+            submission = action.send_goal_async(
+                nav_goal, feedback_callback=count_feedback if force_timeout else None)
             spin_until(lambda: submission.done(), 10, stage='NAV2_CANCEL_SUBMISSION')
             handle = submission.result()
             if handle is None or not handle.accepted:
                 raise RuntimeError('NAV2_CANCEL_GOAL_REJECTED')
             evidence['goal_accepted'] = True
             result = handle.get_result_async()
+            if force_timeout:
+                # 先观察真实 Action feedback，再从该时刻开始受控倒计时。
+                # 这确保不是在目标尚未启动时假造超时，也不依赖睡眠推断成功。
+                # 此时目标已接受，计数来自 Nav2 ActionClient 的实际反馈回调。
+                spin_until(lambda: feedback_observed['count'] > 0 or result.done(),
+                           8, stage='NAV2_TIMEOUT_FIRST_FEEDBACK')
+                if result.done() or feedback_observed['count'] < 1:
+                    raise RuntimeError('NAV2_TIMEOUT_GOAL_NOT_RUNNING')
+                deadline_started = time.monotonic()
+                deadline = deadline_started + 1.5
+                spin_until(lambda: time.monotonic() >= deadline or result.done(),
+                           3.0, stage='NAV2_FORCED_TIMEOUT')
+                elapsed = time.monotonic() - deadline_started
+                timeout_evidence = report['timeout']
+                timeout_evidence.update(
+                    elapsed_seconds=round(elapsed, 3),
+                    feedback_count=feedback_observed['count'],
+                    pending_at_deadline=not result.done(),
+                )
+                save_report(report, args.report)
+                if elapsed < 1.5 or result.done():
+                    raise RuntimeError('NAV2_TIMEOUT_NOT_OBSERVED')
+                report['checks'].append('nav2_forced_timeout_observed')
+                save_report(report, args.report)
             # 从已接受的 Nav2 Action 发出真实 cancel_goal_async 请求。
             # 拒绝仅凭调用成功或 future.done() 就判定取消已生效。
             cancel_attempted = True
@@ -650,6 +692,17 @@ def main():
             run_goal(goal)
         if args.cancel_probe:
             run_cancel_probe()
+        if args.timeout_recovery:
+            run_cancel_probe(force_timeout=True)
+            # 只有取消终态和独立停稳证据都通过，才可发送恢复目标。
+            if 'post_cancel_stop_observed' not in report['checks']:
+                raise RuntimeError('NAV2_TIMEOUT_RESTART_BEFORE_STOP')
+            run_goal(DESK)
+            report['checks'].append('nav2_recovery_to_desk_verified')
+            save_report(report, args.report)
+            run_goal(DOCK)
+            report['checks'].append('nav2_return_to_dock_verified')
+            save_report(report, args.report)
         report['status'] = 'passed'
         return 0
     except Exception as exc:
