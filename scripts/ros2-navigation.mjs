@@ -12,6 +12,16 @@ const targetFor=name=>MAP.destinations[name];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const round=n=>Math.round(n*10000)/10000;
 
+// 这些结果不能证明 Nav2 目标已经结束；同一桥实例禁止继续提交新目标。
+const UNCERTAIN_STOP_REASONS=new Set([
+  'NAV2_CANCEL_UNCONFIRMED','NAV2_CANCEL_NOT_ACKNOWLEDGED',
+  'NAV2_CANCEL_TERMINAL_NOT_CANCELED','NAV2_COMPLETED_AFTER_CANCELLATION',
+  'NAV2_GOAL_SUBMISSION_UNCONFIRMED','NAV2_DISCONNECTED',
+  'NAV2_PROCESS_EXIT','NAV2_STARTUP_TIMEOUT','NAV2_PROTOCOL_OVERFLOW',
+  'NAV2_PROTOCOL_FRAME_TOO_LARGE','INVALID_NAV2_JSON','INVALID_NAV2_FEEDBACK',
+  'NAV2_OUTSIDE_APPROVED_GRID'
+]);
+
 /** Convert the *fictional* 0.1m grid to a ROS map simulation configured to match it. */
 export function toNav2Goal(destination){
   if(!SIM_DESTINATIONS.includes(destination))throw new Error('INVALID_SIM_DESTINATION');
@@ -32,16 +42,27 @@ export class Nav2SimulationBridge {
     if(!between(startupMs,500,30000)||!between(goalTimeoutMs,1000,300000)||!between(cancelGraceMs,100,10000))throw new Error('INVALID_NAV2_TIMEOUT');
     this.python=python;this.scriptPath=scriptPath;this.spawnProcess=spawnProcess;
     this.startupMs=startupMs;this.goalTimeoutMs=goalTimeoutMs;this.cancelGraceMs=cancelGraceMs;
-    this.pose=initialPose();this.active=false;
+    this.pose=initialPose();this.active=false;this.stopUnconfirmed=false;
   }
   async navigate(destination,{onFeedback=async()=>{},isCancelled=()=>false}={}){
     if(this.active)throw new Error('NAV2_BUSY');
+    // 未确认前一个 Nav2 目标已终止，不能允许新任务覆盖潜在运行中的目标。
+    if(this.stopUnconfirmed)throw new Error('NAV2_STOP_UNCONFIRMED');
     const goal=toNav2Goal(destination),target=targetFor(destination);
     if(isCancelled())return {status:'cancelled',pose:{...this.pose}};
     this.active=true;
     let child,buffer='',settled=false,seq=0,started=false,cancelSent=false,cancelCause=null,lastPose=null,lastProgress=0;
     let resolveFinal;const done=new Promise(resolve=>resolveFinal=resolve);
-    const finish=(status,reason)=>{if(settled)return;settled=true;resolveFinal({status,pose:{...this.pose},...(reason?{reason}:{})});};
+    const finish=(status,reason)=>{
+      if(settled)return;
+      if(status==='failed'&&(UNCERTAIN_STOP_REASONS.has(reason)
+        ||(typeof reason==='string'&&(
+          reason.startsWith('NAV2_PROCESS_ERROR:')||
+          reason.startsWith('NAV2_FEEDBACK_ERROR:')
+        ))))this.stopUnconfirmed=true;
+      settled=true;
+      resolveFinal({status,pose:{...this.pose},...(reason?{reason}:{})});
+    };
     const write=obj=>{try{if(child?.stdin?.writable)child.stdin.write(JSON.stringify(obj)+'\n');}catch{}};
     // Feedback is delivered in order; terminal results wait for prior onFeedback writes.
     let feedbackSerial=Promise.resolve();
