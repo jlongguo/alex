@@ -10,6 +10,8 @@ R64 增加第二层证据：在主 ROS Artifact 成功上传之后，读取 acti
 
 仓库继续使用现有 actions/upload-artifact@v4，不做依赖版本升级。v4 的上传结果提供 artifact-id 与 artifact-digest，Artifact 上传后不可修改。R64 只消费这些已有输出。
 
+由于证据路径位于 .local/ros，属于隐藏目录，Workflow 对两个上传步骤都显式设置 include-hidden-files=true；上传路径仍是固定白名单，不使用整个 .local 目录通配，避免把无关或敏感文件带入 Artifact。
+
 ## 成功 Workflow 顺序
 
 1. 执行 route / cancel / recovery / bridge 四类 Gazebo 验收。
