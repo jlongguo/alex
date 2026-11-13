@@ -35,6 +35,15 @@ for await(const line of lines){
     started=true;lastGoal=msg.goal;
     process.stdout.write(JSON.stringify({type:'ready'})+'\n');
     const mode=process.env.ALEX_TEST_NAV2_MODE??'success';
+    if(mode==='exit-after-ready'){process.exitCode=3;break;}
+    if(mode==='invalid-json'){process.stdout.write('not-json\n');break;}
+    if(mode==='invalid-feedback'){
+      process.stdout.write(JSON.stringify({
+        type:'feedback',distance_remaining:-5,
+        pose:{x:msg.goal.x,y:msg.goal.y,yaw:0}
+      })+'\n');
+      break;
+    }
     // 故障注入时可以选择不回复取消请求，验证宿主端有界超时。
     if(['hold','ignore-cancel','success-after-cancel','cancel-rejected','cancel-terminal-mismatch'].includes(mode))continue;
     if(mode==='reject'){
