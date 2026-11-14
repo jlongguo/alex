@@ -384,9 +384,15 @@ def verify_report(report, expected):
     reject(isinstance(context, dict)
            and context.get('repository') == REPO
            and context.get('workflow') == WORKFLOW
+           and isinstance(context.get('workflow_ref'), str)
+           and WORKFLOW_REF.fullmatch(context['workflow_ref'])
            and context.get('id') == expected['run_id']
            and context.get('attempt') == expected['attempt']
-           and context.get('commit_sha') == expected['commit_sha'],
+           and context.get('commit_sha') == expected['commit_sha']
+           and context.get('status_at_audit') == 'in_progress'
+           and context.get('conclusion_at_audit') is None
+           and context.get('head_branch')
+               == context['workflow_ref'].split('@refs/heads/', 1)[1],
            'PUBLICATION_AUDIT_REPORT_CONTEXT_MISMATCH')
     artifacts = report.get('artifacts')
     reject(isinstance(artifacts, dict),
@@ -405,20 +411,36 @@ def verify_report(report, expected):
                and normalize_digest(
                    item.get('digest_sha256'),
                    'PUBLICATION_AUDIT_REPORT_DIGEST_INVALID') == digest
+               and normalize_digest(
+                   item.get('api_digest'),
+                   'PUBLICATION_AUDIT_REPORT_API_DIGEST_INVALID') == digest
                and item.get('expired') is False
                and type(item.get('size_in_bytes')) is int
                and item.get('size_in_bytes') > 0,
                'PUBLICATION_AUDIT_REPORT_ARTIFACT_MISMATCH')
     jobs = report.get('jobs')
-    reject(isinstance(jobs, dict)
-           and isinstance(jobs.get('producer'), dict)
-           and jobs['producer'].get('name') == PRODUCER_JOB
-           and jobs['producer'].get('status') == 'completed'
-           and jobs['producer'].get('conclusion') == 'success'
-           and isinstance(jobs.get('auditor'), dict)
-           and jobs['auditor'].get('name') == AUDIT_JOB
-           and jobs['auditor'].get('status') == 'in_progress',
+    producer = jobs.get('producer') if isinstance(jobs, dict) else None
+    auditor = jobs.get('auditor') if isinstance(jobs, dict) else None
+    reject(isinstance(producer, dict)
+           and producer.get('name') == PRODUCER_JOB
+           and producer.get('status') == 'completed'
+           and producer.get('conclusion') == 'success'
+           and isinstance(producer.get('runner_name'), str)
+           and producer.get('runner_name').strip() != ''
+           and isinstance(producer.get('labels'), list)
+           and PRODUCER_LABELS.issubset(set(producer['labels']))
+           and isinstance(auditor, dict)
+           and auditor.get('name') == AUDIT_JOB
+           and auditor.get('status') == 'in_progress'
+           and isinstance(auditor.get('labels'), list)
+           and 'ubuntu-latest' in auditor['labels'],
            'PUBLICATION_AUDIT_REPORT_JOBS_INVALID')
+    api = report.get('api')
+    reject(isinstance(api, dict)
+           and api.get('base_url') == API_BASE
+           and api.get('api_version') == '2022-11-28'
+           and api.get('actions_permission') == 'read',
+           'PUBLICATION_AUDIT_REPORT_API_INVALID')
     return True
 
 
