@@ -44,11 +44,18 @@ def read_bounded(path, max_bytes):
     return path.read_bytes()
 
 
+def normalize_digest(value):
+    if isinstance(value, str) and value.startswith('sha256:'):
+        value = value[7:]
+    reject(isinstance(value, str) and SHA256.fullmatch(value),
+           'ARTIFACT_ATTESTATION_EXPECTED_DIGEST_INVALID')
+    return value
+
+
 def expected_metadata(args):
     reject(isinstance(args.artifact_id, str) and DIGITS.fullmatch(args.artifact_id),
            'ARTIFACT_ATTESTATION_EXPECTED_ID_INVALID')
-    reject(isinstance(args.artifact_digest, str) and SHA256.fullmatch(args.artifact_digest),
-           'ARTIFACT_ATTESTATION_EXPECTED_DIGEST_INVALID')
+    digest = normalize_digest(args.artifact_digest)
     reject(isinstance(args.run_id, str) and DIGITS.fullmatch(args.run_id),
            'ARTIFACT_ATTESTATION_EXPECTED_RUN_INVALID')
     reject(type(args.attempt) is int and 1 <= args.attempt <= 10000,
@@ -57,7 +64,7 @@ def expected_metadata(args):
            'ARTIFACT_ATTESTATION_EXPECTED_COMMIT_INVALID')
     return {
         'artifact_id': args.artifact_id,
-        'artifact_digest': args.artifact_digest,
+        'artifact_digest': digest,
         'run_id': args.run_id,
         'attempt': args.attempt,
         'commit_sha': args.commit_sha,
