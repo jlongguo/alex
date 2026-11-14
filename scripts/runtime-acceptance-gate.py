@@ -54,6 +54,7 @@ def audit(
     ros_artifact_sha=None,
     ros_evidence_folder=None,
     ros_evidence_attestation=None,
+    ros_evidence_github_readback=None,
     ros_evidence_artifact_id=None,
     ros_evidence_artifact_digest=None,
     ros_evidence_run_id=None,
@@ -114,6 +115,7 @@ def audit(
 
     evidence_set_supplied = [
         ros_evidence_folder, ros_evidence_attestation,
+        ros_evidence_github_readback,
         ros_evidence_artifact_id, ros_evidence_artifact_digest,
         ros_evidence_run_id, ros_evidence_attempt, ros_evidence_sha,
     ]
@@ -146,6 +148,7 @@ def audit(
         'ros_workflow_bundle': 'not_run',
         'ros_artifact_attestation': 'not_run',
         'ros_evidence_set': 'not_run',
+        'ros_github_readback': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -157,6 +160,7 @@ def audit(
             'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
             'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
             'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
+            'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -272,6 +276,7 @@ def audit(
             sys.executable, str(validator),
             '--folder', str(ros_evidence_folder),
             '--attestation', str(ros_evidence_attestation),
+            '--github-readback', str(ros_evidence_github_readback),
             '--artifact-id', str(ros_evidence_artifact_id),
             '--artifact-digest', str(ros_evidence_artifact_digest),
             '--run-id', str(ros_evidence_run_id),
@@ -286,6 +291,7 @@ def audit(
             result['ros_bridge_runtime'] = 'verified-by-set'
             result['ros_workflow_bundle'] = 'verified-by-set'
             result['ros_artifact_attestation'] = 'verified-by-set'
+            result['ros_github_readback'] = 'verified-by-set'
             for item in (
                 'GAZEBO_NAV2_THREE_LEG_RUNTIME',
                 'GAZEBO_NAV2_CANCEL_RUNTIME',
@@ -294,6 +300,7 @@ def audit(
                 'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
                 'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
                 'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
+                'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
             ):
                 result['remaining'].remove(item)
 
@@ -308,6 +315,7 @@ def audit(
         or result['ros_workflow_bundle'] == 'invalid'
         or result['ros_artifact_attestation'] == 'invalid'
         or result['ros_evidence_set'] == 'invalid'
+        or result['ros_github_readback'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -339,6 +347,7 @@ def main():
     parser.add_argument('--ros-artifact-sha')
     parser.add_argument('--ros-evidence-folder', type=Path)
     parser.add_argument('--ros-evidence-attestation', type=Path)
+    parser.add_argument('--ros-evidence-github-readback', type=Path)
     parser.add_argument('--ros-evidence-artifact-id')
     parser.add_argument('--ros-evidence-artifact-digest')
     parser.add_argument('--ros-evidence-run-id')
@@ -376,6 +385,7 @@ def main():
             args.ros_artifact_sha,
             args.ros_evidence_folder,
             args.ros_evidence_attestation,
+            args.ros_evidence_github_readback,
             args.ros_evidence_artifact_id,
             args.ros_evidence_artifact_digest,
             args.ros_evidence_run_id,
