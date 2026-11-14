@@ -157,12 +157,17 @@ def validate_run(run, expected):
     }
 
 
-def artifact_by_name(payload, name):
+def artifact_by_identity(payload, name, artifact_id):
     items = payload.get('artifacts')
     reject(isinstance(items, list), 'PUBLICATION_AUDIT_ARTIFACTS_INVALID')
-    matches = [x for x in items if isinstance(x, dict) and x.get('name') == name]
+    matches = [
+        x for x in items
+        if isinstance(x, dict) and x.get('id') == int(artifact_id)
+    ]
     reject(len(matches) > 0, 'PUBLICATION_AUDIT_ARTIFACT_MISSING')
-    reject(len(matches) == 1, 'PUBLICATION_AUDIT_ARTIFACT_NOT_UNIQUE')
+    reject(len(matches) == 1, 'PUBLICATION_AUDIT_ARTIFACT_ID_NOT_UNIQUE')
+    reject(matches[0].get('name') == name,
+           'PUBLICATION_AUDIT_ARTIFACT_NAME_MISMATCH')
     return matches[0]
 
 
@@ -282,14 +287,17 @@ def create_audit(env, fetch_json=github_get_json, sleep_fn=sleep):
             jobs = fetch_json(
                 base + '/jobs?filter=latest&per_page=100', expected['token'])
             main = validate_artifact(
-                artifact_by_name(artifacts, MAIN_ARTIFACT),
+                artifact_by_identity(
+                    artifacts, MAIN_ARTIFACT, expected['main_artifact_id']),
                 name=MAIN_ARTIFACT,
                 artifact_id=expected['main_artifact_id'],
                 digest=expected['main_artifact_digest'],
                 expected=expected,
             )
             attestation = validate_artifact(
-                artifact_by_name(artifacts, ATTESTATION_ARTIFACT),
+                artifact_by_identity(
+                    artifacts, ATTESTATION_ARTIFACT,
+                    expected['attestation_artifact_id']),
                 name=ATTESTATION_ARTIFACT,
                 artifact_id=expected['attestation_artifact_id'],
                 digest=expected['attestation_artifact_digest'],
