@@ -52,6 +52,13 @@ def audit(
     ros_artifact_run_id=None,
     ros_artifact_attempt=None,
     ros_artifact_sha=None,
+    ros_evidence_folder=None,
+    ros_evidence_attestation=None,
+    ros_evidence_artifact_id=None,
+    ros_evidence_artifact_digest=None,
+    ros_evidence_run_id=None,
+    ros_evidence_attempt=None,
+    ros_evidence_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -105,6 +112,28 @@ def audit(
             value is not None for value in artifact_supplied):
         raise ValueError('ROS_ARTIFACT_ATTESTATION_METADATA_REQUIRED_TOGETHER')
 
+    evidence_set_supplied = [
+        ros_evidence_folder, ros_evidence_attestation,
+        ros_evidence_artifact_id, ros_evidence_artifact_digest,
+        ros_evidence_run_id, ros_evidence_attempt, ros_evidence_sha,
+    ]
+    if any(value is not None for value in evidence_set_supplied) and not all(
+            value is not None for value in evidence_set_supplied):
+        raise ValueError('ROS_EVIDENCE_SET_METADATA_REQUIRED_TOGETHER')
+
+    individual_ros_supplied = [
+        ros_report, ros_run_id, ros_cancel_report, ros_cancel_run_id,
+        ros_recovery_report, ros_recovery_run_id,
+        ros_bridge_report, ros_bridge_run_id,
+        ros_workflow_bundle, ros_workflow_run_id, ros_workflow_sha,
+        ros_artifact_attestation, ros_artifact_folder, ros_artifact_id,
+        ros_artifact_digest, ros_artifact_run_id, ros_artifact_attempt,
+        ros_artifact_sha,
+    ]
+    if all(value is not None for value in evidence_set_supplied) and any(
+            value is not None for value in individual_ros_supplied):
+        raise ValueError('ROS_EVIDENCE_SET_CANNOT_MIX_INDIVIDUAL_ROS_ARGS')
+
     result = {
         'schema': 'alex.dev/runtime-acceptance-gate/v1',
         'read_only': True,
@@ -116,6 +145,7 @@ def audit(
         'ros_bridge_runtime': 'not_run',
         'ros_workflow_bundle': 'not_run',
         'ros_artifact_attestation': 'not_run',
+        'ros_evidence_set': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -126,6 +156,7 @@ def audit(
             'GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
             'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
             'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
+            'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -234,6 +265,38 @@ def audit(
         if ok:
             result['remaining'].remove('GAZEBO_ACTIONS_ARTIFACT_ATTESTATION')
 
+    if ros_evidence_folder is not None:
+        # 发布级 ROS 证据必须作为一个集合验证，禁止跨 Run/Artifact 拼接单项 PASS。
+        validator = Path(__file__).with_name('verify-ros-evidence-set.py')
+        ok = _run_validator([
+            sys.executable, str(validator),
+            '--folder', str(ros_evidence_folder),
+            '--attestation', str(ros_evidence_attestation),
+            '--artifact-id', str(ros_evidence_artifact_id),
+            '--artifact-digest', str(ros_evidence_artifact_digest),
+            '--run-id', str(ros_evidence_run_id),
+            '--attempt', str(ros_evidence_attempt),
+            '--commit-sha', str(ros_evidence_sha),
+        ])
+        result['ros_evidence_set'] = 'verified-coherent' if ok else 'invalid'
+        if ok:
+            result['ros_runtime'] = 'verified-by-set'
+            result['ros_cancel_runtime'] = 'verified-by-set'
+            result['ros_recovery_runtime'] = 'verified-by-set'
+            result['ros_bridge_runtime'] = 'verified-by-set'
+            result['ros_workflow_bundle'] = 'verified-by-set'
+            result['ros_artifact_attestation'] = 'verified-by-set'
+            for item in (
+                'GAZEBO_NAV2_THREE_LEG_RUNTIME',
+                'GAZEBO_NAV2_CANCEL_RUNTIME',
+                'GAZEBO_NAV2_RECOVERY_RUNTIME',
+                'GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
+                'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
+                'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
+                'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
+            ):
+                result['remaining'].remove(item)
+
     result['status'] = (
         'blocked'
         if result['ros_runtime'] == 'invalid'
@@ -244,6 +307,7 @@ def audit(
         or result['ros_bridge_runtime'] == 'invalid'
         or result['ros_workflow_bundle'] == 'invalid'
         or result['ros_artifact_attestation'] == 'invalid'
+        or result['ros_evidence_set'] == 'invalid'
         else 'manual-review-required'
     )
     return result
@@ -273,6 +337,13 @@ def main():
     parser.add_argument('--ros-artifact-run-id')
     parser.add_argument('--ros-artifact-attempt', type=int)
     parser.add_argument('--ros-artifact-sha')
+    parser.add_argument('--ros-evidence-folder', type=Path)
+    parser.add_argument('--ros-evidence-attestation', type=Path)
+    parser.add_argument('--ros-evidence-artifact-id')
+    parser.add_argument('--ros-evidence-artifact-digest')
+    parser.add_argument('--ros-evidence-run-id')
+    parser.add_argument('--ros-evidence-attempt', type=int)
+    parser.add_argument('--ros-evidence-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -303,6 +374,13 @@ def main():
             args.ros_artifact_run_id,
             args.ros_artifact_attempt,
             args.ros_artifact_sha,
+            args.ros_evidence_folder,
+            args.ros_evidence_attestation,
+            args.ros_evidence_artifact_id,
+            args.ros_evidence_artifact_digest,
+            args.ros_evidence_run_id,
+            args.ros_evidence_attempt,
+            args.ros_evidence_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)

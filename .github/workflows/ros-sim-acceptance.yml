@@ -116,6 +116,14 @@ jobs:
             --run-id "$GITHUB_RUN_ID" \
             --attempt "$GITHUB_RUN_ATTEMPT" \
             --commit-sha "$GITHUB_SHA"
+          python3 scripts/verify-ros-evidence-set.py \
+            --folder .local/ros \
+            --attestation .local/ros/artifact-attestation.json \
+            --artifact-id "$ALEX_ROS_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ROS_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
       - name: Upload ROS artifact attestation separately
         id: ros_attestation_upload
         if: success()
