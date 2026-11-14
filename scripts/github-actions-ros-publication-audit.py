@@ -14,6 +14,7 @@ import re
 from runpy import run_path
 import sys
 from tempfile import NamedTemporaryFile
+from time import sleep
 
 SCRIPTS = Path(__file__).resolve().parent
 READBACK = run_path(str(SCRIPTS / 'github-actions-ros-readback.py'))
@@ -256,29 +257,50 @@ def validate_jobs(payload, expected):
     }
 
 
-def create_audit(env, fetch_json=github_get_json):
+def create_audit(env, fetch_json=github_get_json, sleep_fn=sleep):
     expected = environment_context(env)
     base = f'{API_BASE}/repos/{REPO}/actions/runs/{expected["run_id"]}'
     run = fetch_json(base, expected['token'])
-    artifacts = fetch_json(base + '/artifacts?per_page=100', expected['token'])
-    jobs = fetch_json(
-        base + '/jobs?filter=latest&per_page=100', expected['token'])
-
     run_record = validate_run(run, expected)
-    main = validate_artifact(
-        artifact_by_name(artifacts, MAIN_ARTIFACT),
-        name=MAIN_ARTIFACT,
-        artifact_id=expected['main_artifact_id'],
-        digest=expected['main_artifact_digest'],
-        expected=expected,
-    )
-    attestation = validate_artifact(
-        artifact_by_name(artifacts, ATTESTATION_ARTIFACT),
-        name=ATTESTATION_ARTIFACT,
-        artifact_id=expected['attestation_artifact_id'],
-        digest=expected['attestation_artifact_digest'],
-        expected=expected,
-    )
+
+    main = None
+    attestation = None
+    jobs_record = None
+    transient = {
+        'PUBLICATION_AUDIT_ARTIFACT_NOT_UNIQUE',
+        'PUBLICATION_AUDIT_API_DIGEST_INVALID',
+        'PUBLICATION_AUDIT_JOBS_NOT_UNIQUE',
+        'PUBLICATION_AUDIT_AUDITOR_JOB_INVALID',
+    }
+    for attempt_index in range(4):
+        try:
+            artifacts = fetch_json(
+                base + '/artifacts?per_page=100', expected['token'])
+            jobs = fetch_json(
+                base + '/jobs?filter=latest&per_page=100', expected['token'])
+            main = validate_artifact(
+                artifact_by_name(artifacts, MAIN_ARTIFACT),
+                name=MAIN_ARTIFACT,
+                artifact_id=expected['main_artifact_id'],
+                digest=expected['main_artifact_digest'],
+                expected=expected,
+            )
+            attestation = validate_artifact(
+                artifact_by_name(artifacts, ATTESTATION_ARTIFACT),
+                name=ATTESTATION_ARTIFACT,
+                artifact_id=expected['attestation_artifact_id'],
+                digest=expected['attestation_artifact_digest'],
+                expected=expected,
+            )
+            jobs_record = validate_jobs(jobs, expected)
+            break
+        except ValueError as exc:
+            if str(exc) not in transient or attempt_index == 3:
+                raise
+            sleep_fn(2)
+
+    reject(main is not None and attestation is not None and jobs_record is not None,
+           'PUBLICATION_AUDIT_PROPAGATION_TIMEOUT')
     reject(main['id'] != attestation['id'],
            'PUBLICATION_AUDIT_ARTIFACT_IDS_REUSED')
     if isinstance(main.get('created_at'), str) and isinstance(attestation.get('created_at'), str):
@@ -301,7 +323,7 @@ def create_audit(env, fetch_json=github_get_json):
             'workflow_ref': expected['workflow_ref'],
             **run_record,
         },
-        'jobs': validate_jobs(jobs, expected),
+        'jobs': jobs_record,
         'artifacts': {
             'evidence': main,
             'attestation': attestation,
