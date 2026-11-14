@@ -147,6 +147,9 @@ test('R67 Workflow 使用两个 Job，最终 GitHub-hosted audit 依赖 producer
  assert.ok(secondUpload>producer);
  assert.ok(auditJob>secondUpload);
  assert.ok(publicationRun>auditJob);
+ assert.match(workflow,/approval-gate:/);
+ assert.match(workflow,/ALEX_SIM_RUNNER_APPROVED is not true; refusing to schedule ROS acceptance/);
+ assert.match(workflow,/nav2-simulation:[\s\S]*needs: approval-gate/);
  assert.match(workflow,/needs: nav2-simulation/);
  assert.match(workflow,/needs\.nav2-simulation\.result == 'success'/);
  assert.match(workflow,/runs-on: ubuntu-latest/);
