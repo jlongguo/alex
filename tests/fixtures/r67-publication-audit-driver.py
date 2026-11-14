@@ -104,10 +104,12 @@ elif scenario == 'expired-attestation':
     attest_artifact['expired'] = True
 elif scenario == 'wrong-attestation-run':
     attest_artifact['workflow_run']['id'] += 1
-elif scenario == 'duplicate-attestation':
+elif scenario == 'historical-attestation':
     duplicate = dict(attest_artifact)
     duplicate['id'] = 333333333
     artifact_payloads = [{'artifacts': [main_artifact, attest_artifact, duplicate]}]
+elif scenario == 'duplicate-attestation-id':
+    artifact_payloads = [{'artifacts': [main_artifact, attest_artifact, dict(attest_artifact)]}]
 elif scenario == 'producer-failed':
     producer['conclusion'] = 'failure'
 elif scenario == 'producer-labels':
