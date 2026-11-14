@@ -161,6 +161,7 @@ def artifact_by_name(payload, name):
     items = payload.get('artifacts')
     reject(isinstance(items, list), 'PUBLICATION_AUDIT_ARTIFACTS_INVALID')
     matches = [x for x in items if isinstance(x, dict) and x.get('name') == name]
+    reject(len(matches) > 0, 'PUBLICATION_AUDIT_ARTIFACT_MISSING')
     reject(len(matches) == 1, 'PUBLICATION_AUDIT_ARTIFACT_NOT_UNIQUE')
     return matches[0]
 
@@ -199,6 +200,8 @@ def validate_jobs(payload, expected):
     reject(isinstance(jobs, list), 'PUBLICATION_AUDIT_JOBS_INVALID')
     producer = [x for x in jobs if isinstance(x, dict) and x.get('name') == PRODUCER_JOB]
     audit = [x for x in jobs if isinstance(x, dict) and x.get('name') == AUDIT_JOB]
+    reject(len(producer) > 0 and len(audit) > 0,
+           'PUBLICATION_AUDIT_JOBS_MISSING')
     reject(len(producer) == 1 and len(audit) == 1,
            'PUBLICATION_AUDIT_JOBS_NOT_UNIQUE')
     producer = producer[0]
@@ -267,9 +270,9 @@ def create_audit(env, fetch_json=github_get_json, sleep_fn=sleep):
     attestation = None
     jobs_record = None
     transient = {
-        'PUBLICATION_AUDIT_ARTIFACT_NOT_UNIQUE',
+        'PUBLICATION_AUDIT_ARTIFACT_MISSING',
         'PUBLICATION_AUDIT_API_DIGEST_INVALID',
-        'PUBLICATION_AUDIT_JOBS_NOT_UNIQUE',
+        'PUBLICATION_AUDIT_JOBS_MISSING',
         'PUBLICATION_AUDIT_AUDITOR_JOB_INVALID',
     }
     for attempt_index in range(4):
