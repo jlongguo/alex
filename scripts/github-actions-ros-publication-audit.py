@@ -116,7 +116,7 @@ def environment_context(env):
     reject(isinstance(token, str) and 20 <= len(token) <= 8192,
            'PUBLICATION_AUDIT_TOKEN_MISSING')
 
-    return {
+    metadata = {
         'workflow_ref': workflow_ref,
         'run_id': run_id,
         'attempt': int(attempt),
@@ -125,8 +125,8 @@ def environment_context(env):
         'main_artifact_digest': main_digest,
         'attestation_artifact_id': attest_id,
         'attestation_artifact_digest': attest_digest,
-        'token': token,
     }
+    return metadata, token
 
 
 def validate_run(run, expected):
@@ -266,9 +266,9 @@ def validate_jobs(payload, expected):
 
 
 def create_audit(env, fetch_json=github_get_json, sleep_fn=sleep):
-    expected = environment_context(env)
+    expected, github_token = environment_context(env)
     base = f'{API_BASE}/repos/{REPO}/actions/runs/{expected["run_id"]}'
-    run = fetch_json(base, expected['token'])
+    run = fetch_json(base, github_token)
     run_record = validate_run(run, expected)
 
     main = None
@@ -283,9 +283,9 @@ def create_audit(env, fetch_json=github_get_json, sleep_fn=sleep):
     for attempt_index in range(4):
         try:
             artifacts = fetch_json(
-                base + '/artifacts?per_page=100', expected['token'])
+                base + '/artifacts?per_page=100', github_token)
             jobs = fetch_json(
-                base + '/jobs?filter=latest&per_page=100', expected['token'])
+                base + '/jobs?filter=latest&per_page=100', github_token)
             main = validate_artifact(
                 artifact_by_identity(
                     artifacts, MAIN_ARTIFACT, expected['main_artifact_id']),
