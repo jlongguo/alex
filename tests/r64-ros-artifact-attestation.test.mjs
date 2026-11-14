@@ -102,6 +102,18 @@ test('R64 attestation 绑定 Artifact ID/Digest、Run/Attempt/SHA 与五份关�
  });
 });
 
+test('R66 R64 attestation verifier 接受 GitHub REST 的 sha256: Digest 表示',{timeout:15000},async()=>{
+ await temp(async({folder,attestation})=>{
+  assert.equal(create(folder,attestation).status,0);
+  const checked=run('python3',[
+   verifier,'--attestation',attestation,'--folder',folder,
+   '--artifact-id',ARTIFACT_ID,'--artifact-digest','sha256:'+DIGEST,
+   '--run-id',RUN_ID,'--attempt',ATTEMPT,'--commit-sha',SHA
+  ]);
+  assert.equal(checked.status,0,checked.stderr);
+ });
+});
+
 test('R64 下载后的任何关键证据被改写都必须破坏 attestation 校验',{timeout:15000},async()=>{
  await temp(async({folder,attestation})=>{
   assert.equal(create(folder,attestation).status,0);

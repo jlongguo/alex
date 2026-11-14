@@ -32,6 +32,7 @@
     "sim:artifact-attest": "python3 scripts/write-ros-artifact-attestation.py",
     "sim:artifact-verify": "python3 scripts/verify-ros-artifact-attestation.py",
     "sim:evidence-set-verify": "python3 scripts/verify-ros-evidence-set.py",
+    "sim:github-readback": "python3 scripts/github-actions-ros-readback.py",
     "sim:verify-cancel-report": "python3 scripts/verify-ros-cancel-report.py",
     "sim:fault-contract": "npm run build && node scripts/nav2-fault-contract.mjs",
     "sim:verify-fault-contract": "node scripts/verify-nav2-fault-contract.mjs",

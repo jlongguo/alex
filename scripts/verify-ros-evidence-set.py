@@ -43,6 +43,14 @@ def bounded_json(path, max_bytes):
     return data
 
 
+def normalize_digest(value):
+    if isinstance(value, str) and value.startswith('sha256:'):
+        value = value[7:]
+    reject(isinstance(value, str) and SHA256.fullmatch(value),
+           'EVIDENCE_SET_ARTIFACT_DIGEST_INVALID')
+    return value
+
+
 def expected(args):
     reject(isinstance(args.run_id, str) and DIGITS.fullmatch(args.run_id),
            'EVIDENCE_SET_RUN_ID_INVALID')
@@ -52,19 +60,17 @@ def expected(args):
            'EVIDENCE_SET_COMMIT_INVALID')
     reject(isinstance(args.artifact_id, str) and DIGITS.fullmatch(args.artifact_id),
            'EVIDENCE_SET_ARTIFACT_ID_INVALID')
-    reject(isinstance(args.artifact_digest, str)
-           and SHA256.fullmatch(args.artifact_digest),
-           'EVIDENCE_SET_ARTIFACT_DIGEST_INVALID')
+    digest = normalize_digest(args.artifact_digest)
     return {
         'run_id': args.run_id,
         'attempt': args.attempt,
         'commit_sha': args.commit_sha,
         'artifact_id': args.artifact_id,
-        'artifact_digest': args.artifact_digest,
+        'artifact_digest': digest,
     }
 
 
-def verify_set(folder, attestation_path, meta):
+def verify_set(folder, attestation_path, github_readback_path, meta):
     reject(folder.is_dir() and not folder.is_symlink(),
            'EVIDENCE_SET_FOLDER_INVALID')
 
@@ -85,19 +91,25 @@ def verify_set(folder, attestation_path, meta):
     attestation_module = run_path(
         str(SCRIPTS / 'verify-ros-artifact-attestation.py'))
     attestation = bounded_json(attestation_path, 64 * 1024)
+    expected_meta = {
+        'artifact_id': meta['artifact_id'],
+        'artifact_digest': meta['artifact_digest'],
+        'run_id': meta['run_id'],
+        'attempt': meta['attempt'],
+        'commit_sha': meta['commit_sha'],
+    }
     attestation_module['verify_attestation'](
         attestation,
         folder,
-        {
-            'artifact_id': meta['artifact_id'],
-            'artifact_digest': meta['artifact_digest'],
-            'run_id': meta['run_id'],
-            'attempt': meta['attempt'],
-            'commit_sha': meta['commit_sha'],
-        },
+        expected_meta,
     )
 
-    # 两个底层验证器均已独立通过；这里额外把它们的上下文做精确同值检查，
+    readback_module = run_path(
+        str(SCRIPTS / 'github-actions-ros-readback.py'))
+    github_readback = bounded_json(github_readback_path, 128 * 1024)
+    readback_module['verify_report'](github_readback, expected_meta)
+
+    # 三个底层验证器均已独立通过；这里额外把它们的上下文做精确同值检查，
     # 使跨 Run/Attempt/Commit 的合法证据无法被拼成一个集合。
     bundle = bounded_json(bundle_path, 64 * 1024)
     bundle_ctx = bundle.get('context')
@@ -113,6 +125,21 @@ def verify_set(folder, attestation_path, meta):
     reject(all(bundle_ctx.get(key) == attest_ctx.get(key)
                for key in context_keys),
            'EVIDENCE_SET_CONTEXT_MISMATCH')
+
+    readback_ctx = github_readback.get('context')
+    reject(isinstance(readback_ctx, dict),
+           'EVIDENCE_SET_READBACK_CONTEXT_MISSING')
+    reject(
+        readback_ctx.get('repository') == bundle_ctx.get('repository')
+        and readback_ctx.get('workflow') == bundle_ctx.get('workflow')
+        and readback_ctx.get('workflow_ref') == bundle_ctx.get('workflow_ref')
+        and readback_ctx.get('job') == bundle_ctx.get('job')
+        and readback_ctx.get('runner_environment') == bundle_ctx.get('runner_environment')
+        and readback_ctx.get('id') == bundle_ctx.get('workflow_run_id')
+        and readback_ctx.get('attempt') == bundle_ctx.get('workflow_run_attempt')
+        and readback_ctx.get('commit_sha') == bundle_ctx.get('commit_sha'),
+        'EVIDENCE_SET_READBACK_CONTEXT_MISMATCH')
+
     reject(bundle_ctx.get('workflow_run_id') == meta['run_id']
            and bundle_ctx.get('workflow_run_attempt') == meta['attempt']
            and bundle_ctx.get('commit_sha') == meta['commit_sha'],
@@ -136,9 +163,14 @@ def verify_set(folder, attestation_path, meta):
                'EVIDENCE_SET_REPORT_RUN_ID_MISMATCH')
 
     artifact = attestation.get('artifact')
+    readback_artifact = github_readback.get('artifact')
     reject(isinstance(artifact, dict)
            and artifact.get('id') == meta['artifact_id']
-           and artifact.get('digest_sha256') == meta['artifact_digest'],
+           and artifact.get('digest_sha256') == meta['artifact_digest']
+           and isinstance(readback_artifact, dict)
+           and readback_artifact.get('id') == meta['artifact_id']
+           and normalize_digest(readback_artifact.get('digest_sha256'))
+               == meta['artifact_digest'],
            'EVIDENCE_SET_ARTIFACT_CONTEXT_MISMATCH')
     return True
 
@@ -148,6 +180,7 @@ def main():
         description='Verify one coherent ROS runtime evidence set')
     parser.add_argument('--folder', type=Path, required=True)
     parser.add_argument('--attestation', type=Path, required=True)
+    parser.add_argument('--github-readback', type=Path, required=True)
     parser.add_argument('--artifact-id', required=True)
     parser.add_argument('--artifact-digest', required=True)
     parser.add_argument('--run-id', required=True)
@@ -156,7 +189,7 @@ def main():
     args = parser.parse_args()
     try:
         meta = expected(args)
-        verify_set(args.folder, args.attestation, meta)
+        verify_set(args.folder, args.attestation, args.github_readback, meta)
     except (OSError, ValueError, TypeError) as exc:
         code = str(exc)
         if not re.fullmatch(r'(EVIDENCE_SET|EVIDENCE|ARTIFACT_ATTESTATION)_[A-Z0-9_]+',

@@ -139,6 +139,7 @@ async function writeReports(folder,suffix){
 async function createSet(base,{runId=RUN_A,attempt='1',sha=SHA_A,suffix='a'}={}){
  const folder=join(base,'ros');
  const attestation=join(base,'artifact-attestation.json');
+ const githubReadback=join(base,'github-actions-readback.json');
  await mkdir(folder,{recursive:true});
  const env=actionEnv({runId,attempt,sha});
  const bundle=join(folder,'workflow-evidence-bundle.json');
@@ -151,7 +152,30 @@ async function createSet(base,{runId=RUN_A,attempt='1',sha=SHA_A,suffix='a'}={})
 
  const made=run('python3',[writer,'--folder',folder,'--out',attestation],env);
  assert.equal(made.status,0,made.stderr);
- return {folder,attestation,runId,attempt:Number(attempt),sha};
+ await writeFile(githubReadback,JSON.stringify({
+  schema:'alex.dev/github-actions-ros-readback/v1',
+  status:'verified',source:'github-rest-api-actions-read',read_only:true,
+  simulation_only:true,physical_safety_certified:false,release_approved:false,
+  context:{
+   repository:'jlongguo/alex',
+   workflow:'.github/workflows/ros-sim-acceptance.yml',
+   workflow_ref:'jlongguo/alex/.github/workflows/ros-sim-acceptance.yml@refs/heads/main',
+   job:'nav2-simulation',runner_environment:'self-hosted',
+   id:runId,attempt:Number(attempt),commit_sha:sha,
+   event:'workflow_dispatch',name:'ROS Gazebo Nav2 Acceptance (manual)',
+   path:'.github/workflows/ros-sim-acceptance.yml',
+   status_at_readback:'in_progress',conclusion_at_readback:null,head_branch:'main'
+  },
+  artifact:{
+   id:ARTIFACT_ID,name:'alex-ros-gazebo-acceptance',
+   digest_sha256:DIGEST,api_digest:'sha256:'+DIGEST,
+   size_in_bytes:4096,expired:false,
+   created_at:'2026-11-14T00:00:00Z',updated_at:'2026-11-14T00:00:00Z'
+  },
+  api:{base_url:'https://api.github.com',api_version:'2022-11-28',actions_permission:'read'},
+  created_at:'2026-11-14T00:00:00+00:00'
+ }));
+ return {folder,attestation,githubReadback,runId,attempt:Number(attempt),sha};
 }
 
 function verifySet(set,overrides={}){
@@ -159,6 +183,7 @@ function verifySet(set,overrides={}){
   verifier,
   '--folder',overrides.folder??set.folder,
   '--attestation',overrides.attestation??set.attestation,
+  '--github-readback',overrides.githubReadback??set.githubReadback,
   '--artifact-id',overrides.artifactId??ARTIFACT_ID,
   '--artifact-digest',overrides.digest??DIGEST,
   '--run-id',overrides.runId??set.runId,
@@ -192,6 +217,18 @@ test('R65 两套各自合法证据不能跨 Workflow Run 拼接',{timeout:20000}
   const mixed=verifySet(a,{attestation:b.attestation});
   assert.equal(mixed.status,1);
   assert.match(mixed.stderr,/EVIDENCE_SET|EVIDENCE_|ARTIFACT_ATTESTATION_/);
+ });
+});
+
+test('R66 coherent set 不能混入另一 Workflow Run 的 GitHub API readback',{timeout:20000},async()=>{
+ await temp(async dir=>{
+  const a=await createSet(join(dir,'a'),{runId:RUN_A,attempt:'1',sha:SHA_A,suffix:'a'});
+  const b=await createSet(join(dir,'b'),{runId:RUN_B,attempt:'1',sha:SHA_A,suffix:'b'});
+  assert.equal(verifySet(a).status,0);
+  assert.equal(verifySet(b).status,0);
+  const mixed=verifySet(a,{githubReadback:b.githubReadback});
+  assert.equal(mixed.status,1);
+  assert.match(mixed.stderr,/GITHUB_READBACK_|EVIDENCE_SET_/);
  });
 });
 
@@ -236,6 +273,7 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
    gate,
    '--ros-evidence-folder',set.folder,
    '--ros-evidence-attestation',set.attestation,
+   '--ros-evidence-github-readback',set.githubReadback,
    '--ros-evidence-artifact-id',ARTIFACT_ID,
    '--ros-evidence-artifact-digest',DIGEST,
    '--ros-evidence-run-id',set.runId,
@@ -251,6 +289,7 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
   assert.equal(data.ros_bridge_runtime,'verified-by-set');
   assert.equal(data.ros_workflow_bundle,'verified-by-set');
   assert.equal(data.ros_artifact_attestation,'verified-by-set');
+  assert.equal(data.ros_github_readback,'verified-by-set');
   for(const item of [
    'GAZEBO_NAV2_THREE_LEG_RUNTIME',
    'GAZEBO_NAV2_CANCEL_RUNTIME',
@@ -258,7 +297,8 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
    'GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
    'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
    'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
-   'GAZEBO_ROS_COHERENT_EVIDENCE_SET'
+   'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
+   'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT'
   ])assert.ok(!data.remaining.includes(item),item);
   assert.ok(data.remaining.includes('REAL_ASR_LLM_TTS_PROVIDER_E2E'));
   assert.ok(data.remaining.includes('PHYSICAL_SAFETY_REVIEW'));
@@ -275,6 +315,7 @@ test('R65 coherent set 禁止与另一组单项 ROS 参数混用',{timeout:20000
    gate,
    '--ros-evidence-folder',set.folder,
    '--ros-evidence-attestation',set.attestation,
+   '--ros-evidence-github-readback',set.githubReadback,
    '--ros-evidence-artifact-id',ARTIFACT_ID,
    '--ros-evidence-artifact-digest',DIGEST,
    '--ros-evidence-run-id',set.runId,
