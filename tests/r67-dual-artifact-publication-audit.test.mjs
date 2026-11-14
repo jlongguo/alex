@@ -54,7 +54,7 @@ test('R67 主 Artifact 或 attestation Artifact 的 Digest/归属/过期状态�
   ['wrong-attest-digest','PUBLICATION_AUDIT_ARTIFACT_DIGEST_MISMATCH'],
   ['expired-attestation','PUBLICATION_AUDIT_ARTIFACT_EXPIRED'],
   ['wrong-attestation-run','PUBLICATION_AUDIT_ARTIFACT_RUN_MISMATCH'],
-  ['duplicate-attestation','PUBLICATION_AUDIT_ARTIFACT_NOT_UNIQUE'],
+  ['duplicate-attestation-id','PUBLICATION_AUDIT_ARTIFACT_ID_NOT_UNIQUE'],
   ['same-artifact-ids','PUBLICATION_AUDIT_ARTIFACT_IDS_REUSED']
  ];
  for(const [name,code] of cases){
@@ -62,6 +62,14 @@ test('R67 主 Artifact 或 attestation Artifact 的 Digest/归属/过期状态�
   assert.equal(result.status,1,name);
   assert.match(result.stderr,new RegExp(code),name);
  }
+});
+
+test('R67 rerun 历史同名 attestation Artifact 不影响当前 step 输出 ID 的精确审计',{timeout:15000},()=>{
+ const result=scenario('historical-attestation');
+ assert.equal(result.status,0,result.stderr);
+ const data=JSON.parse(result.stdout);
+ assert.equal(data.artifacts.attestation.id,ATTEST_ID);
+ assert.equal(data.artifacts.attestation.digest_sha256,ATTEST_DIGEST);
 });
 
 test('R67 producer job 必须已成功完成且具备完整 self-hosted 仿真 labels',{timeout:15000},()=>{
