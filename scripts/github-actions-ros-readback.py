@@ -152,9 +152,11 @@ def validate_run(run, expected):
            and run.get('run_attempt') == expected['attempt']
            and run.get('head_sha') == expected['commit_sha'],
            'GITHUB_READBACK_RUN_CONTEXT_MISMATCH')
+    expected_branch = expected['workflow_ref'].split('@refs/heads/', 1)[1]
     reject(run.get('event') == 'workflow_dispatch'
            and run.get('name') == WORKFLOW_NAME
-           and run.get('path') == WORKFLOW,
+           and run.get('path') == WORKFLOW
+           and run.get('head_branch') == expected_branch,
            'GITHUB_READBACK_WORKFLOW_MISMATCH')
     status = run.get('status')
     conclusion = run.get('conclusion')
@@ -311,6 +313,17 @@ def verify_report(report, expected):
            and context.get('name') == WORKFLOW_NAME
            and context.get('path') == WORKFLOW,
            'GITHUB_READBACK_REPORT_CONTEXT_MISMATCH')
+    status = context.get('status_at_readback')
+    conclusion = context.get('conclusion_at_readback')
+    reject(status in ('in_progress', 'completed'),
+           'GITHUB_READBACK_REPORT_STATUS_INVALID')
+    if status == 'completed':
+        reject(conclusion == 'success',
+               'GITHUB_READBACK_REPORT_STATUS_INVALID')
+    else:
+        reject(conclusion is None,
+               'GITHUB_READBACK_REPORT_STATUS_INVALID')
+
     artifact = report.get('artifact')
     reject(isinstance(artifact, dict)
            and artifact.get('id') == expected['artifact_id']
@@ -318,6 +331,10 @@ def verify_report(report, expected):
            and normalize_digest(
                artifact.get('digest_sha256'),
                'GITHUB_READBACK_REPORT_DIGEST_INVALID'
+           ) == expected['artifact_digest']
+           and normalize_digest(
+               artifact.get('api_digest'),
+               'GITHUB_READBACK_REPORT_API_DIGEST_INVALID'
            ) == expected['artifact_digest']
            and artifact.get('expired') is False
            and type(artifact.get('size_in_bytes')) is int
