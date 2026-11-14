@@ -67,11 +67,11 @@ test('R66 Run/Workflow 上下文错误必须立即 fail closed',{timeout:15000},
  }
 });
 
-test('R66 Artifact 过期、Digest 错误、重复名称或归属错误全部拒绝',{timeout:15000},()=>{
+test('R66 Artifact 过期、Digest 错误、重复当前 ID 或归属错误全部拒绝',{timeout:15000},()=>{
  const cases=[
   ['expired','GITHUB_READBACK_ARTIFACT_EXPIRED'],
   ['wrong-digest','GITHUB_READBACK_ARTIFACT_DIGEST_MISMATCH'],
-  ['duplicate','GITHUB_READBACK_ARTIFACT_NOT_UNIQUE'],
+  ['duplicate-id','GITHUB_READBACK_ARTIFACT_ID_NOT_UNIQUE'],
   ['wrong-artifact-run','GITHUB_READBACK_ARTIFACT_RUN_MISMATCH']
  ];
  for(const [name,code] of cases){
@@ -79,6 +79,14 @@ test('R66 Artifact 过期、Digest 错误、重复名称或归属错误全部拒
   assert.equal(result.status,1,name);
   assert.match(result.stderr,new RegExp(code),name);
  }
+});
+
+test('R66 历史 Attempt 的同名 Artifact 不得阻断当前 step 输出 ID 的精确回读',{timeout:15000},()=>{
+ const result=scenario('historical-same-name');
+ assert.equal(result.status,0,result.stderr);
+ const data=JSON.parse(result.stdout);
+ assert.equal(data.artifact.id,'123456789');
+ assert.equal(data.artifact.digest_sha256,DIGEST);
 });
 
 test('R66 离线 report verifier 同时接受 action 纯 hex 与 REST sha256:hex 输入',{timeout:15000},async()=>{
