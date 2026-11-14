@@ -7,9 +7,15 @@ permissions:
   actions: read
 jobs:
   nav2-simulation:
+    name: nav2-simulation
     if: ${{ vars.ALEX_SIM_RUNNER_APPROVED == 'true' }}
     runs-on: [self-hosted, linux, x64, alex-ros-sim]
     timeout-minutes: 60
+    outputs:
+      evidence-artifact-id: ${{ steps.ros_evidence_upload.outputs.artifact-id }}
+      evidence-artifact-digest: ${{ steps.ros_evidence_upload.outputs.artifact-digest }}
+      attestation-artifact-id: ${{ steps.ros_attestation_upload.outputs.artifact-id }}
+      attestation-artifact-digest: ${{ steps.ros_attestation_upload.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@v4
       # 自托管工作区可能保留上次 PASS：在任何新执行开始之前先让 Bundle 失效。
@@ -153,3 +159,39 @@ jobs:
           path: |
             .local/ros/artifact-attestation.json
             .local/ros/github-actions-readback.json
+  publication-audit:
+    name: publication-audit
+    needs: nav2-simulation
+    if: ${{ needs.nav2-simulation.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify producer job and both immutable ROS Artifacts from GitHub-hosted runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_ROS_ARTIFACT_ID: ${{ needs.nav2-simulation.outputs.evidence-artifact-id }}
+          ALEX_ROS_ARTIFACT_DIGEST: ${{ needs.nav2-simulation.outputs.evidence-artifact-digest }}
+          ALEX_ROS_ATTESTATION_ARTIFACT_ID: ${{ needs.nav2-simulation.outputs.attestation-artifact-id }}
+          ALEX_ROS_ATTESTATION_ARTIFACT_DIGEST: ${{ needs.nav2-simulation.outputs.attestation-artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-ros-publication-audit.py --audit
+          python3 scripts/github-actions-ros-publication-audit.py --verify \
+            --report .local/ros/publication-audit.json \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA" \
+            --main-artifact-id "$ALEX_ROS_ARTIFACT_ID" \
+            --main-artifact-digest "$ALEX_ROS_ARTIFACT_DIGEST" \
+            --attestation-artifact-id "$ALEX_ROS_ATTESTATION_ARTIFACT_ID" \
+            --attestation-artifact-digest "$ALEX_ROS_ATTESTATION_ARTIFACT_DIGEST"
+          {
+            echo "### ROS publication audit"
+            echo "- Producer: nav2-simulation = success"
+            echo "- Main Artifact ID: $ALEX_ROS_ARTIFACT_ID"
+            echo "- Attestation Artifact ID: $ALEX_ROS_ATTESTATION_ARTIFACT_ID"
+            echo "- Run: $GITHUB_RUN_ID / attempt $GITHUB_RUN_ATTEMPT"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Result: dual Artifact REST readback verified"
+          } >> "$GITHUB_STEP_SUMMARY"
