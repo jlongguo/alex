@@ -303,7 +303,10 @@ test('R60 手动工作流先失效旧报告、后校验 Bundle、失败也上传
   previous=index;
  }
  assert.match(workflow,/workflow-evidence-bundle\.json/);
- assert.match(workflow,/vars\.ALEX_SIM_RUNNER_APPROVED == 'true'/);
+ assert.match(workflow,/approval-gate:/);
+ assert.match(workflow,/ALEX_SIM_RUNNER_APPROVED: \$\{\{ vars\.ALEX_SIM_RUNNER_APPROVED \}\}/);
+ assert.match(workflow,/ALEX_SIM_RUNNER_APPROVED is not true; refusing to schedule ROS acceptance/);
+ assert.match(workflow,/nav2-simulation:[\s\S]*needs: approval-gate/);
  assert.match(workflow,/runs-on: \[self-hosted, linux, x64, alex-ros-sim\]/);
 });
 
