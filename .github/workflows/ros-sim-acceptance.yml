@@ -6,9 +6,23 @@ permissions:
   contents: read
   actions: read
 jobs:
+  approval-gate:
+    name: approval-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit simulation runner approval
+        env:
+          ALEX_SIM_RUNNER_APPROVED: ${{ vars.ALEX_SIM_RUNNER_APPROVED }}
+        run: |
+          set -euo pipefail
+          if [[ "$ALEX_SIM_RUNNER_APPROVED" != "true" ]]; then
+            echo "ALEX_SIM_RUNNER_APPROVED is not true; refusing to schedule ROS acceptance" >&2
+            exit 1
+          fi
   nav2-simulation:
     name: nav2-simulation
-    if: ${{ vars.ALEX_SIM_RUNNER_APPROVED == 'true' }}
+    needs: approval-gate
     runs-on: [self-hosted, linux, x64, alex-ros-sim]
     timeout-minutes: 60
     outputs:
