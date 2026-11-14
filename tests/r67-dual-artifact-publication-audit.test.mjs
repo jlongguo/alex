@@ -145,7 +145,7 @@ test('R67 离线 publication report verifier 绑定两个 Artifact ID/Digest 与
  }
 });
 
-test('R67 Workflow 使用两个 Job，最终 GitHub-hosted audit 依赖 producer 成功且不创建第三个 Artifact',{timeout:15000},async()=>{
+test('R67 Workflow 使用 approval/producer/audit 三阶段，最终审计不创建第三个 Artifact',{timeout:15000},async()=>{
  const workflow=await readFile(join(root,'.github/workflows/ros-sim-acceptance.yml'),'utf8');
  const producer=workflow.indexOf('nav2-simulation:');
  const auditJob=workflow.indexOf('publication-audit:');
