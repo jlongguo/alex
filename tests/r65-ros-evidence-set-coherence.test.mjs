@@ -220,6 +220,18 @@ test('R65 两套各自合法证据不能跨 Workflow Run 拼接',{timeout:20000}
  });
 });
 
+test('R66 coherent set 不能混入另一 Workflow Run 的 GitHub API readback',{timeout:20000},async()=>{
+ await temp(async dir=>{
+  const a=await createSet(join(dir,'a'),{runId:RUN_A,attempt:'1',sha:SHA_A,suffix:'a'});
+  const b=await createSet(join(dir,'b'),{runId:RUN_B,attempt:'1',sha:SHA_A,suffix:'b'});
+  assert.equal(verifySet(a).status,0);
+  assert.equal(verifySet(b).status,0);
+  const mixed=verifySet(a,{githubReadback:b.githubReadback});
+  assert.equal(mixed.status,1);
+  assert.match(mixed.stderr,/GITHUB_READBACK_|EVIDENCE_SET_/);
+ });
+});
+
 test('R65 同一 Run 的不同 Attempt 也不能混用',{timeout:20000},async()=>{
  await temp(async dir=>{
   const a=await createSet(join(dir,'a'),{runId:RUN_A,attempt:'1',sha:SHA_A,suffix:'a'});
@@ -277,6 +289,7 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
   assert.equal(data.ros_bridge_runtime,'verified-by-set');
   assert.equal(data.ros_workflow_bundle,'verified-by-set');
   assert.equal(data.ros_artifact_attestation,'verified-by-set');
+  assert.equal(data.ros_github_readback,'verified-by-set');
   for(const item of [
    'GAZEBO_NAV2_THREE_LEG_RUNTIME',
    'GAZEBO_NAV2_CANCEL_RUNTIME',
