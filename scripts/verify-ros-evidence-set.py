@@ -43,6 +43,14 @@ def bounded_json(path, max_bytes):
     return data
 
 
+def normalize_digest(value):
+    if isinstance(value, str) and value.startswith('sha256:'):
+        value = value[7:]
+    reject(isinstance(value, str) and SHA256.fullmatch(value),
+           'EVIDENCE_SET_ARTIFACT_DIGEST_INVALID')
+    return value
+
+
 def expected(args):
     reject(isinstance(args.run_id, str) and DIGITS.fullmatch(args.run_id),
            'EVIDENCE_SET_RUN_ID_INVALID')
@@ -52,15 +60,13 @@ def expected(args):
            'EVIDENCE_SET_COMMIT_INVALID')
     reject(isinstance(args.artifact_id, str) and DIGITS.fullmatch(args.artifact_id),
            'EVIDENCE_SET_ARTIFACT_ID_INVALID')
-    reject(isinstance(args.artifact_digest, str)
-           and SHA256.fullmatch(args.artifact_digest),
-           'EVIDENCE_SET_ARTIFACT_DIGEST_INVALID')
+    digest = normalize_digest(args.artifact_digest)
     return {
         'run_id': args.run_id,
         'attempt': args.attempt,
         'commit_sha': args.commit_sha,
         'artifact_id': args.artifact_id,
-        'artifact_digest': args.artifact_digest,
+        'artifact_digest': digest,
     }
 
 
