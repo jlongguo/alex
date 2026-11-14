@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import sys
 from tempfile import NamedTemporaryFile
+from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -216,11 +217,27 @@ def validate_artifacts(payload, expected):
     }
 
 
-def create_readback(env, fetch_json=github_get_json):
+def create_readback(env, fetch_json=github_get_json, sleep_fn=sleep):
     context = environment_context(env)
     base = f'{API_BASE}/repos/{REPO}/actions/runs/{context["run_id"]}'
     run = fetch_json(base, context['token'])
-    artifacts = fetch_json(base + '/artifacts?per_page=100', context['token'])
+    run_record = validate_run(run, context)
+
+    artifact_record = None
+    transient = {
+        'GITHUB_READBACK_ARTIFACT_NOT_UNIQUE',
+        'GITHUB_READBACK_API_DIGEST_INVALID',
+    }
+    for attempt_index in range(4):
+        artifacts = fetch_json(base + '/artifacts?per_page=100', context['token'])
+        try:
+            artifact_record = validate_artifacts(artifacts, context)
+            break
+        except ValueError as exc:
+            if str(exc) not in transient or attempt_index == 3:
+                raise
+            sleep_fn(2)
+    reject(artifact_record is not None, 'GITHUB_READBACK_ARTIFACT_UNAVAILABLE')
     return {
         'schema': SCHEMA,
         'status': 'verified',
@@ -235,9 +252,9 @@ def create_readback(env, fetch_json=github_get_json):
             'workflow_ref': context['workflow_ref'],
             'job': JOB,
             'runner_environment': 'self-hosted',
-            **validate_run(run, context),
+            **run_record,
         },
-        'artifact': validate_artifacts(artifacts, context),
+        'artifact': artifact_record,
         'api': {
             'base_url': API_BASE,
             'api_version': '2022-11-28',
