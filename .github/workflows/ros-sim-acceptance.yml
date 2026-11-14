@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   nav2-simulation:
     if: ${{ vars.ALEX_SIM_RUNNER_APPROVED == 'true' }}
@@ -100,6 +101,22 @@ jobs:
             .local/ros/bridge-preflight.json
             .local/ros/bridge-diagnostics.json
             .local/ros/workflow-evidence-bundle.json
+      - name: Read back current Run and ROS Artifact from GitHub Actions API
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_ROS_ARTIFACT_ID: ${{ steps.ros_evidence_upload.outputs.artifact-id }}
+          ALEX_ROS_ARTIFACT_DIGEST: ${{ steps.ros_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-ros-readback.py --audit
+          python3 scripts/github-actions-ros-readback.py --verify \
+            --report .local/ros/github-actions-readback.json \
+            --artifact-id "$ALEX_ROS_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ROS_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
       - name: Bind immutable artifact ID and digest to this successful ROS run
         if: success()
         env:
@@ -119,6 +136,7 @@ jobs:
           python3 scripts/verify-ros-evidence-set.py \
             --folder .local/ros \
             --attestation .local/ros/artifact-attestation.json \
+            --github-readback .local/ros/github-actions-readback.json \
             --artifact-id "$ALEX_ROS_ARTIFACT_ID" \
             --artifact-digest "$ALEX_ROS_ARTIFACT_DIGEST" \
             --run-id "$GITHUB_RUN_ID" \
@@ -132,4 +150,6 @@ jobs:
           name: alex-ros-gazebo-attestation
           if-no-files-found: error
           include-hidden-files: true
-          path: .local/ros/artifact-attestation.json
+          path: |
+            .local/ros/artifact-attestation.json
+            .local/ros/github-actions-readback.json
