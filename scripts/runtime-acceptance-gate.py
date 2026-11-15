@@ -177,6 +177,7 @@ def audit(
         'ros_runner_provenance': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
+        'subjects': {'ros': None, 'voice': None},
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
             'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
@@ -246,6 +247,11 @@ def audit(
             result['voice_workflow_evidence'] = 'verified-by-set'
             result['voice_artifact_attestation'] = 'verified-by-set'
             result['voice_github_readback'] = 'verified-by-set'
+            result['subjects']['voice'] = {
+                'run_id': str(voice_evidence_run_id),
+                'attempt': int(voice_evidence_attempt),
+                'commit_sha': str(voice_evidence_sha),
+            }
             for item in (
                 'REAL_ASR_LLM_TTS_PROVIDER_E2E',
                 'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
@@ -353,6 +359,11 @@ def audit(
             result['ros_artifact_attestation'] = 'verified-by-set'
             result['ros_github_readback'] = 'verified-by-set'
             result['ros_runner_provenance'] = 'verified-by-set'
+            result['subjects']['ros'] = {
+                'run_id': str(ros_evidence_run_id),
+                'attempt': int(ros_evidence_attempt),
+                'commit_sha': str(ros_evidence_sha),
+            }
             for item in (
                 'GAZEBO_NAV2_THREE_LEG_RUNTIME',
                 'GAZEBO_NAV2_CANCEL_RUNTIME',
