@@ -4,6 +4,7 @@ import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {makeRunnerProvenance} from './fixtures/r68-runner-provenance-fixture.mjs';
 
 const root=resolve(import.meta.dirname,'..');
 const bundler=join(root,'scripts/ros-workflow-evidence-bundle.py');
@@ -147,6 +148,10 @@ async function createSet(base,{runId=RUN_A,attempt='1',sha=SHA_A,suffix='a'}={})
  const reset=run('python3',[bundler,'--reset','--bundle',bundle],env);
  assert.equal(reset.status,0,reset.stderr);
  await writeReports(folder,suffix);
+ const provenance=join(folder,'runner-provenance.json');
+ await writeFile(provenance,JSON.stringify(makeRunnerProvenance({
+  runId,attempt:Number(attempt),sha
+ })));
  const collect=run('python3',[bundler,'--collect','--bundle',bundle],env);
  assert.equal(collect.status,0,collect.stderr);
 
@@ -175,7 +180,7 @@ async function createSet(base,{runId=RUN_A,attempt='1',sha=SHA_A,suffix='a'}={})
   api:{base_url:'https://api.github.com',api_version:'2022-11-28',actions_permission:'read'},
   created_at:'2026-11-14T00:00:00+00:00'
  }));
- return {folder,attestation,githubReadback,runId,attempt:Number(attempt),sha};
+ return {folder,attestation,githubReadback,provenance,runId,attempt:Number(attempt),sha};
 }
 
 function verifySet(set,overrides={}){
@@ -254,6 +259,19 @@ test('R65 不同 Commit SHA 的合法证据不能组成同一发布集合',{time
  });
 });
 
+test('R68 coherent set 不能混入另一 Run 的合法 Runner provenance',{timeout:20000},async()=>{
+ await temp(async dir=>{
+  const a=await createSet(join(dir,'a'),{runId:RUN_A,attempt:'1',sha:SHA_A,suffix:'a'});
+  const b=await createSet(join(dir,'b'),{runId:RUN_B,attempt:'1',sha:SHA_A,suffix:'b'});
+  assert.equal(verifySet(a).status,0);
+  const replacement=await readFile(b.provenance,'utf8');
+  await writeFile(a.provenance,replacement);
+  const checked=verifySet(a);
+  assert.equal(checked.status,1);
+  assert.match(checked.stderr,/RUNNER_PROVENANCE_|EVIDENCE_|ARTIFACT_ATTESTATION_/);
+ });
+});
+
 test('R65 替换一份业务上仍合法的报告，也必须因 Bundle/Artifact 哈希不一致失败',{timeout:20000},async()=>{
  await temp(async dir=>{
   const a=await createSet(join(dir,'a'),{suffix:'a'});
@@ -266,7 +284,7 @@ test('R65 替换一份业务上仍合法的报告，也必须因 Bundle/Artifact
  });
 });
 
-test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留真实语音和物理安全',{timeout:20000},async()=>{
+test('R65/R68 Runtime Gate coherent set 同时核验 ROS 证据与 Runner provenance，但保留真实语音和物理安全',{timeout:20000},async()=>{
  await temp(async dir=>{
   const set=await createSet(dir);
   const checked=run('python3',[
@@ -290,6 +308,7 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
   assert.equal(data.ros_workflow_bundle,'verified-by-set');
   assert.equal(data.ros_artifact_attestation,'verified-by-set');
   assert.equal(data.ros_github_readback,'verified-by-set');
+  assert.equal(data.ros_runner_provenance,'verified-by-set');
   for(const item of [
    'GAZEBO_NAV2_THREE_LEG_RUNTIME',
    'GAZEBO_NAV2_CANCEL_RUNTIME',
@@ -298,7 +317,8 @@ test('R65 Runtime Gate coherent set 一次性核验六个 ROS 门槛，但保留
    'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE',
    'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
    'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
-   'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT'
+   'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
+   'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE'
   ])assert.ok(!data.remaining.includes(item),item);
   assert.ok(data.remaining.includes('REAL_ASR_LLM_TTS_PROVIDER_E2E'));
   assert.ok(data.remaining.includes('PHYSICAL_SAFETY_REVIEW'));

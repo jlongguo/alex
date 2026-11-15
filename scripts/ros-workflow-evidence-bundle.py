@@ -19,7 +19,7 @@ from time import time_ns
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 DEFAULT = ROOT / '.local/ros/workflow-evidence-bundle.json'
-SCHEMA = 'alex.dev/ros-workflow-evidence-bundle/v1'
+SCHEMA = 'alex.dev/ros-workflow-evidence-bundle/v2'
 SOURCE = 'github-actions-manual-self-hosted'
 REPO = 'jlongguo/alex'
 WORKFLOW = '.github/workflows/ros-sim-acceptance.yml'
@@ -27,6 +27,8 @@ SHA = re.compile(r'^[0-9a-f]{40}$')
 RUN = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
 WORKFLOW_REF = re.compile(
     r'^jlongguo/alex/\.github/workflows/ros-sim-acceptance\.yml@refs/heads/[A-Za-z0-9_./-]+$')
+PROVENANCE_FILE = 'runner-provenance.json'
+
 CASES = (
     ('route', 'acceptance-report.json', 'route', 'verify-ros-report.py',
      'verify_report', 256 * 1024),
@@ -91,6 +93,30 @@ def validate_report(case, folder):
     }
 
 
+def validate_provenance(folder, context):
+    path = folder / PROVENANCE_FILE
+    raw = read_bounded(path, 128 * 1024)
+    data = json_object(raw)
+    verifier = verifier_for(
+        'ros-runner-provenance.py', 'verify_report')
+    verifier(
+        data,
+        context['workflow_run_id'],
+        context['workflow_run_attempt'],
+        context['commit_sha'],
+    )
+    fingerprint = data.get('fingerprint_sha256')
+    reject(isinstance(fingerprint, str)
+           and re.fullmatch(r'[0-9a-f]{64}', fingerprint),
+           'EVIDENCE_PROVENANCE_FINGERPRINT_INVALID')
+    return {
+        'filename': PROVENANCE_FILE,
+        'size_bytes': len(raw),
+        'sha256': sha256(raw).hexdigest(),
+        'fingerprint_sha256': fingerprint,
+    }
+
+
 def action_context(env):
     # 只能由手动调度的自托管 Runner 声明上下文；本字段仍是可伪造的环境输入，
     # 不能代替 GitHub API 对 Workflow Run 与 Artifact 的外部确认。
@@ -147,12 +173,26 @@ def atomically_write(path, data):
 def reset(bundle, env):
     # 在测试启动前绑定具体 Actions Run，而不是收尾时才读取可变的环境信息。
     context = action_context(env)
+    started_at_ns = time_ns()
     atomically_write(bundle, {
         'schema': SCHEMA, 'status': 'blocked',
         'source': SOURCE, 'simulation_only': True,
         'release_approved': False, 'physical_safety_certified': False,
         'reason': 'WORKFLOW_ACCEPTANCE_PENDING', 'reports': [],
-        'context': context, 'started_at_ns': time_ns(),
+        'context': context, 'started_at_ns': started_at_ns,
+    })
+    # 自托管工作区会跨 Run 保留文件。先覆盖旧 provenance，避免捕获失败时
+    # failure Artifact 误带上一轮 verified 环境证明。
+    atomically_write(bundle.parent / PROVENANCE_FILE, {
+        'schema': 'alex.dev/ros-runner-provenance/v1',
+        'status': 'blocked',
+        'source_type': 'github-actions-self-hosted-runtime',
+        'simulation_only': True,
+        'release_approved': False,
+        'physical_safety_certified': False,
+        'reason': 'RUNNER_PROVENANCE_CAPTURE_PENDING',
+        'actions': context,
+        'started_at_ns': started_at_ns,
     })
 
 
@@ -170,6 +210,11 @@ def collect(bundle, env):
         reject((bundle.parent / filename).is_file()
                and (bundle.parent / filename).stat().st_mtime_ns > prior['started_at_ns'],
                'EVIDENCE_STALE_SCENARIO_REPORT')
+    provenance_path = bundle.parent / PROVENANCE_FILE
+    reject(provenance_path.is_file()
+           and provenance_path.stat().st_mtime_ns > prior['started_at_ns'],
+           'EVIDENCE_STALE_PROVENANCE_REPORT')
+    provenance = validate_provenance(bundle.parent, context)
     entries = [validate_report(case, bundle.parent) for case in CASES]
     ids = [entry['run_id'] for entry in entries]
     reject(len(set(ids)) == len(CASES), 'EVIDENCE_REUSED_SCENARIO_RUN_ID')
@@ -177,7 +222,7 @@ def collect(bundle, env):
         'schema': SCHEMA, 'status': 'assembled', 'source': SOURCE,
         'simulation_only': True,
         'release_approved': False, 'physical_safety_certified': False,
-        'context': context, 'reports': entries,
+        'context': context, 'provenance': provenance, 'reports': entries,
         'collected_at': datetime.now(timezone.utc).isoformat(),
     }
     atomically_write(bundle, assembled)
@@ -215,6 +260,10 @@ def verify_bundle(bundle, expected_run_id, expected_sha, expected_attempt=None):
         reject(type(expected_attempt) is int
                and ctx['workflow_run_attempt'] == expected_attempt,
                'EVIDENCE_WORKFLOW_ATTEMPT_MISMATCH')
+    actual_provenance = assembled.get('provenance')
+    recomputed_provenance = validate_provenance(bundle.parent, ctx)
+    reject(actual_provenance == recomputed_provenance,
+           'EVIDENCE_PROVENANCE_HASH_OR_FINGERPRINT_MISMATCH')
     actual = assembled.get('reports')
     reject(isinstance(actual, list) and len(actual) == len(CASES),
            'EVIDENCE_SCENARIOS_INCOMPLETE')

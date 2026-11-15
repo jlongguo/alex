@@ -19,6 +19,7 @@ const FILES=[
  'cancel-acceptance-report.json',
  'recovery-acceptance-report.json',
  'bridge-acceptance-report.json',
+ 'runner-provenance.json',
  'workflow-evidence-bundle.json'
 ];
 
@@ -75,12 +76,12 @@ function verify(folder,attestation,args=[]){
  ]);
 }
 
-test('R64 attestation 绑定 Artifact ID/Digest、Run/Attempt/SHA 与五份关键文件哈希',{timeout:15000},async()=>{
+test('R64/R68 attestation 绑定 Artifact ID/Digest、Run/Attempt/SHA 与六份关键文件哈希',{timeout:15000},async()=>{
  await temp(async({folder,attestation})=>{
   const made=create(folder,attestation);
   assert.equal(made.status,0,made.stderr);
   const data=JSON.parse(await readFile(attestation,'utf8'));
-  assert.equal(data.schema,'alex.dev/ros-artifact-attestation/v1');
+  assert.equal(data.schema,'alex.dev/ros-artifact-attestation/v2');
   assert.equal(data.status,'attested');
   assert.equal(data.source,'github-actions-upload-artifact');
   assert.equal(data.context.workflow_run_id,RUN_ID);
@@ -92,7 +93,7 @@ test('R64 attestation 绑定 Artifact ID/Digest、Run/Attempt/SHA 与五份关�
    digest_sha256:DIGEST,
    immutable:true
   });
-  assert.equal(data.files.length,5);
+  assert.equal(data.files.length,6);
   assert.deepEqual(data.files.map(x=>x.filename),FILES);
   assert.match(data.workflow_bundle_sha256,/^[0-9a-f]{64}$/);
   assert.equal(data.release_approved,false);
@@ -215,6 +216,7 @@ test('R64 Runtime Gate 只有完整 GitHub 外部元数据才能解除 Artifact 
   assert.ok(data.remaining.includes('GAZEBO_NAV2_THREE_LEG_RUNTIME'));
   assert.ok(data.remaining.includes('GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME'));
   assert.ok(data.remaining.includes('GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE'));
+  assert.ok(data.remaining.includes('GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE'));
   assert.ok(data.remaining.includes('PHYSICAL_SAFETY_REVIEW'));
   assert.equal(data.release_approved,false);
 

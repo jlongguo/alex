@@ -149,6 +149,7 @@ def audit(
         'ros_artifact_attestation': 'not_run',
         'ros_evidence_set': 'not_run',
         'ros_github_readback': 'not_run',
+        'ros_runner_provenance': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
         'remaining': [
@@ -161,6 +162,7 @@ def audit(
             'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
             'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
             'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
+            'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE',
             'PHYSICAL_SAFETY_REVIEW',
         ],
     }
@@ -292,6 +294,7 @@ def audit(
             result['ros_workflow_bundle'] = 'verified-by-set'
             result['ros_artifact_attestation'] = 'verified-by-set'
             result['ros_github_readback'] = 'verified-by-set'
+            result['ros_runner_provenance'] = 'verified-by-set'
             for item in (
                 'GAZEBO_NAV2_THREE_LEG_RUNTIME',
                 'GAZEBO_NAV2_CANCEL_RUNTIME',
@@ -301,6 +304,7 @@ def audit(
                 'GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
                 'GAZEBO_ROS_COHERENT_EVIDENCE_SET',
                 'GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
+                'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE',
             ):
                 result['remaining'].remove(item)
 

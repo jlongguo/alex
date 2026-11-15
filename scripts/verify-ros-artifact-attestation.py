@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 
-SCHEMA = 'alex.dev/ros-artifact-attestation/v1'
+SCHEMA = 'alex.dev/ros-artifact-attestation/v2'
 SOURCE = 'github-actions-upload-artifact'
 REPO = 'jlongguo/alex'
 WORKFLOW = '.github/workflows/ros-sim-acceptance.yml'
@@ -27,6 +27,7 @@ FILES = (
     'cancel-acceptance-report.json',
     'recovery-acceptance-report.json',
     'bridge-acceptance-report.json',
+    'runner-provenance.json',
     'workflow-evidence-bundle.json',
 )
 

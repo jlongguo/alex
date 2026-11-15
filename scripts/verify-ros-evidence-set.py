@@ -14,6 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 BUNDLE_NAME = 'workflow-evidence-bundle.json'
+PROVENANCE_NAME = 'runner-provenance.json'
 REPORT_NAMES = (
     'acceptance-report.json',
     'cancel-acceptance-report.json',
@@ -76,6 +77,9 @@ def verify_set(folder, attestation_path, github_readback_path, meta):
 
     # 固定文件名避免调用方把不同目录的单项证据拼接进同一发布判断。
     bundle_path = folder / BUNDLE_NAME
+    provenance_path = folder / PROVENANCE_NAME
+    reject(provenance_path.is_file() and not provenance_path.is_symlink(),
+           'EVIDENCE_SET_PROVENANCE_MISSING_OR_SYMLINK')
     for name in REPORT_NAMES:
         reject((folder / name).is_file() and not (folder / name).is_symlink(),
                'EVIDENCE_SET_REPORT_MISSING_OR_SYMLINK')
@@ -144,6 +148,25 @@ def verify_set(folder, attestation_path, github_readback_path, meta):
            and bundle_ctx.get('workflow_run_attempt') == meta['attempt']
            and bundle_ctx.get('commit_sha') == meta['commit_sha'],
            'EVIDENCE_SET_EXTERNAL_CONTEXT_MISMATCH')
+
+    provenance = bounded_json(provenance_path, 128 * 1024)
+    provenance_actions = provenance.get('actions')
+    reject(isinstance(provenance_actions, dict)
+           and provenance_actions.get('repository') == bundle_ctx.get('repository')
+           and provenance_actions.get('workflow') == bundle_ctx.get('workflow')
+           and provenance_actions.get('workflow_ref') == bundle_ctx.get('workflow_ref')
+           and provenance_actions.get('job') == bundle_ctx.get('job')
+           and provenance_actions.get('runner_environment') == bundle_ctx.get('runner_environment')
+           and provenance_actions.get('workflow_run_id') == bundle_ctx.get('workflow_run_id')
+           and provenance_actions.get('workflow_run_attempt') == bundle_ctx.get('workflow_run_attempt')
+           and provenance_actions.get('commit_sha') == bundle_ctx.get('commit_sha'),
+           'EVIDENCE_SET_PROVENANCE_CONTEXT_MISMATCH')
+    bundle_provenance = bundle.get('provenance')
+    reject(isinstance(bundle_provenance, dict)
+           and bundle_provenance.get('filename') == PROVENANCE_NAME
+           and bundle_provenance.get('fingerprint_sha256')
+               == provenance.get('fingerprint_sha256'),
+           'EVIDENCE_SET_PROVENANCE_MANIFEST_MISMATCH')
 
     reports = bundle.get('reports')
     reject(isinstance(reports, list) and len(reports) == 4,
