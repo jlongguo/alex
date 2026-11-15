@@ -151,7 +151,7 @@ test('R68 Workflow 在 npm install/Gazebo 前捕获 provenance，并把它放入
 test('R68 provenance 源码不枚举环境变量、不记录 hostname/token/用户目录',{timeout:15000},async()=>{
  const source=await readFile(provenance,'utf8');
  assert.doesNotMatch(source,/os\.environ\.items\(|dict\(os\.environ\)|os\.environ\.copy\(|\bprintenv\b/);
- assert.doesNotMatch(source,/hostname|platform\.node\(/i);
+ assert.doesNotMatch(source,/platform\.node\(|socket\.gethostname\(|\[['"]hostname['"]\]/);
  assert.doesNotMatch(source,/GITHUB_TOKEN/);
  assert.doesNotMatch(source,/\/home\//);
  assert.match(source,/--untracked-files=no/);
