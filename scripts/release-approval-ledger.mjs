@@ -132,7 +132,7 @@ export class ReleaseApprovalLedger{
  }={}){
   if(actor!=='parent')fail('PARENT_REQUIRED');
   if(!['approved','rejected'].includes(action))
-   fail('RELEASE_APPROVAL_ACTION_INVALID');
+   fail('INVALID_RELEASE_APPROVAL_ACTION');
   if(!REQUEST.test(requestId??''))fail('INVALID_RELEASE_APPROVAL_REQUEST_ID');
   return this.#exclusive(async()=>{
    const duplicate=this.events.find(event=>event.requestId===requestId);
@@ -152,7 +152,7 @@ export class ReleaseApprovalLedger{
    if(action==='approved'&&!exactArray(provided,required))
     fail('RELEASE_APPROVAL_HUMAN_CHECKS_INCOMPLETE');
    if(action==='rejected'&&provided.length)
-    fail('RELEASE_REJECTION_ACKNOWLEDGEMENTS_NOT_ALLOWED');
+    fail('INVALID_RELEASE_REJECTION_ACKNOWLEDGEMENTS');
    if(this.events.length>=this.maxEvents)
     fail('RELEASE_APPROVAL_LEDGER_FULL');
    const prevHash=this.events.at(-1)?.hash??'0'.repeat(64);
