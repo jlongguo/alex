@@ -309,6 +309,9 @@ test('R65/R68 Runtime Gate coherent set 同时核验 ROS 证据与 Runner proven
   assert.equal(data.ros_artifact_attestation,'verified-by-set');
   assert.equal(data.ros_github_readback,'verified-by-set');
   assert.equal(data.ros_runner_provenance,'verified-by-set');
+  assert.deepEqual(data.subjects.ros,{
+   run_id:set.runId,attempt:set.attempt,commit_sha:set.sha
+  });
   for(const item of [
    'GAZEBO_NAV2_THREE_LEG_RUNTIME',
    'GAZEBO_NAV2_CANCEL_RUNTIME',

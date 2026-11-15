@@ -10,7 +10,8 @@ const server=readFileSync(resolve(root,'scripts/server.mjs'),'utf8');
 test('R42 发布检查仅在家长区域显示，不提供自动发布动作',()=>{
  const privateStart=html.indexOf('id="family-private"');
  for(const id of ['release-readiness-title','release-readiness-refresh',
-  'release-readiness-status','release-readiness-checks','release-readiness-robot-status']){
+  'release-readiness-status','release-readiness-checks','release-readiness-matrix-status',
+  'release-readiness-matrix','release-readiness-robot-status']){
   const pos=html.indexOf('id="'+id+'"');
   assert.ok(pos>privateStart,id);
  }
@@ -23,16 +24,21 @@ test('R42 前端安全展示阻断和人工实测，不渲染未经转义的服�
  assert.ok(app.includes("report.releaseApproved")===false); // 前端不暴露发布审批控制
  for(const fragment of ['esc(item.id)','esc(item.detail)','esc(item.status==='])
   assert.ok(app.includes(fragment),fragment);
- assert.ok(app.includes("report.robotCandidate.check.status"));
+ assert.ok(app.includes("matrix.targets.robotCandidate"));
+ assert.ok(app.includes("Object.entries(matrix.domains)"));
+ assert.ok(app.includes("esc(item.detail)"));
 });
 test('R42 后端只有本地家长能够读取检查报告，所有检查均使用真实状态',()=>{
  const at=server.indexOf("pathname==='/api/release/readiness'");
  assert.ok(at>0);
- const code=server.slice(at,at+1700);
+ const end=server.indexOf("pathname==='/api/skills/reconciliation'",at);
+ assert.ok(end>at);
+ const code=server.slice(at,end);
  for(const fragment of ["auth.mode!=='local'","auth.actor(req)!=='parent'",
   "profiles.list().length","skillTransactions.readiness('parent')",
   "skillBatchTransactions.readiness('parent')",
-  "reconcileSkillStores(","evaluateReleaseReadiness(","writerLockHeld:!!writerLease"])
+  "reconcileSkillStores(","evaluateReleaseReadiness(","composeReleaseReadinessMatrix({staticReadiness:report})",
+  "writerLockHeld:!!writerLease"])
   assert.ok(code.includes(fragment),fragment);
  assert.ok(!code.includes("voiceEndToEndVerified:true"));
  assert.ok(!code.includes("rosRuntimeVerified:true"));

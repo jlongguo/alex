@@ -45,7 +45,8 @@ test('R70 Verify workflow 保留既有 test check，并把 browser 与 sim-stati
 
  const testBlock=workflow.slice(workflow.indexOf('\n  test:'),workflow.indexOf('\n  browser:'));
  const browserBlock=workflow.slice(workflow.indexOf('\n  browser:'),workflow.indexOf('\n  sim-static:'));
- const simBlock=workflow.slice(workflow.indexOf('\n  sim-static:'));
+ const evidenceSummary=workflow.indexOf('\n  evidence-summary:');
+ const simBlock=workflow.slice(workflow.indexOf('\n  sim-static:'),evidenceSummary);
 
  assert.match(testBlock,/npm test/);
  assert.doesNotMatch(testBlock,/test:browser|sim:check|sim:preflight/);
@@ -66,8 +67,9 @@ test('R70 ROS preflight Artifact 显式包含 .local 隐藏目录，避免成功
 
 test('R70 三个 CI Job 都独立安装依赖且使用 Node 22，不共享可变工作区',async()=>{
  const workflow=await readFile(resolve(root,'.github/workflows/ci.yml'),'utf8');
- assert.equal((workflow.match(/uses: actions\/checkout@v4/g)||[]).length,3);
- assert.equal((workflow.match(/uses: actions\/setup-node@v4/g)||[]).length,3);
- assert.equal((workflow.match(/node-version: '22'/g)||[]).length,3);
- assert.equal((workflow.match(/npm install --ignore-scripts --no-audit --no-fund/g)||[]).length,3);
+ const validationWorkflow=workflow.slice(0,workflow.indexOf('\n  evidence-summary:'));
+ assert.equal((validationWorkflow.match(/uses: actions\/checkout@v4/g)||[]).length,3);
+ assert.equal((validationWorkflow.match(/uses: actions\/setup-node@v4/g)||[]).length,3);
+ assert.equal((validationWorkflow.match(/node-version: '22'/g)||[]).length,3);
+ assert.equal((validationWorkflow.match(/npm install --ignore-scripts --no-audit --no-fund/g)||[]).length,3);
 });

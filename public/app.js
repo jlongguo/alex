@@ -716,10 +716,12 @@ $('skill-trust-publishers').addEventListener('click',async event=>{
 async function refreshReleaseReadiness(){
  if(authorizedActor!=='parent')return;
  const status=$('release-readiness-status'),checks=$('release-readiness-checks');
+ const matrixStatus=$('release-readiness-matrix-status');
+ const matrixList=$('release-readiness-matrix');
  try{
   const response=await fetch('/api/release/readiness',{cache:'no-store'});
   if(!response.ok)throw Error('需要家长登录才能核对上线条件');
-  const {report}=await response.json();
+  const {report,matrix}=await response.json();
   const state=report.status==='blocked'?'当前禁止发布：'+report.blockers.length+' 项阻断':
    report.status==='manual-validation-required'?'静态检查无阻断，但还有 '+report.manual.length+' 项需人工实测':
    '检查项已齐全，但尚未取得正式上线批准';
@@ -729,12 +731,36 @@ async function refreshReleaseReadiness(){
     esc(item.status==='pass'?'静态通过':item.status==='blocked'?'阻断':'待实测')+'</span>'+
     '<span class="event-message"><strong>'+esc(item.id)+'</strong>'+
     '<small>'+esc(item.detail)+'</small></span></div>').join('');
-  $('release-readiness-robot-status').textContent='机器人验收：'+
-   (report.robotCandidate.check.status==='pass'?'需最终安全复核':'真实 Gazebo/Nav2 尚未验收')+
-   '；实体设备安全认证不能由当前静态检查证明。';
+
+  const domainNames={
+   staticConfiguration:'静态配置',ci:'当前 CI',browserJourney:'真实 Chromium',
+   voiceProvider:'真实 Voice Provider',rosSimulation:'ROS/Gazebo 仿真',
+   realAcousticIo:'真实麦克风/扬声器',realChildJourney:'真实儿童旅程',
+   recoveryDrill:'恢复演练',physicalSafety:'实体安全'
+  };
+  const statusNames={
+   pass:'通过',blocked:'阻断','evidence-required':'缺证据',
+   'manual-required':'需人工'
+  };
+  matrixStatus.textContent=matrix.status==='blocked'
+   ?'证据矩阵存在阻断项：'+matrix.blockers.length+' 项'
+   :matrix.status==='evidence-required'
+    ?'静态检查之外仍缺 '+matrix.evidenceRequired.length+' 类运行或 CI 证据'
+    :'自动证据已齐，但仍需人工发布复核';
+  matrixList.innerHTML=Object.entries(matrix.domains).map(([id,item])=>
+   '<div class="event-row"><span class="event-kind">'+esc(statusNames[item.status]??item.status)+'</span>'+
+   '<span class="event-message"><strong>'+esc(domainNames[id]??id)+'</strong>'+
+   '<small>'+esc(item.detail)+'</small></span></div>').join('');
+  const robot=matrix.targets.robotCandidate;
+  $('release-readiness-robot-status').textContent='机器人候选：'+
+   (robot.status==='blocked'?'存在阻断':
+    robot.status==='evidence-required'?'仍缺真实运行证据':'等待最终人工安全复核')+
+   '；实体设备安全认证不能由 CI、Gazebo 或静态检查证明。';
  }catch(error){
   status.textContent=error.message;
   checks.textContent='';
+  matrixStatus.textContent='证据矩阵读取失败';
+  matrixList.textContent='';
  }
 }
 $('release-readiness-refresh').addEventListener('click',()=>void refreshReleaseReadiness());

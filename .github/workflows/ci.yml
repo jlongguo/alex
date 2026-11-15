@@ -52,3 +52,34 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           path: .local/ros/preflight.json
+
+  evidence-summary:
+    name: evidence-summary
+    if: ${{ always() }}
+    needs: [test, browser, sim-static]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Write and verify current CI evidence
+        env:
+          ALEX_CI_TEST_RESULT: ${{ needs.test.result }}
+          ALEX_CI_BROWSER_RESULT: ${{ needs.browser.result }}
+          ALEX_CI_SIM_STATIC_RESULT: ${{ needs['sim-static'].result }}
+        run: |
+          set -euo pipefail
+          node scripts/ci-evidence.mjs write .local/ci/evidence.json
+          node scripts/ci-evidence.mjs verify .local/ci/evidence.json
+      - name: Upload CI evidence summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alex-ci-evidence
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .local/ci/evidence.json

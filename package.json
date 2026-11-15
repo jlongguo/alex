@@ -47,6 +47,8 @@
     "voice:evidence-set-verify": "python3 scripts/verify-voice-evidence-set.py",
     "voice:publication-audit": "python3 scripts/github-actions-voice-publication-audit.py",
     "release:runtime-evidence": "python3 scripts/runtime-acceptance-gate.py",
+    "release:matrix": "node scripts/release-readiness-matrix.mjs",
+    "ci:evidence": "node scripts/ci-evidence.mjs",
     "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json"
   },
   "devDependencies": {
