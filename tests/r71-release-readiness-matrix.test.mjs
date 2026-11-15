@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {evaluateReleaseReadiness} from '../scripts/release-readiness.mjs';
@@ -12,6 +12,7 @@ import {
  createCiEvidence,verifyCiEvidence
 } from '../scripts/ci-evidence.mjs';
 
+const root=resolve(import.meta.dirname,'..');
 const SHA='0123456789abcdef0123456789abcdef01234567';
 const staticBase=()=>evaluateReleaseReadiness({
  authMode:'local',childLoginEnabled:true,profileCount:1,
@@ -231,7 +232,7 @@ test('R71 matrix CLI 对 JSON 文件做只读汇总，blocked 时非零但不执
   const checked=spawnSync('node',[
    'scripts/release-readiness-matrix.mjs',
    '--static',staticPath,'--runtime',runtimePath,'--ci',ciPath
-  ],{cwd:new URL('..',import.meta.url),encoding:'utf8',timeout:10000});
+  ],{cwd:root,encoding:'utf8',timeout:10000});
   assert.equal(checked.status,0,checked.stderr);
   const matrix=JSON.parse(checked.stdout);
   assert.equal(matrix.status,'evidence-required');
