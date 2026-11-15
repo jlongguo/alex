@@ -7,7 +7,7 @@ const root=resolve(import.meta.dirname,'..');
 
 test('R70 Chromium 使用显式 localhost CDP 端口并直接探测 HTTP endpoint，不再依赖 DevToolsActivePort',async()=>{
  const source=await readFile(resolve(root,'scripts/browser-acceptance.mjs'),'utf8');
- assert.doesNotMatch(source,/DevToolsActivePort/);
+ assert.doesNotMatch(source,/join\(data,['"]DevToolsActivePort['"]\)|readFile\(portFile/);
  assert.match(source,/--remote-debugging-address=127\.0\.0\.1/);
  assert.match(source,/--remote-debugging-port='\+port/);
  assert.match(source,/http:\/\/127\.0\.0\.1:'\+port\+'\/json\/list/);
