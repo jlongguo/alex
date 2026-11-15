@@ -60,13 +60,13 @@ jobs:
             --expect-run-id "$GITHUB_RUN_ID" \
             --expect-attempt "$GITHUB_RUN_ATTEMPT" \
             --expect-sha "$GITHUB_SHA"
-      - name: Upload immutable Voice runtime evidence
+      - name: Upload Voice runtime evidence and failure diagnostics
         id: voice_evidence_upload
         uses: actions/upload-artifact@v4
-        if: success()
+        if: always()
         with:
           name: alex-voice-provider-runtime-evidence
-          if-no-files-found: error
+          if-no-files-found: warn
           include-hidden-files: true
           path: |
             .local/voice/runtime-report.json
