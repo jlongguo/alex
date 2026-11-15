@@ -70,7 +70,7 @@ jobs:
         env:
           ALEX_CI_TEST_RESULT: ${{ needs.test.result }}
           ALEX_CI_BROWSER_RESULT: ${{ needs.browser.result }}
-          ALEX_CI_SIM_STATIC_RESULT: ${{ needs.sim-static.result }}
+          ALEX_CI_SIM_STATIC_RESULT: ${{ needs['sim-static'].result }}
         run: |
           set -euo pipefail
           node scripts/ci-evidence.mjs write .local/ci/evidence.json
