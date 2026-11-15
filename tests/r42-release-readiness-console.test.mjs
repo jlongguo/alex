@@ -31,7 +31,9 @@ test('R42 前端安全展示阻断和人工实测，不渲染未经转义的服�
 test('R42 后端只有本地家长能够读取检查报告，所有检查均使用真实状态',()=>{
  const at=server.indexOf("pathname==='/api/release/readiness'");
  assert.ok(at>0);
- const code=server.slice(at,at+1700);
+ const end=server.indexOf("pathname==='/api/skills/reconciliation'",at);
+ assert.ok(end>at);
+ const code=server.slice(at,end);
  for(const fragment of ["auth.mode!=='local'","auth.actor(req)!=='parent'",
   "profiles.list().length","skillTransactions.readiness('parent')",
   "skillBatchTransactions.readiness('parent')",
