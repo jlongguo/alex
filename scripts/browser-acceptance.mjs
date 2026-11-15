@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
-import {mkdtemp,readFile,rm,mkdir} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
@@ -88,34 +88,51 @@ async function startChrome(root){
  const executable=findChrome();
  const data=join(root,'chrome-data');
  await mkdir(data);
+ // 使用显式 localhost 端口并直接探测 CDP HTTP endpoint，避免依赖
+ // DevToolsActivePort 文件的创建时序。GitHub hosted runner 偶发会在该文件
+ // 出现前卡在无效 D-Bus session 地址初始化，导致浏览器验收假性超时。
+ const port=await freePort();
  const args=[
   '--headless=new','--no-first-run','--no-default-browser-check',
   '--disable-background-networking','--disable-extensions','--disable-sync',
-  '--disable-dev-shm-usage','--disable-gpu','--remote-debugging-port=0',
+  '--disable-dev-shm-usage','--disable-gpu',
+  '--remote-debugging-address=127.0.0.1',
+  '--remote-debugging-port='+port,
   '--remote-allow-origins=*','--user-data-dir='+data,
   '--no-sandbox','about:blank'
  ];
- const child=spawn(executable,args,{stdio:['ignore','ignore','pipe']});
- let stderr='';
+ const chromeEnv={...process.env};
+ // Browser acceptance 不需要桌面 session bus。不要把 GitHub runner 上可能
+ // 无效或过期的 D-Bus session/starter 地址传给无界面 Chromium。
+ delete chromeEnv.DBUS_SESSION_BUS_ADDRESS;
+ delete chromeEnv.DBUS_STARTER_ADDRESS;
+ delete chromeEnv.DBUS_STARTER_BUS_TYPE;
+ const child=spawn(executable,args,{
+  env:chromeEnv,stdio:['ignore','ignore','pipe']
+ });
+ let stderr='',lastError=null;
  child.stderr.setEncoding('utf8');
- child.stderr.on('data',chunk=>{if(stderr.length<1500)stderr+=chunk.slice(0,1500);});
- const portFile=join(data,'DevToolsActivePort');
- for(let i=0;i<140;i++){
+ child.stderr.on('data',chunk=>{if(stderr.length<2400)stderr+=chunk.slice(0,2400);});
+ for(let i=0;i<180;i++){
   if(child.exitCode!==null)throw Error('R54_CHROME_EXITED:'+stderr);
   try{
-   const port=Number((await readFile(portFile,'utf8')).split('\n')[0]);
-   if(Number.isInteger(port)&&port>0){
-    const tabs=await (await fetch('http://127.0.0.1:'+port+'/json/list')).json();
-    const target=tabs.find(tab=>tab.type==='page'&&tab.webSocketDebuggerUrl);
+   const response=await fetch('http://127.0.0.1:'+port+'/json/list');
+   if(response.ok){
+    const tabs=await response.json();
+    const target=Array.isArray(tabs)
+      ?tabs.find(tab=>tab.type==='page'&&tab.webSocketDebuggerUrl)
+      :null;
     if(target)return {child,target:target.webSocketDebuggerUrl};
    }
   }catch(error){
    if(!(error instanceof Error))throw error;
+   lastError=error;
   }
   await delay(70);
  }
  await stopProcess(child);
- throw Error('R54_CHROME_DEVTOOLS_NOT_READY:'+stderr);
+ throw Error('R54_CHROME_DEVTOOLS_NOT_READY:'+
+  String(lastError?.message??'cdp endpoint unavailable')+':'+stderr);
 }
 async function connectCdp(url){
  const socket=new WebSocket(url);
