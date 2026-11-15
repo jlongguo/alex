@@ -38,6 +38,7 @@ const runtimeBase=()=>({
  ros_github_readback:'not_run',
  ros_runner_provenance:'not_run',
  physical_safety_certified:false,release_approved:false,
+ subjects:{ros:null,voice:null},
  remaining:[
   'REAL_ASR_LLM_TTS_PROVIDER_E2E',
   'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
@@ -116,6 +117,10 @@ test('R71 Voice 与 ROS coherent set 全部验证后仍保留真实声学/儿童
   ros_evidence_set:'verified-coherent',
   ros_github_readback:'verified-by-set',
   ros_runner_provenance:'verified-by-set',
+  subjects:{
+   voice:{run_id:'876543210',attempt:2,commit_sha:SHA},
+   ros:{run_id:'76543210',attempt:3,commit_sha:SHA}
+  },
   remaining:['PHYSICAL_SAFETY_REVIEW']
  });
  const matrix=composeReleaseReadinessMatrix({
@@ -130,6 +135,38 @@ test('R71 Voice 与 ROS coherent set 全部验证后仍保留真实声学/儿童
   'physicalSafety'])assert.ok(matrix.manual.includes(id),id);
  assert.equal(matrix.releaseApproved,false);
  assert.equal(matrix.targets.robotCandidate.physicalSafetyCertified,false);
+});
+
+test('R71 CI、Voice、ROS 必须属于同一 Commit，跨 Commit 拼接直接 blocked',()=>{
+ const runtime=runtimeBase();
+ Object.assign(runtime,{
+  voice_real_provider:'verified-by-set',
+  voice_workflow_evidence:'verified-by-set',
+  voice_artifact_attestation:'verified-by-set',
+  voice_evidence_set:'verified-coherent',
+  voice_github_readback:'verified-by-set',
+  ros_runtime:'verified-by-set',
+  ros_cancel_runtime:'verified-by-set',
+  ros_recovery_runtime:'verified-by-set',
+  ros_bridge_runtime:'verified-by-set',
+  ros_workflow_bundle:'verified-by-set',
+  ros_artifact_attestation:'verified-by-set',
+  ros_evidence_set:'verified-coherent',
+  ros_github_readback:'verified-by-set',
+  ros_runner_provenance:'verified-by-set',
+  subjects:{
+   voice:{run_id:'876543210',attempt:2,commit_sha:'f'.repeat(40)},
+   ros:{run_id:'76543210',attempt:3,commit_sha:SHA}
+  }
+ });
+ const matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.status,'blocked');
+ assert.equal(matrix.domains.voiceProvider.evidenceLevel,'commit-mismatch');
+ assert.equal(matrix.domains.rosSimulation.evidenceLevel,'commit-mismatch');
+ assert.equal(matrix.inputs.subjects.ciCommit,SHA);
 });
 
 test('R71 任一 Runtime Gate invalid 或 CI failure 都必须使矩阵 blocked',()=>{
