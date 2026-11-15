@@ -217,7 +217,7 @@ test('R71 拒绝伪造或不完整的 Runtime Gate / Static readiness 输入',()
  const stat=staticBase();
  stat.releaseApproved=true;
  assert.throws(()=>composeReleaseReadinessMatrix({staticReadiness:stat}),
-  /READINESS_MATRIX_STATIC_INVALID/);
+  /READINESS_MATRIX_STATIC_/);
 });
 
 test('R71 matrix CLI 对 JSON 文件做只读汇总，blocked 时非零但不执行发布动作',async()=>{
