@@ -54,6 +54,14 @@ const matrix=()=>composeReleaseReadinessMatrix({
   ALEX_CI_SIM_STATIC_RESULT:'success'
  })
 });
+const candidateAt=createdAt=>createReleaseCandidate(matrix(),{
+ createdAt,
+ sourceEvidence:{
+  staticDigestSha256:'a'.repeat(64),
+  runtimeDigestSha256:'b'.repeat(64),
+  ciDigestSha256:'c'.repeat(64)
+ }
+});
 
 async function boot(env){
  const child=spawn(process.execPath,['scripts/server.mjs'],{
@@ -121,9 +129,7 @@ function envFor(dir,candidateFile){
 test('R72 真实 HTTP：只有本地家长可审批固定候选，候选变化后旧批准立即失效',{timeout:45000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'alex-r72-http-'));
  const candidateFile=join(dir,'candidate.json');
- const first=createReleaseCandidate(matrix(),{
-  createdAt:'2026-11-16T00:00:00.000Z'
- });
+ const first=candidateAt('2026-11-16T00:00:00.000Z');
  await writeFile(candidateFile,JSON.stringify(first));
  const env=envFor(dir,candidateFile);
  let server;
@@ -182,9 +188,7 @@ test('R72 真实 HTTP：只有本地家长可审批固定候选，候选变化�
   assert.equal(state.body.status,'approved');
   assert.equal(state.body.releaseApproved,true);
 
-  const second=createReleaseCandidate(matrix(),{
-   createdAt:'2026-11-16T00:01:00.000Z'
-  });
+  const second=candidateAt('2026-11-16T00:01:00.000Z');
   await writeFile(candidateFile,JSON.stringify(second));
   state=await req(server.base,'/api/release/candidate',{cookie:parent});
   assert.equal(state.body.status,'pending-review');
