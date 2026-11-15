@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
 jobs:
+  # 保留既有 test check 名称，避免改变可能存在的分支保护要求。
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -16,12 +17,38 @@ jobs:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm test
-      # Chromium 由 GitHub 托管运行器提供；缺失时必须失败，而非假装跳过验收。
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      # Chromium 由 GitHub 托管运行器提供；缺失或 CDP 不可用必须失败。
       - run: npm run test:browser
+
+  sim-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run sim:check
       - run: npm run sim:preflight
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ros-preflight-not-runtime-acceptance
+          if-no-files-found: warn
+          include-hidden-files: true
           path: .local/ros/preflight.json
