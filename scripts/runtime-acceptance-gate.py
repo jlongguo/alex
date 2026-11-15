@@ -60,6 +60,14 @@ def audit(
     ros_evidence_run_id=None,
     ros_evidence_attempt=None,
     ros_evidence_sha=None,
+    voice_evidence_folder=None,
+    voice_evidence_attestation=None,
+    voice_evidence_github_readback=None,
+    voice_evidence_artifact_id=None,
+    voice_evidence_artifact_digest=None,
+    voice_evidence_run_id=None,
+    voice_evidence_attempt=None,
+    voice_evidence_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -123,6 +131,19 @@ def audit(
             value is not None for value in evidence_set_supplied):
         raise ValueError('ROS_EVIDENCE_SET_METADATA_REQUIRED_TOGETHER')
 
+    voice_evidence_set_supplied = [
+        voice_evidence_folder, voice_evidence_attestation,
+        voice_evidence_github_readback,
+        voice_evidence_artifact_id, voice_evidence_artifact_digest,
+        voice_evidence_run_id, voice_evidence_attempt, voice_evidence_sha,
+    ]
+    if any(value is not None for value in voice_evidence_set_supplied) and not all(
+            value is not None for value in voice_evidence_set_supplied):
+        raise ValueError('VOICE_EVIDENCE_SET_METADATA_REQUIRED_TOGETHER')
+    if all(value is not None for value in voice_evidence_set_supplied) and (
+            voice_report is not None or voice_run_id is not None):
+        raise ValueError('VOICE_EVIDENCE_SET_CANNOT_MIX_INDIVIDUAL_VOICE_ARGS')
+
     individual_ros_supplied = [
         ros_report, ros_run_id, ros_cancel_report, ros_cancel_run_id,
         ros_recovery_report, ros_recovery_run_id,
@@ -141,6 +162,10 @@ def audit(
         'read_only': True,
         'ros_runtime': 'not_run',
         'voice_real_provider': 'not_run',
+        'voice_workflow_evidence': 'not_run',
+        'voice_artifact_attestation': 'not_run',
+        'voice_evidence_set': 'not_run',
+        'voice_github_readback': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
@@ -154,6 +179,10 @@ def audit(
         'release_approved': False,
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
+            'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
+            'VOICE_ACTIONS_ARTIFACT_ATTESTATION',
+            'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
+            'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -196,6 +225,35 @@ def audit(
         result['voice_real_provider'] = 'verified' if ok else 'invalid'
         if ok:
             result['remaining'].remove('REAL_ASR_LLM_TTS_PROVIDER_E2E')
+
+    if voice_evidence_folder is not None:
+        # 发布级 Voice 证据必须作为一个集合验证，禁止跨 Run/Artifact 拼接真实报告。
+        validator = Path(__file__).with_name('verify-voice-evidence-set.py')
+        ok = _run_validator([
+            sys.executable, str(validator),
+            '--folder', str(voice_evidence_folder),
+            '--attestation', str(voice_evidence_attestation),
+            '--github-readback', str(voice_evidence_github_readback),
+            '--artifact-id', str(voice_evidence_artifact_id),
+            '--artifact-digest', str(voice_evidence_artifact_digest),
+            '--run-id', str(voice_evidence_run_id),
+            '--attempt', str(voice_evidence_attempt),
+            '--commit-sha', str(voice_evidence_sha),
+        ])
+        result['voice_evidence_set'] = 'verified-coherent' if ok else 'invalid'
+        if ok:
+            result['voice_real_provider'] = 'verified-by-set'
+            result['voice_workflow_evidence'] = 'verified-by-set'
+            result['voice_artifact_attestation'] = 'verified-by-set'
+            result['voice_github_readback'] = 'verified-by-set'
+            for item in (
+                'REAL_ASR_LLM_TTS_PROVIDER_E2E',
+                'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
+                'VOICE_ACTIONS_ARTIFACT_ATTESTATION',
+                'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
+                'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
+            ):
+                result['remaining'].remove(item)
 
     if nav2_fault_report is not None:
         # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
@@ -312,6 +370,7 @@ def audit(
         'blocked'
         if result['ros_runtime'] == 'invalid'
         or result['voice_real_provider'] == 'invalid'
+        or result['voice_evidence_set'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
@@ -357,6 +416,14 @@ def main():
     parser.add_argument('--ros-evidence-run-id')
     parser.add_argument('--ros-evidence-attempt', type=int)
     parser.add_argument('--ros-evidence-sha')
+    parser.add_argument('--voice-evidence-folder', type=Path)
+    parser.add_argument('--voice-evidence-attestation', type=Path)
+    parser.add_argument('--voice-evidence-github-readback', type=Path)
+    parser.add_argument('--voice-evidence-artifact-id')
+    parser.add_argument('--voice-evidence-artifact-digest')
+    parser.add_argument('--voice-evidence-run-id')
+    parser.add_argument('--voice-evidence-attempt', type=int)
+    parser.add_argument('--voice-evidence-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -395,6 +462,14 @@ def main():
             args.ros_evidence_run_id,
             args.ros_evidence_attempt,
             args.ros_evidence_sha,
+            args.voice_evidence_folder,
+            args.voice_evidence_attestation,
+            args.voice_evidence_github_readback,
+            args.voice_evidence_artifact_id,
+            args.voice_evidence_artifact_digest,
+            args.voice_evidence_run_id,
+            args.voice_evidence_attempt,
+            args.voice_evidence_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
