@@ -10,7 +10,7 @@ import {
 } from '../scripts/release-readiness-matrix.mjs';
 import {createCiEvidence} from '../scripts/ci-evidence.mjs';
 import {
- createReleaseCandidate,verifyReleaseCandidate
+ createReleaseCandidate,verifyReleaseCandidate,sha256
 } from '../scripts/release-candidate-manifest.mjs';
 import {ReleaseApprovalLedger} from '../scripts/release-approval-ledger.mjs';
 
@@ -64,14 +64,22 @@ const runtimeVoice=()=>({
 const matrix=()=>composeReleaseReadinessMatrix({
  staticReadiness:staticBase(),runtimeGate:runtimeVoice(),ciEvidence:ci()
 });
+const sourceEvidence=()=>({
+ staticDigestSha256:sha256(staticBase()),
+ runtimeDigestSha256:sha256(runtimeVoice()),
+ ciDigestSha256:sha256(ci())
+});
 const timestamp='2026-11-16T00:00:00.000Z';
+const candidateAt=(createdAt=timestamp)=>createReleaseCandidate(matrix(),{
+ createdAt,sourceEvidence:sourceEvidence()
+});
 
 test('R72 只有软件自动证据齐全且进入人工复核阶段才能冻结候选',()=>{
  const value=matrix();
  assert.equal(value.targets.softwarePilot.status,'manual-release-review');
  assert.equal(value.targets.robotCandidate.status,'evidence-required');
  assert.equal(verifyReleaseReadinessMatrix(value),true);
- const candidate=createReleaseCandidate(value,{createdAt:timestamp});
+ const candidate=createReleaseCandidate(value,{createdAt:timestamp,sourceEvidence:sourceEvidence()});
  assert.equal(verifyReleaseCandidate(candidate,{expectedCommit:SHA}),true);
  assert.equal(candidate.releaseApproved,false);
  assert.equal(candidate.deployExecuted,false);
@@ -90,7 +98,7 @@ test('R72 Matrix verifier 会重算 software target，不能通过删人工检�
   .filter(item=>item!=='realAcousticIo');
  assert.throws(()=>verifyReleaseReadinessMatrix(value),
   /READINESS_MATRIX_SOFTWARE_TARGET_DRIFT/);
- assert.throws(()=>createReleaseCandidate(value,{createdAt:timestamp}),
+ assert.throws(()=>createReleaseCandidate(value,{createdAt:timestamp,sourceEvidence:sourceEvidence()}),
   /READINESS_MATRIX_SOFTWARE_TARGET_DRIFT/);
 });
 
@@ -106,12 +114,12 @@ test('R72 缺真实 Voice coherent evidence 时不能创建软件候选',()=>{
   staticReadiness:staticBase(),runtimeGate:runtime,ciEvidence:ci()
  });
  assert.equal(value.targets.softwarePilot.status,'evidence-required');
- assert.throws(()=>createReleaseCandidate(value,{createdAt:timestamp}),
+ assert.throws(()=>createReleaseCandidate(value,{createdAt:timestamp,sourceEvidence:sourceEvidence()}),
   /RELEASE_CANDIDATE_SOFTWARE_NOT_READY_FOR_HUMAN_REVIEW/);
 });
 
 test('R72 Candidate ID/Digest 固定 Matrix 与 Commit，任何字段篡改都会失败',()=>{
- const candidate=createReleaseCandidate(matrix(),{createdAt:timestamp});
+ const candidate=candidateAt();
  const digest=candidate.candidateDigestSha256;
  const changed=structuredClone(candidate);
  changed.commitSha='f'.repeat(40);
@@ -129,7 +137,7 @@ test('R72 审批必须由 parent 对当前候选逐项确认，批准只改变�
  try{
   const candidateFile=join(dir,'candidate.json');
   const ledgerFile=join(dir,'approvals.json');
-  const candidate=createReleaseCandidate(matrix(),{createdAt:timestamp});
+  const candidate=candidateAt();
   await writeFile(candidateFile,JSON.stringify(candidate));
   const ledger=new ReleaseApprovalLedger(ledgerFile,{
    candidateFile,clock:()=>Date.parse('2026-11-16T00:10:00.000Z')
@@ -183,7 +191,7 @@ test('R72 候选 digest 变化后旧批准不会继承，旧客户端也不能�
  try{
   const candidateFile=join(dir,'candidate.json');
   const ledgerFile=join(dir,'approvals.json');
-  const first=createReleaseCandidate(matrix(),{createdAt:timestamp});
+  const first=candidateAt();
   await writeFile(candidateFile,JSON.stringify(first));
   const ledger=new ReleaseApprovalLedger(ledgerFile,{candidateFile});
   await ledger.load();
@@ -195,9 +203,7 @@ test('R72 候选 digest 变化后旧批准不会继承，旧客户端也不能�
   });
   assert.equal((await ledger.status()).releaseApproved,true);
 
-  const second=createReleaseCandidate(matrix(),{
-   createdAt:'2026-11-16T00:01:00.000Z'
-  });
+  const second=candidateAt('2026-11-16T00:01:00.000Z');
   await writeFile(candidateFile,JSON.stringify(second));
   const status=await ledger.status();
   assert.equal(status.releaseApproved,false);
@@ -217,7 +223,7 @@ test('R72 审批哈希链被篡改后重启必须 fail closed',{timeout:15000},a
  try{
   const candidateFile=join(dir,'candidate.json');
   const ledgerFile=join(dir,'approvals.json');
-  const candidate=createReleaseCandidate(matrix(),{createdAt:timestamp});
+  const candidate=candidateAt();
   await writeFile(candidateFile,JSON.stringify(candidate));
   const ledger=new ReleaseApprovalLedger(ledgerFile,{candidateFile});
   await ledger.load();
@@ -239,10 +245,15 @@ test('R72 审批哈希链被篡改后重启必须 fail closed',{timeout:15000},a
 test('R72 candidate CLI create/verify 只写候选文件，不执行发布',{timeout:15000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'alex-r72-cli-'));
  try{
-  const matrixFile=join(dir,'matrix.json'),candidateFile=join(dir,'candidate.json');
-  await writeFile(matrixFile,JSON.stringify(matrix()));
+  const staticFile=join(dir,'static.json'),runtimeFile=join(dir,'runtime.json');
+  const ciFile=join(dir,'ci.json'),candidateFile=join(dir,'candidate.json');
+  const staticReadiness=staticBase(),runtimeGate=runtimeVoice(),ciEvidence=ci();
+  await writeFile(staticFile,JSON.stringify(staticReadiness));
+  await writeFile(runtimeFile,JSON.stringify(runtimeGate));
+  await writeFile(ciFile,JSON.stringify(ciEvidence));
   let checked=spawnSync(process.execPath,[
-   'scripts/release-candidate-manifest.mjs','create',matrixFile,candidateFile
+   'scripts/release-candidate-manifest.mjs','create',
+   staticFile,runtimeFile,ciFile,candidateFile
   ],{cwd:root,encoding:'utf8',timeout:10000});
   assert.equal(checked.status,0,checked.stderr);
   assert.match(checked.stdout,/RELEASE_CANDIDATE_WRITTEN:/);
@@ -254,5 +265,8 @@ test('R72 candidate CLI create/verify 只写候选文件，不执行发布',{tim
   const value=JSON.parse(await readFile(candidateFile,'utf8'));
   assert.equal(value.releaseApproved,false);
   assert.equal(value.deployExecuted,false);
+  assert.equal(value.sourceEvidence.staticDigestSha256,sha256(staticReadiness));
+  assert.equal(value.sourceEvidence.runtimeDigestSha256,sha256(runtimeGate));
+  assert.equal(value.sourceEvidence.ciDigestSha256,sha256(ciEvidence));
  }finally{await rm(dir,{recursive:true,force:true});}
 });
