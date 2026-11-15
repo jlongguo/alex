@@ -13,6 +13,7 @@ import {
  createReleaseCandidate,verifyReleaseCandidate,sha256
 } from '../scripts/release-candidate-manifest.mjs';
 import {ReleaseApprovalLedger} from '../scripts/release-approval-ledger.mjs';
+import {inspectReleasePreflight} from '../scripts/release-preflight.mjs';
 
 const root=resolve(import.meta.dirname,'..');
 const SHA='0123456789abcdef0123456789abcdef01234567';
@@ -268,5 +269,26 @@ test('R72 candidate CLI create/verify 只写候选文件，不执行发布',{tim
   assert.equal(value.sourceEvidence.staticDigestSha256,sha256(staticReadiness));
   assert.equal(value.sourceEvidence.runtimeDigestSha256,sha256(runtimeGate));
   assert.equal(value.sourceEvidence.ciDigestSha256,sha256(ciEvidence));
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('R72 发布预检把审批账本纳入备份范围，外置账本不能被默认备份静默遗漏',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'alex-r72-preflight-'));
+ try{
+  const stateDir=join(dir,'state');
+  const external=join(dir,'outside','release-approvals.json');
+  await (await import('node:fs/promises')).mkdir(stateDir,{recursive:true});
+  const report=await inspectReleasePreflight({
+   stateDir,
+   env:{
+    AUTH_MODE:'local',
+    ALEX_PARENT_PASSWORD:'r72-preflight-parent-password',
+    ALEX_RELEASE_APPROVAL_FILE:external
+   }
+  });
+  assert.ok(report.blocked.includes('BACKUP_SCOPE'));
+  assert.ok(report.storage.outsideDefaultBackup>=1);
+  assert.equal(report.releaseApproved,false);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
