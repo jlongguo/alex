@@ -17,13 +17,21 @@ const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const domain=(status,evidenceLevel,detail)=>({status,evidenceLevel,detail});
 
 function verifyStatic(report){
- if(!object(report)||report.schemaVersion!==STATIC_SCHEMA||
-  !['blocked','manual-validation-required','checks-complete'].includes(report.status)||
-  !Array.isArray(report.blockers)||!Array.isArray(report.manual)||
-  !Array.isArray(report.checks)||report.readOnly!==true||
-  report.executable!==false||report.releaseApproved!==false||
-  !object(report.robotCandidate)||report.robotCandidate.physicalSafetyCertified!==false)
-  fail('READINESS_MATRIX_STATIC_INVALID');
+ if(!object(report))fail('READINESS_MATRIX_STATIC_OBJECT_INVALID');
+ if(report.schemaVersion!==STATIC_SCHEMA)
+  fail('READINESS_MATRIX_STATIC_SCHEMA_INVALID');
+ if(!['blocked','manual-validation-required','checks-complete'].includes(report.status))
+  fail('READINESS_MATRIX_STATIC_STATUS_INVALID');
+ if(!Array.isArray(report.blockers)||!Array.isArray(report.manual)||
+  !Array.isArray(report.checks))
+  fail('READINESS_MATRIX_STATIC_LISTS_INVALID');
+ if(report.readOnly!==true)fail('READINESS_MATRIX_STATIC_READ_ONLY_INVALID');
+ if(report.executable!==false)fail('READINESS_MATRIX_STATIC_EXECUTABLE_INVALID');
+ if(report.releaseApproved!==false)fail('READINESS_MATRIX_STATIC_APPROVAL_INVALID');
+ if(!object(report.robotCandidate))
+  fail('READINESS_MATRIX_STATIC_ROBOT_CANDIDATE_INVALID');
+ if(report.robotCandidate.physicalSafetyCertified!==false)
+  fail('READINESS_MATRIX_STATIC_PHYSICAL_SAFETY_INVALID');
  return report;
 }
 const runtimeStatus=value=>['not_run','verified','verified-by-set','verified-coherent',
@@ -121,18 +129,20 @@ export function composeReleaseReadinessMatrix({
  if(ros.status==='pass'&&rosSubject===null)
   ros=domain('blocked','runtime-subject-missing',
    'ROS coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
- if(ci&&voice.status==='pass'&&voiceSubject.commit_sha!==ci.context.commitSha)
-  voice=domain('blocked','commit-mismatch',
-   'Voice runtime evidence 与当前 CI 不属于同一 Commit');
- if(ci&&ros.status==='pass'&&rosSubject.commit_sha!==ci.context.commitSha)
-  ros=domain('blocked','commit-mismatch',
-   'ROS runtime evidence 与当前 CI 不属于同一 Commit');
- if(voice.status==='pass'&&ros.status==='pass'&&
-  voiceSubject.commit_sha!==rosSubject.commit_sha){
+ const runtimePairMismatch=voice.status==='pass'&&ros.status==='pass'&&
+  voiceSubject.commit_sha!==rosSubject.commit_sha;
+ if(runtimePairMismatch){
   voice=domain('blocked','commit-mismatch',
    'Voice 与 ROS runtime evidence 不属于同一 Commit');
   ros=domain('blocked','commit-mismatch',
    'ROS 与 Voice runtime evidence 不属于同一 Commit');
+ }else{
+  if(ci&&voice.status==='pass'&&voiceSubject.commit_sha!==ci.context.commitSha)
+   voice=domain('blocked','commit-mismatch',
+    'Voice runtime evidence 与当前 CI 不属于同一 Commit');
+  if(ci&&ros.status==='pass'&&rosSubject.commit_sha!==ci.context.commitSha)
+   ros=domain('blocked','commit-mismatch',
+    'ROS runtime evidence 与当前 CI 不属于同一 Commit');
  }
 
  const domains={
