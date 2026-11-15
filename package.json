@@ -32,6 +32,7 @@
     "sim:artifact-attest": "python3 scripts/write-ros-artifact-attestation.py",
     "sim:artifact-verify": "python3 scripts/verify-ros-artifact-attestation.py",
     "sim:evidence-set-verify": "python3 scripts/verify-ros-evidence-set.py",
+    "sim:runner-provenance": "python3 scripts/ros-runner-provenance.py",
     "sim:github-readback": "python3 scripts/github-actions-ros-readback.py",
     "sim:publication-audit": "python3 scripts/github-actions-ros-publication-audit.py",
     "sim:verify-cancel-report": "python3 scripts/verify-ros-cancel-report.py",
