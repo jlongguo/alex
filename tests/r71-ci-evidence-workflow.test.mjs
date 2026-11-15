@@ -39,7 +39,9 @@ test('R71 家长 readiness API 只用本次静态 report 生成在线 matrix，�
  const server=await readFile(resolve(root,'scripts/server.mjs'),'utf8');
  const at=server.indexOf("pathname==='/api/release/readiness'");
  assert.ok(at>0);
- const code=server.slice(at,at+2200);
+ const end=server.indexOf("pathname==='/api/skills/reconciliation'",at);
+ assert.ok(end>at);
+ const code=server.slice(at,end);
  assert.match(code,/composeReleaseReadinessMatrix\(\{staticReadiness:report\}\)/);
  assert.match(code,/send\(res,200,\{ok:true,report,matrix\}\)/);
  assert.doesNotMatch(code,/runtimeGate:|ciEvidence:|RUNTIME_ACCEPTANCE.*FILE|CI_EVIDENCE.*FILE/);
