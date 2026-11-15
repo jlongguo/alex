@@ -185,13 +185,16 @@ def validate_artifacts(payload, expected):
            'GITHUB_READBACK_ARTIFACTS_INVALID')
     candidates = [
         item for item in artifacts
-        if isinstance(item, dict) and item.get('name') == ARTIFACT_NAME
+        if isinstance(item, dict)
+        and item.get('id') == int(expected['artifact_id'])
     ]
+    reject(len(candidates) > 0,
+           'GITHUB_READBACK_ARTIFACT_MISSING')
     reject(len(candidates) == 1,
-           'GITHUB_READBACK_ARTIFACT_NOT_UNIQUE')
+           'GITHUB_READBACK_ARTIFACT_ID_NOT_UNIQUE')
     artifact = candidates[0]
-    reject(artifact.get('id') == int(expected['artifact_id']),
-           'GITHUB_READBACK_ARTIFACT_ID_MISMATCH')
+    reject(artifact.get('name') == ARTIFACT_NAME,
+           'GITHUB_READBACK_ARTIFACT_NAME_MISMATCH')
     digest = normalize_digest(
         artifact.get('digest'),
         'GITHUB_READBACK_API_DIGEST_INVALID')
@@ -227,7 +230,7 @@ def create_readback(env, fetch_json=github_get_json, sleep_fn=sleep):
 
     artifact_record = None
     transient = {
-        'GITHUB_READBACK_ARTIFACT_NOT_UNIQUE',
+        'GITHUB_READBACK_ARTIFACT_MISSING',
         'GITHUB_READBACK_API_DIGEST_INVALID',
     }
     for attempt_index in range(4):

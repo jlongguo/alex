@@ -76,8 +76,10 @@ elif scenario == 'wrong-digest':
     artifact['digest'] = 'sha256:' + ('b' * 64)
 elif scenario == 'wrong-artifact-run':
     artifact['workflow_run']['id'] += 1
-elif scenario == 'duplicate':
+elif scenario == 'historical-same-name':
     artifact_payloads = [{'artifacts': [artifact, dict(artifact, id=123456788)]}]
+elif scenario == 'duplicate-id':
+    artifact_payloads = [{'artifacts': [artifact, dict(artifact)]}]
 elif scenario == 'propagation-delay':
     artifact_payloads = [
         {'artifacts': []},
