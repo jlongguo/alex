@@ -28,6 +28,7 @@ import {SkillPackageTrust} from './skill-package-trust.mjs';
 import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
 import {evaluateReleaseReadiness} from './release-readiness.mjs';
+import {composeReleaseReadinessMatrix} from './release-readiness-matrix.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -1025,7 +1026,8 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       plans:learningPlans.list(principal,owner.slice('learner:'.length)),
       progress:conversations.progress(principal==='parent'?'parent':principal,owner)
     });
-    send(res,200,{ok:true,report});return;
+    const matrix=composeReleaseReadinessMatrix({staticReadiness:report});
+    send(res,200,{ok:true,report,matrix});return;
   }
   if(req.method==='GET' && pathname==='/api/learning/overview'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
