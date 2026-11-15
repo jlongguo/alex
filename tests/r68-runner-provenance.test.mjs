@@ -134,13 +134,15 @@ test('R68 Workflow 在 npm install/Gazebo 前捕获 provenance，并把它放入
  const verify=workflow.indexOf('ros-runner-provenance.py --verify');
  const install=workflow.indexOf('npm install --ignore-scripts');
  const gazebo=workflow.indexOf('npm run sim:accept');
- const artifact=workflow.indexOf('.local/ros/runner-provenance.json');
+ const upload=workflow.indexOf('id: ros_evidence_upload');
+ const artifact=workflow.indexOf('.local/ros/runner-provenance.json',upload);
  assert.ok(reset>=0);
  assert.ok(capture>reset);
  assert.ok(verify>capture);
  assert.ok(install>verify);
  assert.ok(gazebo>install);
- assert.ok(artifact>gazebo);
+ assert.ok(upload>gazebo);
+ assert.ok(artifact>upload);
  assert.match(workflow,/source \/opt\/ros\/jazzy\/setup\.bash/);
  assert.match(workflow,/ROS_DOMAIN_ID: '77'/);
  assert.match(workflow,/ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST/);
@@ -148,7 +150,7 @@ test('R68 Workflow 在 npm install/Gazebo 前捕获 provenance，并把它放入
 
 test('R68 provenance 源码不枚举环境变量、不记录 hostname/token/用户目录',{timeout:15000},async()=>{
  const source=await readFile(provenance,'utf8');
- assert.doesNotMatch(source,/os\.environ\.items\(|printenv|env\s*\)/);
+ assert.doesNotMatch(source,/os\.environ\.items\(|dict\(os\.environ\)|os\.environ\.copy\(|\bprintenv\b/);
  assert.doesNotMatch(source,/hostname|platform\.node\(/i);
  assert.doesNotMatch(source,/GITHUB_TOKEN/);
  assert.doesNotMatch(source,/\/home\//);
