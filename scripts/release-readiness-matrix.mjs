@@ -9,6 +9,8 @@ import {verifyCiEvidence} from './ci-evidence.mjs';
 export const MATRIX_SCHEMA='alex.dev/release-readiness-matrix/v1';
 const STATIC_SCHEMA='alex.dev/release-readiness/v1';
 const RUNTIME_SCHEMA='alex.dev/runtime-acceptance-gate/v1';
+const SHA=/^[0-9a-f]{40}$/;
+const DIGITS=/^[1-9][0-9]{0,19}$/;
 
 const fail=code=>{throw Error(code);};
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -29,7 +31,8 @@ const runtimeStatus=value=>['not_run','verified','verified-by-set','verified-coh
 function verifyRuntime(report){
  if(!object(report)||report.schema!==RUNTIME_SCHEMA||report.read_only!==true||
   report.release_approved!==false||report.physical_safety_certified!==false||
-  !Array.isArray(report.remaining))
+  !Array.isArray(report.remaining)||!object(report.subjects)||
+  !Object.hasOwn(report.subjects,'ros')||!Object.hasOwn(report.subjects,'voice'))
   fail('READINESS_MATRIX_RUNTIME_INVALID');
  const fields=[
   'ros_runtime','voice_real_provider','voice_workflow_evidence',
@@ -42,6 +45,11 @@ function verifyRuntime(report){
   fail('READINESS_MATRIX_RUNTIME_STATUS_INVALID');
  if(report.remaining.some(item=>typeof item!=='string'||!item))
   fail('READINESS_MATRIX_RUNTIME_REMAINING_INVALID');
+ const validSubject=value=>value===null||(object(value)&&
+  DIGITS.test(value.run_id??'')&&Number.isInteger(value.attempt)&&
+  value.attempt>=1&&value.attempt<=10000&&SHA.test(value.commit_sha??''));
+ if(!validSubject(report.subjects.ros)||!validSubject(report.subjects.voice))
+  fail('READINESS_MATRIX_RUNTIME_SUBJECT_INVALID');
  return report;
 }
 function voiceState(runtime){
@@ -103,6 +111,30 @@ export function composeReleaseReadinessMatrix({
  const runtime=runtimeGate===null?null:verifyRuntime(runtimeGate);
  const ci=ciEvidence===null?null:(verifyCiEvidence(ciEvidence),ciEvidence);
 
+ let voice=voiceState(runtime);
+ let ros=rosState(runtime);
+ const voiceSubject=runtime?.subjects?.voice??null;
+ const rosSubject=runtime?.subjects?.ros??null;
+ if(voice.status==='pass'&&voiceSubject===null)
+  voice=domain('blocked','runtime-subject-missing',
+   'Voice coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
+ if(ros.status==='pass'&&rosSubject===null)
+  ros=domain('blocked','runtime-subject-missing',
+   'ROS coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
+ if(ci&&voice.status==='pass'&&voiceSubject.commit_sha!==ci.context.commitSha)
+  voice=domain('blocked','commit-mismatch',
+   'Voice runtime evidence 与当前 CI 不属于同一 Commit');
+ if(ci&&ros.status==='pass'&&rosSubject.commit_sha!==ci.context.commitSha)
+  ros=domain('blocked','commit-mismatch',
+   'ROS runtime evidence 与当前 CI 不属于同一 Commit');
+ if(voice.status==='pass'&&ros.status==='pass'&&
+  voiceSubject.commit_sha!==rosSubject.commit_sha){
+  voice=domain('blocked','commit-mismatch',
+   'Voice 与 ROS runtime evidence 不属于同一 Commit');
+  ros=domain('blocked','commit-mismatch',
+   'ROS 与 Voice runtime evidence 不属于同一 Commit');
+ }
+
  const domains={
   staticConfiguration:stat.status==='blocked'
    ?domain('blocked','local-static','R42 静态发布条件存在阻断项')
@@ -113,8 +145,8 @@ export function composeReleaseReadinessMatrix({
    :ci
     ?domain('blocked','ci-current-run','真实 Chromium 家庭流程当前 CI 未通过')
     :domain('evidence-required','not-provided','尚未提供当前 Commit 的 Browser CI 证据'),
-  voiceProvider:voiceState(runtime),
-  rosSimulation:rosState(runtime),
+  voiceProvider:voice,
+  rosSimulation:ros,
   realAcousticIo:domain('manual-required','not-modeled',
    '现有 Voice Provider 验收使用 synthetic provider TTS 种子，不证明真实麦克风采集与扬声器播放'),
   realChildJourney:domain('manual-required','human-required',
@@ -168,7 +200,12 @@ export function composeReleaseReadinessMatrix({
    runtimeSchema:runtime?.schema??null,
    ciSchema:ci?.schema??null,
    runtimeProvided:runtime!==null,
-   ciProvided:ci!==null
+   ciProvided:ci!==null,
+   subjects:{
+    ciCommit:ci?.context?.commitSha??null,
+    voice:voiceSubject,
+    ros:rosSubject
+   }
   },
   domains,blockers,evidenceRequired,manual,
   targets:{
