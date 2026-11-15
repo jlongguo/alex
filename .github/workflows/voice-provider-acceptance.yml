@@ -1,16 +1,39 @@
-# R56 手动真实语音供应商验收。通用 PR CI 不读取云端凭据，也不会自动消费供应商额度。
+# R69 手动真实语音供应商验收。通用 PR CI 不读取云端凭据，也不会自动消费供应商额度。
 name: Voice Provider Runtime Acceptance (manual)
 on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
+  approval-gate:
+    name: approval-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit voice provider acceptance approval
+        env:
+          ALEX_VOICE_ACCEPTANCE_APPROVED: ${{ vars.ALEX_VOICE_ACCEPTANCE_APPROVED }}
+        run: |
+          set -euo pipefail
+          if [[ "$ALEX_VOICE_ACCEPTANCE_APPROVED" != "true" ]]; then
+            echo "ALEX_VOICE_ACCEPTANCE_APPROVED is not true; refusing to consume provider quota" >&2
+            exit 1
+          fi
   voice-provider:
-    if: ${{ vars.ALEX_VOICE_ACCEPTANCE_APPROVED == 'true' }}
+    name: voice-provider
+    needs: approval-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      evidence-artifact-id: ${{ steps.voice_evidence_upload.outputs.artifact-id }}
+      evidence-artifact-digest: ${{ steps.voice_evidence_upload.outputs.artifact-digest }}
+      attestation-artifact-id: ${{ steps.voice_attestation_upload.outputs.artifact-id }}
+      attestation-artifact-digest: ${{ steps.voice_attestation_upload.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@v4
+      - name: Invalidate previous Voice workflow evidence
+        run: python3 scripts/voice-workflow-evidence.py --reset
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -29,10 +52,110 @@ jobs:
         run: npm run voice:accept -- --report .local/voice/runtime-report.json
       - name: Verify privacy-safe runtime evidence
         run: npm run voice:verify -- --report .local/voice/runtime-report.json
-      - name: Upload aggregate evidence only
+      - name: Bind runtime report to this Actions run
+        run: |
+          set -euo pipefail
+          python3 scripts/voice-workflow-evidence.py --collect
+          python3 scripts/voice-workflow-evidence.py --verify \
+            --expect-run-id "$GITHUB_RUN_ID" \
+            --expect-attempt "$GITHUB_RUN_ATTEMPT" \
+            --expect-sha "$GITHUB_SHA"
+      - name: Upload immutable Voice runtime evidence
+        id: voice_evidence_upload
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: alex-voice-provider-runtime-evidence
-          if-no-files-found: warn
-          path: .local/voice/runtime-report.json
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .local/voice/runtime-report.json
+            .local/voice/workflow-evidence.json
+      - name: Read back current Voice Artifact from GitHub Actions API
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_VOICE_ARTIFACT_ID: ${{ steps.voice_evidence_upload.outputs.artifact-id }}
+          ALEX_VOICE_ARTIFACT_DIGEST: ${{ steps.voice_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-voice-readback.py --audit
+          python3 scripts/github-actions-voice-readback.py --verify \
+            --report .local/voice/github-actions-readback.json \
+            --artifact-id "$ALEX_VOICE_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_VOICE_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Bind immutable Voice Artifact metadata and verify coherent evidence set
+        if: success()
+        env:
+          ALEX_VOICE_ARTIFACT_ID: ${{ steps.voice_evidence_upload.outputs.artifact-id }}
+          ALEX_VOICE_ARTIFACT_DIGEST: ${{ steps.voice_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-voice-artifact-attestation.py
+          python3 scripts/verify-voice-artifact-attestation.py \
+            --attestation .local/voice/artifact-attestation.json \
+            --folder .local/voice \
+            --artifact-id "$ALEX_VOICE_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_VOICE_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+          python3 scripts/verify-voice-evidence-set.py \
+            --folder .local/voice \
+            --attestation .local/voice/artifact-attestation.json \
+            --github-readback .local/voice/github-actions-readback.json \
+            --artifact-id "$ALEX_VOICE_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_VOICE_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Upload Voice artifact attestation separately
+        id: voice_attestation_upload
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alex-voice-provider-runtime-attestation
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .local/voice/artifact-attestation.json
+            .local/voice/github-actions-readback.json
+  publication-audit:
+    name: publication-audit
+    needs: voice-provider
+    if: ${{ needs.voice-provider.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify producer job and both immutable Voice Artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_VOICE_ARTIFACT_ID: ${{ needs.voice-provider.outputs.evidence-artifact-id }}
+          ALEX_VOICE_ARTIFACT_DIGEST: ${{ needs.voice-provider.outputs.evidence-artifact-digest }}
+          ALEX_VOICE_ATTESTATION_ARTIFACT_ID: ${{ needs.voice-provider.outputs.attestation-artifact-id }}
+          ALEX_VOICE_ATTESTATION_ARTIFACT_DIGEST: ${{ needs.voice-provider.outputs.attestation-artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-voice-publication-audit.py --audit
+          python3 scripts/github-actions-voice-publication-audit.py --verify \
+            --report .local/voice/publication-audit.json \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA" \
+            --main-artifact-id "$ALEX_VOICE_ARTIFACT_ID" \
+            --main-artifact-digest "$ALEX_VOICE_ARTIFACT_DIGEST" \
+            --attestation-artifact-id "$ALEX_VOICE_ATTESTATION_ARTIFACT_ID" \
+            --attestation-artifact-digest "$ALEX_VOICE_ATTESTATION_ARTIFACT_DIGEST"
+          {
+            echo "### Voice publication audit"
+            echo "- Producer: voice-provider = success"
+            echo "- Main Artifact ID: $ALEX_VOICE_ARTIFACT_ID"
+            echo "- Attestation Artifact ID: $ALEX_VOICE_ATTESTATION_ARTIFACT_ID"
+            echo "- Run: $GITHUB_RUN_ID / attempt $GITHUB_RUN_ATTEMPT"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Result: dual Artifact REST readback verified"
+          } >> "$GITHUB_STEP_SUMMARY"
