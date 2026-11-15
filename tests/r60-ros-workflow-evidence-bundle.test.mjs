@@ -4,6 +4,7 @@ import {mkdtemp,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {makeRunnerProvenance} from './fixtures/r68-runner-provenance-fixture.mjs';
 
 const root=resolve(import.meta.dirname,'..');
 const bundler=join(root,'scripts/ros-workflow-evidence-bundle.py');
@@ -115,6 +116,9 @@ async function withDir(fn){
 }
 async function seedReports(dir,docs=reports()){
  for(const [name,body] of docs)await writeFile(join(dir,name),JSON.stringify(body));
+ await writeFile(join(dir,'runner-provenance.json'),JSON.stringify(makeRunnerProvenance({
+  runId:ACTIONS.GITHUB_RUN_ID,attempt:Number(ACTIONS.GITHUB_RUN_ATTEMPT),sha:SHA
+ })));
 }
 const reset=(bundle,env=ACTIONS)=>py(['--reset','--bundle',bundle],env);
 const collect=(bundle,env=ACTIONS)=>py(['--collect','--bundle',bundle],env);
@@ -134,8 +138,11 @@ async function assembled(dir,bundle){
 test('R60/R63 四份独立 Nav2 验收报告绑定同一工作流、commit、四种不同 run ID',{timeout:15000},async()=>{
  await withDir(async({dir,bundle})=>{
   const manifest=await assembled(dir,bundle);
+  assert.equal(manifest.schema,'alex.dev/ros-workflow-evidence-bundle/v2');
   assert.equal(manifest.status,'assembled');
   assert.equal(manifest.source,'github-actions-manual-self-hosted');
+  assert.equal(manifest.provenance.filename,'runner-provenance.json');
+  assert.match(manifest.provenance.fingerprint_sha256,/^[0-9a-f]{64}$/);
   assert.equal(manifest.context.workflow_run_id,ACTIONS.GITHUB_RUN_ID);
   assert.equal(manifest.context.workflow_run_attempt,2);
   assert.equal(manifest.context.commit_sha,SHA);
@@ -251,7 +258,9 @@ test('R60 runtime gate 只把 Bundle 视为结构对账，仍需每项 ROS 与�
   assert.equal(initial.status,0,initial.stderr);
   const baseline=JSON.parse(initial.stdout);
   assert.equal(baseline.ros_workflow_bundle,'not_run');
+  assert.equal(baseline.ros_runner_provenance,'not_run');
   assert.ok(baseline.remaining.includes('GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE'));
+  assert.ok(baseline.remaining.includes('GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE'));
   await assembled(dir,bundle);
   const checked=run('python3',[gate,
    '--ros-workflow-bundle',bundle,
@@ -270,6 +279,8 @@ test('R60 runtime gate 只把 Bundle 视为结构对账，仍需每项 ROS 与�
   assert.ok(result.remaining.includes('GAZEBO_NAV2_CANCEL_RUNTIME'));
   assert.ok(result.remaining.includes('GAZEBO_NAV2_RECOVERY_RUNTIME'));
   assert.ok(!result.remaining.includes('GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE'));
+  assert.ok(result.remaining.includes('GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE'),
+   '单独验证 Bundle 仍不能把 provenance 升级为发布级 coherent set');
   assert.equal(result.release_approved,false);
   assert.equal(result.physical_safety_certified,false);
 
@@ -302,6 +313,8 @@ test('R60 手动工作流先失效旧报告、后校验 Bundle、失败也上传
   assert.ok(index>previous,'工作流步骤缺失或排序错乱: '+name);
   previous=index;
  }
+ assert.match(workflow,/runner-provenance\.json/);
+ assert.match(workflow,/ros-runner-provenance\.py --capture/);
  assert.match(workflow,/workflow-evidence-bundle\.json/);
  assert.match(workflow,/approval-gate:/);
  assert.match(workflow,/ALEX_SIM_RUNNER_APPROVED: \$\{\{ vars\.ALEX_SIM_RUNNER_APPROVED \}\}/);
