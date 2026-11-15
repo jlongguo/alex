@@ -99,7 +99,9 @@ export class ReleaseApprovalLedger{
   const candidate=await this.currentCandidate();
   if(!candidate)return {
    schema:'alex.dev/release-approval-status/v1',
-   configured:false,status:'candidate-required',candidate:null,
+   configured:this.candidateFile!==null,
+   status:this.candidateFile===null?'candidate-required':'candidate-missing',
+   candidate:null,
    releaseApproved:false,deployExecuted:false,physicalSafetyCertified:false,
    decision:null
   };
