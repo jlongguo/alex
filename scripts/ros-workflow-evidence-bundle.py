@@ -173,12 +173,26 @@ def atomically_write(path, data):
 def reset(bundle, env):
     # 在测试启动前绑定具体 Actions Run，而不是收尾时才读取可变的环境信息。
     context = action_context(env)
+    started_at_ns = time_ns()
     atomically_write(bundle, {
         'schema': SCHEMA, 'status': 'blocked',
         'source': SOURCE, 'simulation_only': True,
         'release_approved': False, 'physical_safety_certified': False,
         'reason': 'WORKFLOW_ACCEPTANCE_PENDING', 'reports': [],
-        'context': context, 'started_at_ns': time_ns(),
+        'context': context, 'started_at_ns': started_at_ns,
+    })
+    # 自托管工作区会跨 Run 保留文件。先覆盖旧 provenance，避免捕获失败时
+    # failure Artifact 误带上一轮 verified 环境证明。
+    atomically_write(bundle.parent / PROVENANCE_FILE, {
+        'schema': 'alex.dev/ros-runner-provenance/v1',
+        'status': 'blocked',
+        'source_type': 'github-actions-self-hosted-runtime',
+        'simulation_only': True,
+        'release_approved': False,
+        'physical_safety_certified': False,
+        'reason': 'RUNNER_PROVENANCE_CAPTURE_PENDING',
+        'actions': context,
+        'started_at_ns': started_at_ns,
     })
 
 
