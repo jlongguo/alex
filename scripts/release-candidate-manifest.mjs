@@ -6,7 +6,7 @@ import {lstat,mkdir,readFile,rename,unlink,writeFile} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {
- MATRIX_SCHEMA,verifyReleaseReadinessMatrix
+ MATRIX_SCHEMA,composeReleaseReadinessMatrix,verifyReleaseReadinessMatrix
 } from './release-readiness-matrix.mjs';
 
 export const RELEASE_CANDIDATE_SCHEMA='alex.dev/release-candidate/v1';
@@ -38,7 +38,9 @@ function normalizedChecks(value){
  return checks;
 }
 
-export function createReleaseCandidate(matrix,{createdAt=new Date().toISOString()}={}){
+export function createReleaseCandidate(matrix,{
+ createdAt=new Date().toISOString(),sourceEvidence
+}={}){
  verifyReleaseReadinessMatrix(matrix);
  const target=matrix.targets?.softwarePilot;
  if(!object(target)||target.status!=='manual-release-review'||
@@ -55,6 +57,11 @@ export function createReleaseCandidate(matrix,{createdAt=new Date().toISOString(
  if(typeof createdAt!=='string'||Number.isNaN(Date.parse(createdAt))||
   new Date(createdAt).toISOString()!==createdAt)
   fail('RELEASE_CANDIDATE_CREATED_AT_INVALID');
+ if(!object(sourceEvidence)||
+  !DIGEST.test(sourceEvidence.staticDigestSha256??'')||
+  !DIGEST.test(sourceEvidence.runtimeDigestSha256??'')||
+  !DIGEST.test(sourceEvidence.ciDigestSha256??''))
+  fail('RELEASE_CANDIDATE_SOURCE_EVIDENCE_INVALID');
 
  const base={
   schema:RELEASE_CANDIDATE_SCHEMA,
@@ -72,6 +79,7 @@ export function createReleaseCandidate(matrix,{createdAt=new Date().toISOString(
    browserJourney:matrix.domains.browserJourney.status,
    voiceProvider:matrix.domains.voiceProvider.status
   },
+  sourceEvidence:structuredClone(sourceEvidence),
   requiredHumanChecks,
   releaseApproved:false,
   deployExecuted:false,
@@ -99,6 +107,10 @@ export function verifyReleaseCandidate(candidate,{expectedCommit=null}={}){
   candidate.automatedEvidence.ci!=='pass'||
   candidate.automatedEvidence.browserJourney!=='pass'||
   candidate.automatedEvidence.voiceProvider!=='pass'||
+  !object(candidate.sourceEvidence)||
+  !DIGEST.test(candidate.sourceEvidence.staticDigestSha256??'')||
+  !DIGEST.test(candidate.sourceEvidence.runtimeDigestSha256??'')||
+  !DIGEST.test(candidate.sourceEvidence.ciDigestSha256??'')||
   candidate.releaseApproved!==false||candidate.deployExecuted!==false||
   candidate.rollbackExecuted!==false||candidate.physicalSafetyCertified!==false||
   !DIGEST.test(candidate.candidateDigestSha256??''))
@@ -138,11 +150,24 @@ async function atomicWrite(path,value){
 async function main(){
  const [mode,...args]=process.argv.slice(2);
  if(mode==='create'){
-  if(args.length!==2)fail('RELEASE_CANDIDATE_USAGE: create <matrix.json> <candidate.json>');
-  const matrix=await readBounded(resolve(args[0]));
-  const candidate=createReleaseCandidate(matrix);
+  if(args.length!==4)
+   fail('RELEASE_CANDIDATE_USAGE: create <static.json> <runtime.json> <ci.json> <candidate.json>');
+  const [staticReadiness,runtimeGate,ciEvidence]=await Promise.all([
+   readBounded(resolve(args[0])),readBounded(resolve(args[1])),
+   readBounded(resolve(args[2]))
+  ]);
+  const matrix=composeReleaseReadinessMatrix({
+   staticReadiness,runtimeGate,ciEvidence
+  });
+  const candidate=createReleaseCandidate(matrix,{
+   sourceEvidence:{
+    staticDigestSha256:sha256(staticReadiness),
+    runtimeDigestSha256:sha256(runtimeGate),
+    ciDigestSha256:sha256(ciEvidence)
+   }
+  });
   verifyReleaseCandidate(candidate);
-  await atomicWrite(resolve(args[1]),candidate);
+  await atomicWrite(resolve(args[3]),candidate);
   console.log('RELEASE_CANDIDATE_WRITTEN:'+candidate.candidateId+':'+candidate.commitSha);
   return;
  }
