@@ -300,6 +300,33 @@ export function verifyReleaseReadinessMatrix(matrix){
  if(!['blocked','evidence-required','manual-release-review','checks-complete'].includes(software.status)||
   !['blocked','evidence-required','manual-release-review'].includes(robot.status))
   fail('READINESS_MATRIX_TARGET_STATUS_INVALID');
+ const softwareBlocking=new Set(['staticConfiguration','ci','browserJourney','voiceProvider']);
+ const expectedSoftwareBlockers=derivedBlocked.filter(id=>softwareBlocking.has(id)).sort();
+ const expectedSoftwareEvidence=derivedEvidence.filter(id=>softwareBlocking.has(id)).sort();
+ const expectedSoftwareManual=derivedManual.filter(id=>
+  ['realAcousticIo','realChildJourney','recoveryDrill'].includes(id)).sort();
+ const expectedSoftwareStatus=expectedSoftwareBlockers.length?'blocked':
+  expectedSoftwareEvidence.length?'evidence-required':
+  expectedSoftwareManual.length?'manual-release-review':'checks-complete';
+ if(software.status!==expectedSoftwareStatus||
+  JSON.stringify([...software.blockers].sort())!==JSON.stringify(expectedSoftwareBlockers)||
+  JSON.stringify([...software.evidenceRequired].sort())!==JSON.stringify(expectedSoftwareEvidence)||
+  JSON.stringify([...software.manual].sort())!==JSON.stringify(expectedSoftwareManual))
+  fail('READINESS_MATRIX_SOFTWARE_TARGET_DRIFT');
+ const expectedRobotBlockers=[...new Set([
+  ...expectedSoftwareBlockers,...derivedBlocked.filter(id=>id==='rosSimulation')
+ ])].sort();
+ const expectedRobotEvidence=[...new Set([
+  ...expectedSoftwareEvidence,...derivedEvidence.filter(id=>id==='rosSimulation')
+ ])].sort();
+ const expectedRobotManual=[...new Set([...expectedSoftwareManual,'physicalSafety'])].sort();
+ const expectedRobotStatus=expectedRobotBlockers.length?'blocked':
+  expectedRobotEvidence.length?'evidence-required':'manual-release-review';
+ if(robot.status!==expectedRobotStatus||
+  JSON.stringify([...robot.blockers].sort())!==JSON.stringify(expectedRobotBlockers)||
+  JSON.stringify([...robot.evidenceRequired].sort())!==JSON.stringify(expectedRobotEvidence)||
+  JSON.stringify([...robot.manual].sort())!==JSON.stringify(expectedRobotManual))
+  fail('READINESS_MATRIX_ROBOT_TARGET_DRIFT');
  return true;
 }
 
