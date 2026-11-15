@@ -31,6 +31,12 @@ test('R70 Chrome readiness 仍 fail closed：浏览器退出或 CDP endpoint 超
  assert.match(source,/await stopProcess\(child\)/);
 });
 
+test('R70 npm run test:browser 自带 build，独立 Job 不依赖此前 npm test 产生的 dist',async()=>{
+ const pkg=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
+ assert.equal(pkg.scripts['test:browser'],
+  'npm run build && node scripts/browser-acceptance.mjs');
+});
+
 test('R70 Verify workflow 保留既有 test check，并把 browser 与 sim-static 拆成独立无 needs Job',async()=>{
  const workflow=await readFile(resolve(root,'.github/workflows/ci.yml'),'utf8');
  assert.match(workflow,/\n  test:\n/);
