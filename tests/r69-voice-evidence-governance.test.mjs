@@ -338,6 +338,9 @@ test('R69 Runtime Gate 单报告只解除 provider E2E；coherent set 才解除 
   assert.equal(data.voice_artifact_attestation,'verified-by-set');
   assert.equal(data.voice_github_readback,'verified-by-set');
   assert.equal(data.voice_evidence_set,'verified-coherent');
+  assert.deepEqual(data.subjects.voice,{
+   run_id:WORKFLOW_RUN,attempt:Number(ATTEMPT),commit_sha:SHA
+  });
   for(const item of [
    'REAL_ASR_LLM_TTS_PROVIDER_E2E',
    'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
