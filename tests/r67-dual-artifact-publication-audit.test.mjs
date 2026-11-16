@@ -163,7 +163,7 @@ test('R67 Workflow 使用 approval/producer/audit 三阶段，最终审计不创
  assert.match(workflow,/runs-on: ubuntu-latest/);
  assert.match(workflow,/ALEX_ROS_ATTESTATION_ARTIFACT_ID: \$\{\{ needs\.nav2-simulation\.outputs\.attestation-artifact-id \}\}/);
  assert.match(workflow,/ALEX_ROS_ATTESTATION_ARTIFACT_DIGEST: \$\{\{ needs\.nav2-simulation\.outputs\.attestation-artifact-digest \}\}/);
- assert.equal((workflow.match(/uses: actions\/upload-artifact@v4/g)||[]).length,2,
+ assert.equal((workflow.match(/uses: actions\\/upload-artifact@[0-9a-f]{40}/g)||[]).length,2,
   '最终审计不得再生成第三个证明 Artifact');
 });
 

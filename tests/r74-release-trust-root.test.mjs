@@ -90,3 +90,11 @@ test('R74 workflow provenance 接受固定官方 action SHA',()=>{
  assert.equal(report.officialActions.length,1);
  assert.match(report.digestSha256,/^[0-9a-f]{64}$/);
 });
+
+test('R74 workflow provenance 支持 name/id 后独立 uses 行的合法 step 结构',()=>{
+ const source='steps:\n  - name: upload\n    id: artifact\n    uses: actions/upload-artifact@'+
+  ACTION_PINS['actions/upload-artifact']+'\n';
+ const report=verifyWorkflowSource(source,'.github/workflows/artifact.yml');
+ assert.equal(report.officialActions[0],
+  'actions/upload-artifact@'+ACTION_PINS['actions/upload-artifact']);
+});
