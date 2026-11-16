@@ -1,0 +1,50 @@
+# R76 真实麦克风/扬声器声学闭环。只能手动运行在带物理音频设备的专用 self-hosted runner。
+name: Real Acoustic I/O Acceptance (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  approval-gate:
+    name: approval-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit acoustic runner approval
+        env:
+          ALEX_ACOUSTIC_RUNNER_APPROVED: ${{ vars.ALEX_ACOUSTIC_RUNNER_APPROVED }}
+        run: |
+          set -euo pipefail
+          if [[ "$ALEX_ACOUSTIC_RUNNER_APPROVED" != "true" ]]; then
+            echo "ALEX_ACOUSTIC_RUNNER_APPROVED is not true; refusing physical audio acceptance" >&2
+            exit 1
+          fi
+  acoustic-io:
+    name: acoustic-io
+    needs: approval-gate
+    runs-on: [self-hosted, linux, x64, alex-acoustic]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Require real ALSA devices and run physical acoustic loop
+        env:
+          ALEX_ACOUSTIC_PHYSICAL_PATH_APPROVED: 'true'
+          ALEX_ACOUSTIC_CAPTURE_DEVICE: ${{ vars.ALEX_ACOUSTIC_CAPTURE_DEVICE }}
+          ALEX_ACOUSTIC_PLAYBACK_DEVICE: ${{ vars.ALEX_ACOUSTIC_PLAYBACK_DEVICE }}
+        run: |
+          set -euo pipefail
+          npm run acoustic:accept -- run --report .local/acoustic/report.json
+          npm run acoustic:accept -- verify --report .local/acoustic/report.json \
+            --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
+      - name: Upload privacy-safe acoustic evidence only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alex-real-acoustic-io-evidence
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .local/acoustic/report.json

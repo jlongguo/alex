@@ -53,7 +53,8 @@
     "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json",
     "release:permit": "node scripts/release-permit.mjs",
     "release:workflow-provenance": "node scripts/ci-workflow-provenance.mjs",
-    "release:recovery-drill": "node scripts/recovery-drill.mjs"
+    "release:recovery-drill": "node scripts/recovery-drill.mjs",
+    "acoustic:accept": "node scripts/acoustic-io-acceptance.mjs"
   },
   "devDependencies": {
     "typescript": "5.8.3"

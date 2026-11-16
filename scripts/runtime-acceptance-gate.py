@@ -68,6 +68,8 @@ def audit(
     voice_evidence_run_id=None,
     voice_evidence_attempt=None,
     voice_evidence_sha=None,
+    acoustic_report=None,
+    acoustic_run_id=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -77,6 +79,10 @@ def audit(
         raise ValueError('VOICE_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
     if voice_run_id is not None and not _valid_run_id(voice_run_id):
         raise ValueError('INVALID_VOICE_RUN_ID')
+    if (acoustic_report is None) != (acoustic_run_id is None):
+        raise ValueError('ACOUSTIC_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if acoustic_run_id is not None and not _valid_run_id(acoustic_run_id):
+        raise ValueError('INVALID_ACOUSTIC_RUN_ID')
 
     if (nav2_fault_report is None) != (nav2_fault_run_id is None):
         raise ValueError('NAV2_FAULT_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -166,6 +172,7 @@ def audit(
         'voice_artifact_attestation': 'not_run',
         'voice_evidence_set': 'not_run',
         'voice_github_readback': 'not_run',
+        'acoustic_io': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
@@ -177,13 +184,14 @@ def audit(
         'ros_runner_provenance': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
-        'subjects': {'ros': None, 'voice': None},
+        'subjects': {'ros': None, 'voice': None, 'acoustic': None},
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
             'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
             'VOICE_ACTIONS_ARTIFACT_ATTESTATION',
             'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
             'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
+            'REAL_ACOUSTIC_IO',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -260,6 +268,28 @@ def audit(
                 'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
             ):
                 result['remaining'].remove(item)
+
+    if acoustic_report is not None:
+        validator = Path(__file__).with_name('acoustic-io-acceptance.mjs')
+        ok = _run_validator([
+            'node', str(validator), 'verify',
+            '--report', str(acoustic_report),
+            '--run-id', acoustic_run_id,
+        ])
+        result['acoustic_io'] = 'verified-self-hosted' if ok else 'invalid'
+        if ok:
+            try:
+                acoustic = json.loads(Path(acoustic_report).read_text(encoding='utf-8'))
+                context = acoustic['context']
+                result['subjects']['acoustic'] = {
+                    'run_id': str(context['runId']),
+                    'attempt': int(context['attempt']),
+                    'commit_sha': str(context['commitSha']),
+                }
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                result['acoustic_io'] = 'invalid'
+            if result['acoustic_io'] == 'verified-self-hosted':
+                result['remaining'].remove('REAL_ACOUSTIC_IO')
 
     if nav2_fault_report is not None:
         # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
@@ -382,6 +412,7 @@ def audit(
         if result['ros_runtime'] == 'invalid'
         or result['voice_real_provider'] == 'invalid'
         or result['voice_evidence_set'] == 'invalid'
+        or result['acoustic_io'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
@@ -435,10 +466,12 @@ def main():
     parser.add_argument('--voice-evidence-run-id')
     parser.add_argument('--voice-evidence-attempt', type=int)
     parser.add_argument('--voice-evidence-sha')
+    parser.add_argument('--acoustic-report', type=Path)
+    parser.add_argument('--acoustic-run-id')
     parser.add_argument(
         '--require-all',
         action='store_true',
-        help='任何真实语音、机器人或物理安全验收缺失时必须失败',
+        help='任何真实语音、声学 I/O、机器人或物理安全验收缺失时必须失败',
     )
     args = parser.parse_args()
     try:
@@ -481,6 +514,8 @@ def main():
             args.voice_evidence_run_id,
             args.voice_evidence_attempt,
             args.voice_evidence_sha,
+            args.acoustic_report,
+            args.acoustic_run_id,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)

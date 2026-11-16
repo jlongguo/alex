@@ -16,10 +16,12 @@ test('R55 ROS 和云端语音未实测时，不会从静态环境检查推导为
  const report=JSON.parse(checked.stdout);
  assert.equal(report.ros_runtime,'not_run');
  assert.equal(report.voice_real_provider,'not_run');
+ assert.equal(report.acoustic_io,'not_run');
  assert.equal(report.release_approved,false);
  assert.equal(report.physical_safety_certified,false);
  assert.ok(report.remaining.includes('REAL_ASR_LLM_TTS_PROVIDER_E2E'));
  assert.ok(report.remaining.includes('GAZEBO_NAV2_THREE_LEG_RUNTIME'));
+ assert.ok(report.remaining.includes('REAL_ACOUSTIC_IO'));
 });
 test('R55 强制真实验收门槛缺证据即非零退出，而非跳过',()=>{
  const checked=run('--require-all');
@@ -58,4 +60,21 @@ test('R55 不存在的 ROS 证据文件必须被显式拒绝',()=>{
   '--ros-run-id','r55-actual');
  assert.equal(checked.status,1,checked.stderr);
  assert.equal(JSON.parse(checked.stdout).ros_runtime,'invalid');
+});
+
+test('R76 Acoustic report 参数必须成对提供，伪报告不能冒充真实声学验收',async()=>{
+ let checked=run('--acoustic-report','/nonexistent/acoustic.json');
+ assert.equal(checked.status,2);
+ assert.match(checked.stderr,/ACOUSTIC_REPORT_AND_RUN_ID_REQUIRED_TOGETHER/);
+ const dir=await mkdtemp(join(tmpdir(),'alex-r76-gate-'));
+ try{
+  const file=join(dir,'acoustic.json');
+  await writeFile(file,JSON.stringify({schema:'alex.dev/acoustic-io-acceptance/v1',
+   status:'passed',mode:'synthetic-test'}));
+  checked=run('--acoustic-report',file,'--acoustic-run-id','12345');
+  assert.equal(checked.status,1,checked.stderr);
+  const report=JSON.parse(checked.stdout);
+  assert.equal(report.acoustic_io,'invalid');
+  assert.ok(report.remaining.includes('REAL_ACOUSTIC_IO'));
+ }finally{await rm(dir,{recursive:true,force:true});}
 });
