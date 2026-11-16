@@ -24,6 +24,8 @@ const FILES=Object.freeze({
  ALEX_SKILL_TRANSACTIONS_FILE:'skill-transactions.json',
  ALEX_SKILL_BATCH_WAL_FILE:'skill-batch-wal.json',
  ALEX_RELEASE_APPROVAL_FILE:'release-approvals.json',
+ ALEX_RELEASE_TRUST_FILE:'release-trust.json',
+ ALEX_RELEASE_REVOCATIONS_FILE:'release-revocations.json',
  WORKFLOW_FILE:'workflows.json',
  PLAN_FILE:'plans.json',
  PROPOSAL_FILE:'proposals.json',

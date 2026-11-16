@@ -8,6 +8,7 @@ import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
 import {existsSync} from 'node:fs';
+import {getLoopbackJson} from './loopback-http.mjs';
 
 const project=resolve(import.meta.dirname,'..');
 const delay=ms=>new Promise(done=>setTimeout(done,ms));
@@ -116,14 +117,12 @@ async function startChrome(root){
  for(let i=0;i<180;i++){
   if(child.exitCode!==null)throw Error('R54_CHROME_EXITED:'+stderr);
   try{
-   const response=await fetch('http://127.0.0.1:'+port+'/json/list');
-   if(response.ok){
-    const tabs=await response.json();
-    const target=Array.isArray(tabs)
-      ?tabs.find(tab=>tab.type==='page'&&tab.webSocketDebuggerUrl)
-      :null;
-    if(target)return {child,target:target.webSocketDebuggerUrl};
-   }
+   const tabs=await getLoopbackJson('http://127.0.0.1:'+port+'/json/list',
+    {timeoutMs:500});
+   const target=Array.isArray(tabs)
+    ?tabs.find(tab=>tab.type==='page'&&tab.webSocketDebuggerUrl)
+    :null;
+   if(target)return {child,target:target.webSocketDebuggerUrl};
   }catch(error){
    if(!(error instanceof Error))throw error;
    lastError=error;

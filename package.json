@@ -51,7 +51,8 @@
     "release:candidate": "node scripts/release-candidate-manifest.mjs",
     "ci:evidence": "node scripts/ci-evidence.mjs",
     "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json",
-    "release:permit": "node scripts/release-permit.mjs"
+    "release:permit": "node scripts/release-permit.mjs",
+    "release:workflow-provenance": "node scripts/ci-workflow-provenance.mjs"
   },
   "devDependencies": {
     "typescript": "5.8.3"

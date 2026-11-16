@@ -31,11 +31,11 @@ jobs:
       attestation-artifact-id: ${{ steps.ros_attestation_upload.outputs.artifact-id }}
       attestation-artifact-digest: ${{ steps.ros_attestation_upload.outputs.artifact-digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       # 自托管工作区可能保留上次 PASS：在任何新执行开始之前先让 Bundle 失效。
       - name: Invalidate previous ROS workflow evidence
         run: python3 scripts/ros-workflow-evidence-bundle.py --reset
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
       - name: Capture and verify self-hosted ROS runner provenance before simulation
@@ -114,7 +114,7 @@ jobs:
           npm run sim:bundle-verify -- --expect-run-id "$GITHUB_RUN_ID" --expect-sha "$GITHUB_SHA" --expect-attempt "$GITHUB_RUN_ATTEMPT"
       - name: Upload acceptance report and launch logs even on failure
         id: ros_evidence_upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: alex-ros-gazebo-acceptance
@@ -183,7 +183,7 @@ jobs:
       - name: Upload ROS artifact attestation separately
         id: ros_attestation_upload
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: alex-ros-gazebo-attestation
           if-no-files-found: error
@@ -198,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Verify producer job and both immutable ROS Artifacts from GitHub-hosted runner
         env:
           GITHUB_TOKEN: ${{ github.token }}
