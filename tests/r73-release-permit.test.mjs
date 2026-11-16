@@ -35,6 +35,7 @@ function runtimeGate(){
   voice_artifact_attestation:'verified-by-set',
   voice_evidence_set:'verified-coherent',
   voice_github_readback:'verified-by-set',
+  acoustic_io:'not_run',
   nav2_fault_contract:'not_run',
   ros_cancel_runtime:'verified-by-set',
   ros_recovery_runtime:'verified-by-set',
@@ -47,9 +48,10 @@ function runtimeGate(){
   physical_safety_certified:false,release_approved:false,
   subjects:{
    ros:{run_id:'2001',attempt:2,commit_sha:commit},
-   voice:{run_id:'3001',attempt:1,commit_sha:commit}
+   voice:{run_id:'3001',attempt:1,commit_sha:commit},
+   acoustic:null
   },
-  remaining:['PHYSICAL_SAFETY_REVIEW'],status:'manual-review-required'
+  remaining:['REAL_ACOUSTIC_IO','PHYSICAL_SAFETY_REVIEW'],status:'manual-review-required'
  };
 }
 function candidate(runtime,ci){
