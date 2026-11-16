@@ -20,6 +20,42 @@ const digest=value=>createHash('sha256').update(canonical(value)).digest('hex');
 const exactArray=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&
  a.every((value,index)=>value===b[index]);
 
+export function verifyReleaseApprovalState(state,{maxEvents=5000}={}){
+ if(!object(state)||state.schema!==RELEASE_APPROVAL_SCHEMA||
+  !Number.isSafeInteger(state.seq)||state.seq<0||
+  !Array.isArray(state.events)||state.events.length>maxEvents||
+  state.seq!==state.events.length)
+  fail('RELEASE_APPROVAL_STATE_INVALID');
+ let prevHash='0'.repeat(64),seq=0;
+ const requestIds=new Set();
+ for(const event of state.events){
+  if(!object(event)||event.seq!==++seq||
+   !['approved','rejected'].includes(event.action)||
+   event.reviewerRole!=='parent'||!REQUEST.test(event.requestId??'')||
+   requestIds.has(event.requestId)||
+   typeof event.candidateId!=='string'||!/^rc-[0-9a-f]{24}$/.test(event.candidateId)||
+   !HASH.test(event.candidateDigestSha256??'')||
+   !/^[0-9a-f]{40}$/.test(event.commitSha??'')||
+   typeof event.at!=='string'||Number.isNaN(Date.parse(event.at))||
+   event.prevHash!==prevHash||!HASH.test(event.hash??'')||
+   !Array.isArray(event.acknowledgements))
+   fail('RELEASE_APPROVAL_EVENT_INVALID');
+  const {hash,...body}=event;
+  if(digest(body)!==hash)fail('RELEASE_APPROVAL_HASH_CHAIN_INVALID');
+  requestIds.add(event.requestId);
+  prevHash=hash;
+ }
+ return true;
+}
+
+export function latestReleaseApprovalEvent(state,candidate){
+ verifyReleaseApprovalState(state);
+ verifyReleaseCandidate(candidate);
+ return [...state.events].reverse().find(event=>
+  event.candidateId===candidate.candidateId&&
+  event.candidateDigestSha256===candidate.candidateDigestSha256)??null;
+}
+
 async function readCandidate(path){
  if(!path)return null;
  const stat=await lstat(path).catch(error=>{
@@ -70,15 +106,7 @@ export class ReleaseApprovalLedger{
  async load(){
   const state=await this.store.load();
   if(!state){this.seq=0;this.events=[];return;}
-  if(!object(state)||state.schema!==RELEASE_APPROVAL_SCHEMA||
-   !Number.isSafeInteger(state.seq)||state.seq<0||
-   !Array.isArray(state.events)||state.events.length>this.maxEvents||
-   state.seq!==state.events.length)
-   fail('RELEASE_APPROVAL_STATE_INVALID');
-  let prevHash='0'.repeat(64),seq=0;
-  const requestIds=new Set();
-  for(const event of state.events)
-   prevHash=this.#validateEvent(event,prevHash,++seq,requestIds);
+  verifyReleaseApprovalState(state,{maxEvents:this.maxEvents});
   this.seq=state.seq;this.events=structuredClone(state.events);
  }
  async flush(){await this.store.flush();}
