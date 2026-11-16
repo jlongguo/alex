@@ -240,3 +240,65 @@ test('R71 matrix CLI 对 JSON 文件做只读汇总，blocked 时非零但不执
   assert.equal(matrix.releaseApproved,false);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('R75 当前 Commit 的正式 Recovery Drill Evidence 可解除 recoveryDrill 人工门槛',async()=>{
+ const recovery={
+  schema:'alex.dev/recovery-drill/v1',status:'verified',commitSha:SHA,
+  createdAt:'2026-11-16T10:00:00.000Z',
+  backup:{snapshotId:'11111111-1111-4111-8111-111111111111',files:3,bytes:128,
+   integrity:'verified-before-and-after'},
+  staging:{restored:true,stagingOnly:true,productionRestored:false,fileCount:3,byteCount:128,
+   audit:'staging-copy-verified'},
+  preflight:{status:'manual-review-required',blocked:[],manual:['REAL_USER_ACCEPTANCE']},
+  businessLoad:{serverBooted:true,healthEndpointVerified:true,cleanShutdown:true,
+   externalProvidersDisabled:true},
+  readOnlyEvidence:true,rollbackExecuted:false,releaseApproved:false,
+  physicalSafetyCertified:false,
+  note:'fixture'
+ };
+ const {createHash}=await import('node:crypto');
+ const canonical=value=>{
+  if(value===null||typeof value!=='object')return JSON.stringify(value);
+  if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+  return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+ };
+ recovery.evidenceDigestSha256=createHash('sha256').update(canonical(recovery)).digest('hex');
+ const matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),
+  ciEvidence:createCiEvidence(ciEnv()),
+  recoveryEvidence:recovery
+ });
+ assert.equal(matrix.domains.recoveryDrill.status,'pass');
+ assert.equal(matrix.domains.recoveryDrill.evidenceLevel,'isolated-business-load');
+ assert.equal(matrix.inputs.subjects.recoveryCommit,SHA);
+ assert.ok(!matrix.manual.includes('recoveryDrill'));
+});
+
+test('R75 Recovery Drill 与当前 CI Commit 不一致时矩阵必须 blocked',async()=>{
+ const {createHash}=await import('node:crypto');
+ const recovery={
+  schema:'alex.dev/recovery-drill/v1',status:'verified',commitSha:'f'.repeat(40),
+  createdAt:'2026-11-16T10:00:00.000Z',
+  backup:{snapshotId:'11111111-1111-4111-8111-111111111111',files:1,bytes:64,
+   integrity:'verified-before-and-after'},
+  staging:{restored:true,stagingOnly:true,productionRestored:false,fileCount:1,byteCount:64,
+   audit:'staging-copy-verified'},
+  preflight:{status:'manual-review-required',blocked:[],manual:[]},
+  businessLoad:{serverBooted:true,healthEndpointVerified:true,cleanShutdown:true,
+   externalProvidersDisabled:true},
+  readOnlyEvidence:true,rollbackExecuted:false,releaseApproved:false,
+  physicalSafetyCertified:false,note:'fixture'
+ };
+ const canonical=value=>{
+  if(value===null||typeof value!=='object')return JSON.stringify(value);
+  if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+  return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+ };
+ recovery.evidenceDigestSha256=createHash('sha256').update(canonical(recovery)).digest('hex');
+ const matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),ciEvidence:createCiEvidence(ciEnv()),
+  recoveryEvidence:recovery
+ });
+ assert.equal(matrix.domains.recoveryDrill.status,'blocked');
+ assert.equal(matrix.domains.recoveryDrill.evidenceLevel,'commit-mismatch');
+});

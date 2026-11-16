@@ -5,6 +5,7 @@ import {lstat,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {verifyCiEvidence} from './ci-evidence.mjs';
+import {verifyRecoveryDrillEvidence} from './recovery-drill.mjs';
 
 export const MATRIX_SCHEMA='alex.dev/release-readiness-matrix/v1';
 const STATIC_SCHEMA='alex.dev/release-readiness/v1';
@@ -105,6 +106,18 @@ function rosState(runtime){
   ?domain('pass','runtime-coherent','Gazebo/Nav2 路线、取消、恢复、Node-Python bridge、Runner provenance 与 Artifact 已 coherent 验证')
   :domain('evidence-required','runtime-incomplete','尚未形成完整 ROS/Gazebo coherent evidence set');
 }
+function recoveryState(stat,recovery){
+ if(recovery){
+  return domain('pass','isolated-business-load',
+   '离线备份已在隔离 staging 完成逐文件校验、正式 preflight、Alex 启动/health 与干净退出');
+ }
+ return domain(
+  stat.manual.includes('DATA_RECOVERY_DRILL')?'manual-required':'pass',
+  stat.manual.includes('DATA_RECOVERY_DRILL')?'human-required':'legacy-readiness-flag',
+  stat.manual.includes('DATA_RECOVERY_DRILL')
+   ?'尚未提供当前 Commit 的正式 Recovery Drill Evidence'
+   :'R42 输入声明恢复演练已完成；矩阵本身未获得 R75 机器证据');
+}
 function ciState(ci){
  if(!ci)return domain('evidence-required','not-provided',
   '尚未提供当前 Commit 的标准 CI evidence summary');
@@ -113,11 +126,13 @@ function ciState(ci){
   :domain('blocked','ci-current-run','当前 Commit 至少一个标准 CI 域失败、取消或跳过');
 }
 export function composeReleaseReadinessMatrix({
- staticReadiness,runtimeGate=null,ciEvidence=null
+ staticReadiness,runtimeGate=null,ciEvidence=null,recoveryEvidence=null
 }={}){
  const stat=verifyStatic(staticReadiness);
  const runtime=runtimeGate===null?null:verifyRuntime(runtimeGate);
  const ci=ciEvidence===null?null:(verifyCiEvidence(ciEvidence),ciEvidence);
+ const recoveryReport=recoveryEvidence===null?null:
+  (verifyRecoveryDrillEvidence(recoveryEvidence),recoveryEvidence);
 
  let voice=voiceState(runtime);
  let ros=rosState(runtime);
@@ -129,6 +144,10 @@ export function composeReleaseReadinessMatrix({
  if(ros.status==='pass'&&rosSubject===null)
   ros=domain('blocked','runtime-subject-missing',
    'ROS coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
+ let recoveryDomain=recoveryState(stat,recoveryReport);
+ if(ci&&recoveryReport&&recoveryReport.commitSha!==ci.context.commitSha)
+  recoveryDomain=domain('blocked','commit-mismatch',
+   'Recovery Drill Evidence 与当前 CI 不属于同一 Commit');
  const runtimePairMismatch=voice.status==='pass'&&ros.status==='pass'&&
   voiceSubject.commit_sha!==rosSubject.commit_sha;
  if(runtimePairMismatch){
@@ -161,12 +180,7 @@ export function composeReleaseReadinessMatrix({
    '现有 Voice Provider 验收使用 synthetic provider TTS 种子，不证明真实麦克风采集与扬声器播放'),
   realChildJourney:domain('manual-required','human-required',
    '真实儿童/家庭用户旅程不能由 CI 合成家庭数据自动替代'),
-  recoveryDrill:domain(
-   stat.manual.includes('DATA_RECOVERY_DRILL')?'manual-required':'pass',
-   stat.manual.includes('DATA_RECOVERY_DRILL')?'human-required':'legacy-readiness-flag',
-   stat.manual.includes('DATA_RECOVERY_DRILL')
-    ?'真实备份恢复、异常退出与迁移演练仍需独立验收'
-    :'R42 输入声明恢复演练已完成；矩阵本身不重新执行恢复'),
+  recoveryDrill:recoveryDomain,
   physicalSafety:domain('manual-required','hardware-required',
    '实体机器人急停、限速、碰撞与儿童环境安全尚需真实硬件验收')
  };
@@ -209,10 +223,13 @@ export function composeReleaseReadinessMatrix({
    staticSchema:stat.schemaVersion,
    runtimeSchema:runtime?.schema??null,
    ciSchema:ci?.schema??null,
+   recoverySchema:recoveryReport?.schema??null,
    runtimeProvided:runtime!==null,
    ciProvided:ci!==null,
+   recoveryProvided:recoveryReport!==null,
    subjects:{
     ciCommit:ci?.context?.commitSha??null,
+    recoveryCommit:recoveryReport?.commitSha??null,
     voice:voiceSubject,
     ros:rosSubject
    }
@@ -275,7 +292,7 @@ export function verifyReleaseReadinessMatrix(matrix){
  if(matrix.status!==overall)fail('READINESS_MATRIX_OVERALL_STATUS_INVALID');
  const subjects=matrix.inputs.subjects;
  const validCommit=value=>value===null||(typeof value==='string'&&SHA.test(value));
- if(!validCommit(subjects.ciCommit)||
+ if(!validCommit(subjects.ciCommit)||!validCommit(subjects.recoveryCommit)||
   ![subjects.voice,subjects.ros].every(value=>value===null||
    (object(value)&&DIGITS.test(value.run_id??'')&&Number.isInteger(value.attempt)&&
     value.attempt>=1&&value.attempt<=10000&&SHA.test(value.commit_sha??''))))
@@ -284,6 +301,9 @@ export function verifyReleaseReadinessMatrix(matrix){
   fail('READINESS_MATRIX_VOICE_SUBJECT_REQUIRED');
  if(matrix.domains.rosSimulation.status==='pass'&&!subjects.ros)
   fail('READINESS_MATRIX_ROS_SUBJECT_REQUIRED');
+ if(subjects.ciCommit&&subjects.recoveryCommit&&matrix.domains.recoveryDrill.status==='pass'&&
+  subjects.recoveryCommit!==subjects.ciCommit)
+  fail('READINESS_MATRIX_RECOVERY_COMMIT_MISMATCH');
  if(subjects.ciCommit&&subjects.voice&&matrix.domains.voiceProvider.status==='pass'&&
   subjects.voice.commit_sha!==subjects.ciCommit)
   fail('READINESS_MATRIX_VOICE_COMMIT_MISMATCH');
@@ -340,8 +360,8 @@ function parseArgs(args){
  const result={};
  for(let i=0;i<args.length;i+=2){
   const flag=args[i],value=args[i+1];
-  if(!value||!['--static','--runtime','--ci'].includes(flag))
-   fail('READINESS_MATRIX_USAGE: --static <json> [--runtime <json>] [--ci <json>]');
+  if(!value||!['--static','--runtime','--ci','--recovery'].includes(flag))
+   fail('READINESS_MATRIX_USAGE: --static <json> [--runtime <json>] [--ci <json>] [--recovery <json>]');
   result[flag.slice(2)]=value;
  }
  if(!result.static)fail('READINESS_MATRIX_STATIC_REQUIRED');
@@ -352,7 +372,8 @@ async function main(){
  const matrix=composeReleaseReadinessMatrix({
   staticReadiness:await readBounded(resolve(args.static)),
   runtimeGate:args.runtime?await readBounded(resolve(args.runtime)):null,
-  ciEvidence:args.ci?await readBounded(resolve(args.ci)):null
+  ciEvidence:args.ci?await readBounded(resolve(args.ci)):null,
+  recoveryEvidence:args.recovery?await readBounded(resolve(args.recovery)):null
  });
  console.log(JSON.stringify(matrix,null,2));
  if(matrix.status==='blocked')process.exitCode=1;
