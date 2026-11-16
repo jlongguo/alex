@@ -21,7 +21,7 @@ const sha256=text=>createHash('sha256').update(text).digest('hex');
 
 export function verifyWorkflowSource(source,path='<workflow>'){
  if(typeof source!=='string'||!source.trim())fail('WORKFLOW_PROVENANCE_SOURCE_INVALID');
- const uses=[...source.matchAll(/^\s*-\s+uses:\s+([^\s#]+)\s*$/gm)].map(m=>m[1]);
+ const uses=[...source.matchAll(/^\s*(?:-\s+)?uses:\s+([^\s#]+)\s*$/gm)].map(m=>m[1]);
  for(const ref of uses){
   const at=ref.lastIndexOf('@');
   if(at<1)fail('WORKFLOW_PROVENANCE_ACTION_REF_INVALID:'+path);
