@@ -31,10 +31,10 @@ jobs:
       attestation-artifact-id: ${{ steps.voice_attestation_upload.outputs.artifact-id }}
       attestation-artifact-digest: ${{ steps.voice_attestation_upload.outputs.artifact-digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Invalidate previous Voice workflow evidence
         run: python3 scripts/voice-workflow-evidence.py --reset
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
       - name: Install project dependencies
@@ -62,7 +62,7 @@ jobs:
             --expect-sha "$GITHUB_SHA"
       - name: Upload Voice runtime evidence and failure diagnostics
         id: voice_evidence_upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: alex-voice-provider-runtime-evidence
@@ -115,7 +115,7 @@ jobs:
       - name: Upload Voice artifact attestation separately
         id: voice_attestation_upload
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: alex-voice-provider-runtime-attestation
           if-no-files-found: error
@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Verify producer job and both immutable Voice Artifacts
         env:
           GITHUB_TOKEN: ${{ github.token }}
