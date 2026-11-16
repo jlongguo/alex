@@ -393,7 +393,7 @@ test('R69 Voice Workflow fail closed、两次 immutable upload、隐藏 .local �
  assert.match(workflow,/ALEX_VOICE_ACCEPTANCE_APPROVED is not true; refusing to consume provider quota/);
  assert.match(workflow,/voice-provider:[\s\S]*needs: approval-gate/);
  assert.match(workflow,/publication-audit:[\s\S]*needs: voice-provider/);
- assert.equal((workflow.match(/uses: actions\\/upload-artifact@[0-9a-f]{40}/g)||[]).length,2);
+ assert.equal((workflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)||[]).length,2);
  assert.equal((workflow.match(/include-hidden-files: true/g)||[]).length,2);
  assert.doesNotMatch(workflow,/if: \$\{\{ vars\.ALEX_VOICE_ACCEPTANCE_APPROVED/);
 });
