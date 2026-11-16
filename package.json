@@ -50,7 +50,8 @@
     "release:matrix": "node scripts/release-readiness-matrix.mjs",
     "release:candidate": "node scripts/release-candidate-manifest.mjs",
     "ci:evidence": "node scripts/ci-evidence.mjs",
-    "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json"
+    "sim:preflight": "python3 scripts/ros-preflight.py --json .local/ros/preflight.json",
+    "release:permit": "node scripts/release-permit.mjs"
   },
   "devDependencies": {
     "typescript": "5.8.3"
