@@ -29,6 +29,7 @@ import {projectSkillUsage} from './skill-usage-audit.mjs';
 import {reconcileSkillStores} from './skill-store-reconciliation.mjs';
 import {evaluateReleaseReadiness} from './release-readiness.mjs';
 import {composeReleaseReadinessMatrix} from './release-readiness-matrix.mjs';
+import {ReleaseApprovalLedger} from './release-approval-ledger.mjs';
 import {PlanProposals,RulePlanProvider,CompatiblePlanProvider} from './plan-proposals.mjs';
 import {CompanionConversations} from './companion-conversations.mjs';
 import {CompatibleCompanionProvider} from './companion-provider.mjs';
@@ -165,6 +166,10 @@ const proposalProvider=process.env.ALEX_PLAN_PROVIDER==='compatible'
   ?new CompatiblePlanProvider({baseUrl:process.env.AGENT_BASE_URL,apiKey:process.env.AGENT_API_KEY,model:process.env.AGENT_MODEL})
   :new RulePlanProvider();
 const proposals=new PlanProposals(process.env.PROPOSAL_FILE??resolve(appDir,'.local','proposals.json'),{plans,provider:proposalProvider});
+const releaseApprovals=new ReleaseApprovalLedger(
+ process.env.ALEX_RELEASE_APPROVAL_FILE??resolve(appDir,'.local','release-approvals.json'),
+ {candidateFile:process.env.ALEX_RELEASE_CANDIDATE_FILE??null}
+);
 const executionTraces=new ExecutionTraceProjector({plans,workflows,gateway});
 const companionSkillId={english:'learning.english',story:'story.interactive',quiz:'quiz.science'};
 function requireEnabledCompanionSkill(mode){
@@ -238,6 +243,7 @@ await gateway.load();
 await workflows.load();
 await plans.load();
 await proposals.load();
+await releaseApprovals.load();
 await conversations.load();
 await store.save(core.snapshot());
 let persistTimer=null;
@@ -277,8 +283,12 @@ const errorStatus = (message) => ['CHAT_MODEL_REQUIRED','COMPANION_TURN_CANCELLE
   'SKILL_BATCH_UNSAFE','SKILL_BATCH_TRANSACTION_ISOLATED','SKILL_BATCH_TRANSACTION_PENDING',
   'SKILL_BATCH_IDEMPOTENCY_CONFLICT','SKILL_BATCH_RECOVERY_CONFLICT',
   'SKILL_BATCH_TRANSACTION_NOT_PENDING','SKILL_BATCH_TRANSACTION_ABANDONED',
-  'SKILL_BATCH_NO_CHANGES'].includes(message)?409:
-  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
+  'SKILL_BATCH_NO_CHANGES',
+  'RELEASE_CANDIDATE_REQUIRED','RELEASE_CANDIDATE_CHANGED',
+  'RELEASE_APPROVAL_HUMAN_CHECKS_INCOMPLETE',
+  'RELEASE_APPROVAL_IDEMPOTENCY_CONFLICT'].includes(message)?409:
+  ['AUDIO_SERVER_BUSY','VOICE_TURN_SERVER_BUSY','SPEECH_LEDGER_PERSIST_FAILED','PROVIDER_USAGE_JOURNAL_WRITE_FAILED','PROVIDER_USAGE_JOURNAL_FULL','PROVIDER_BILLING_STORE_WRITE_FAILED','PROVIDER_BILLING_STORE_FULL','PROVIDER_BILLING_NOT_CONFIGURED',
+  'RELEASE_APPROVAL_LEDGER_FULL'].includes(message)?503:['CHILD_CLOUD_TEXT_DISABLED','CHILD_CLOUD_AUDIO_DISABLED',
   'AUDIO_TURN_FORBIDDEN','REALTIME_SESSION_FORBIDDEN',
   'SPEECH_SESSION_FORBIDDEN','SKILL_DISABLED','SKILL_NOT_APPROVED',
   'SKILL_NOT_INSTALLED','SKILL_TRANSACTION_LIMIT','SKILL_PACKAGE_HISTORY_FULL','SKILL_ATTESTATION_REQUIRED',
@@ -1171,6 +1181,31 @@ const server=http.createServer(asyncWrap(async(req,res)=>{
       artifactSha256:r.intent.artifactSha256,seq:r.seq,hash:r.hash
     }));
     send(res,200,{ok:true,records,readiness:skillTransactions.readiness('parent'),executable:false});return;
+  }
+  if(req.method==='GET' && pathname==='/api/release/candidate'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    send(res,200,{ok:true,...await releaseApprovals.status()});return;
+  }
+  if(req.method==='POST' && pathname==='/api/release/candidate/decision'){
+    if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}
+    if(auth.actor(req)!=='parent'){send(res,403,{ok:false,error:'PARENT_REQUIRED'});return;}
+    const data=await body(req,4096);
+    try{
+      const result=await releaseApprovals.decide('parent',{
+        action:data.action,candidateId:data.candidateId,
+        candidateDigestSha256:data.candidateDigestSha256,
+        acknowledgements:data.acknowledgements,requestId:data.requestId
+      });
+      await audit.record({actor:'parent',
+        action:'release.candidate.'+result.event.action,outcome:'allowed',
+        requestId:result.event.requestId});
+      send(res,200,{ok:true,...result.status,duplicate:result.duplicate});return;
+    }catch(error){
+      await audit.record({actor:'parent',action:'release.candidate.decision',
+        outcome:'denied',requestId:typeof data.requestId==='string'?data.requestId:null});
+      throw error;
+    }
   }
   if(req.method==='GET' && pathname==='/api/release/readiness'){
     if(auth.mode!=='local'){send(res,403,{ok:false,error:'LOCAL_AUTH_REQUIRED'});return;}

@@ -238,6 +238,98 @@ export function composeReleaseReadinessMatrix({
   note:'矩阵只聚合既有验证器输出；CI/静态通过不能替代真实运行、人工验收、物理安全或发布审批'
  };
 }
+export function verifyReleaseReadinessMatrix(matrix){
+ if(!object(matrix)||matrix.schema!==MATRIX_SCHEMA||
+  matrix.source!=='readiness-projection'||matrix.readOnly!==true||
+  matrix.executable!==false||matrix.releaseApproved!==false||
+  matrix.physicalSafetyCertified!==false)
+  fail('READINESS_MATRIX_REPORT_INVALID');
+ if(!['blocked','evidence-required','manual-release-review'].includes(matrix.status)||
+  !object(matrix.inputs)||!object(matrix.inputs.subjects)||
+  !object(matrix.domains)||!object(matrix.targets)||
+  !Array.isArray(matrix.blockers)||!Array.isArray(matrix.evidenceRequired)||
+  !Array.isArray(matrix.manual))
+  fail('READINESS_MATRIX_REPORT_SHAPE_INVALID');
+ const names=[
+  'staticConfiguration','ci','browserJourney','voiceProvider','rosSimulation',
+  'realAcousticIo','realChildJourney','recoveryDrill','physicalSafety'
+ ];
+ if(Object.keys(matrix.domains).sort().join(',')!==[...names].sort().join(','))
+  fail('READINESS_MATRIX_DOMAIN_SET_INVALID');
+ for(const name of names){
+  const item=matrix.domains[name];
+  if(!object(item)||!['pass','blocked','evidence-required','manual-required'].includes(item.status)||
+   typeof item.evidenceLevel!=='string'||!item.evidenceLevel||
+   typeof item.detail!=='string'||!item.detail)
+   fail('READINESS_MATRIX_DOMAIN_INVALID');
+ }
+ const derivedBlocked=names.filter(name=>matrix.domains[name].status==='blocked').sort();
+ const derivedEvidence=names.filter(name=>matrix.domains[name].status==='evidence-required').sort();
+ const derivedManual=names.filter(name=>matrix.domains[name].status==='manual-required').sort();
+ if(JSON.stringify([...matrix.blockers].sort())!==JSON.stringify(derivedBlocked)||
+  JSON.stringify([...matrix.evidenceRequired].sort())!==JSON.stringify(derivedEvidence)||
+  JSON.stringify([...matrix.manual].sort())!==JSON.stringify(derivedManual))
+  fail('READINESS_MATRIX_INDEX_INVALID');
+ const overall=derivedBlocked.length?'blocked':
+  derivedEvidence.length?'evidence-required':'manual-release-review';
+ if(matrix.status!==overall)fail('READINESS_MATRIX_OVERALL_STATUS_INVALID');
+ const subjects=matrix.inputs.subjects;
+ const validCommit=value=>value===null||(typeof value==='string'&&SHA.test(value));
+ if(!validCommit(subjects.ciCommit)||
+  ![subjects.voice,subjects.ros].every(value=>value===null||
+   (object(value)&&DIGITS.test(value.run_id??'')&&Number.isInteger(value.attempt)&&
+    value.attempt>=1&&value.attempt<=10000&&SHA.test(value.commit_sha??''))))
+  fail('READINESS_MATRIX_SUBJECTS_INVALID');
+ if(matrix.domains.voiceProvider.status==='pass'&&!subjects.voice)
+  fail('READINESS_MATRIX_VOICE_SUBJECT_REQUIRED');
+ if(matrix.domains.rosSimulation.status==='pass'&&!subjects.ros)
+  fail('READINESS_MATRIX_ROS_SUBJECT_REQUIRED');
+ if(subjects.ciCommit&&subjects.voice&&matrix.domains.voiceProvider.status==='pass'&&
+  subjects.voice.commit_sha!==subjects.ciCommit)
+  fail('READINESS_MATRIX_VOICE_COMMIT_MISMATCH');
+ if(subjects.ciCommit&&subjects.ros&&matrix.domains.rosSimulation.status==='pass'&&
+  subjects.ros.commit_sha!==subjects.ciCommit)
+  fail('READINESS_MATRIX_ROS_COMMIT_MISMATCH');
+ const software=matrix.targets.softwarePilot,robot=matrix.targets.robotCandidate;
+ if(!object(software)||!object(robot)||software.releaseApproved!==false||
+  robot.releaseApproved!==false||robot.physicalSafetyCertified!==false||
+  !Array.isArray(software.blockers)||!Array.isArray(software.evidenceRequired)||
+  !Array.isArray(software.manual)||!Array.isArray(robot.blockers)||
+  !Array.isArray(robot.evidenceRequired)||!Array.isArray(robot.manual))
+  fail('READINESS_MATRIX_TARGET_INVALID');
+ if(!['blocked','evidence-required','manual-release-review','checks-complete'].includes(software.status)||
+  !['blocked','evidence-required','manual-release-review'].includes(robot.status))
+  fail('READINESS_MATRIX_TARGET_STATUS_INVALID');
+ const softwareBlocking=new Set(['staticConfiguration','ci','browserJourney','voiceProvider']);
+ const expectedSoftwareBlockers=derivedBlocked.filter(id=>softwareBlocking.has(id)).sort();
+ const expectedSoftwareEvidence=derivedEvidence.filter(id=>softwareBlocking.has(id)).sort();
+ const expectedSoftwareManual=derivedManual.filter(id=>
+  ['realAcousticIo','realChildJourney','recoveryDrill'].includes(id)).sort();
+ const expectedSoftwareStatus=expectedSoftwareBlockers.length?'blocked':
+  expectedSoftwareEvidence.length?'evidence-required':
+  expectedSoftwareManual.length?'manual-release-review':'checks-complete';
+ if(software.status!==expectedSoftwareStatus||
+  JSON.stringify([...software.blockers].sort())!==JSON.stringify(expectedSoftwareBlockers)||
+  JSON.stringify([...software.evidenceRequired].sort())!==JSON.stringify(expectedSoftwareEvidence)||
+  JSON.stringify([...software.manual].sort())!==JSON.stringify(expectedSoftwareManual))
+  fail('READINESS_MATRIX_SOFTWARE_TARGET_DRIFT');
+ const expectedRobotBlockers=[...new Set([
+  ...expectedSoftwareBlockers,...derivedBlocked.filter(id=>id==='rosSimulation')
+ ])].sort();
+ const expectedRobotEvidence=[...new Set([
+  ...expectedSoftwareEvidence,...derivedEvidence.filter(id=>id==='rosSimulation')
+ ])].sort();
+ const expectedRobotManual=[...new Set([...expectedSoftwareManual,'physicalSafety'])].sort();
+ const expectedRobotStatus=expectedRobotBlockers.length?'blocked':
+  expectedRobotEvidence.length?'evidence-required':'manual-release-review';
+ if(robot.status!==expectedRobotStatus||
+  JSON.stringify([...robot.blockers].sort())!==JSON.stringify(expectedRobotBlockers)||
+  JSON.stringify([...robot.evidenceRequired].sort())!==JSON.stringify(expectedRobotEvidence)||
+  JSON.stringify([...robot.manual].sort())!==JSON.stringify(expectedRobotManual))
+  fail('READINESS_MATRIX_ROBOT_TARGET_DRIFT');
+ return true;
+}
+
 async function readBounded(path,max=256*1024){
  const stat=await lstat(path);
  if(!stat.isFile()||stat.isSymbolicLink()||stat.size<2||stat.size>max)

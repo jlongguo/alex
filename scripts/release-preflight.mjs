@@ -23,6 +23,7 @@ const FILES=Object.freeze({
  ALEX_SKILL_PACKAGES_FILE:'skill-packages.json',
  ALEX_SKILL_TRANSACTIONS_FILE:'skill-transactions.json',
  ALEX_SKILL_BATCH_WAL_FILE:'skill-batch-wal.json',
+ ALEX_RELEASE_APPROVAL_FILE:'release-approvals.json',
  WORKFLOW_FILE:'workflows.json',
  PLAN_FILE:'plans.json',
  PROPOSAL_FILE:'proposals.json',

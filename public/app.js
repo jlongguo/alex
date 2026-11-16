@@ -763,7 +763,85 @@ async function refreshReleaseReadiness(){
   matrixList.textContent='';
  }
 }
-$('release-readiness-refresh').addEventListener('click',()=>void refreshReleaseReadiness());
+let releaseCandidateState=null;
+function updateReleaseCandidateButtons(){
+ const approve=$('release-candidate-approve'),reject=$('release-candidate-reject');
+ const candidate=releaseCandidateState?.candidate;
+ if(!candidate){approve.disabled=true;reject.disabled=true;return;}
+ const approved=releaseCandidateState.releaseApproved===true;
+ const boxes=[...$('release-candidate-checks').querySelectorAll('input[data-release-check]')];
+ const allChecked=boxes.length===candidate.requiredHumanChecks.length&&
+  boxes.every(box=>box.checked);
+ approve.disabled=approved||!allChecked;
+ reject.disabled=false;
+}
+async function refreshReleaseCandidate(){
+ if(authorizedActor!=='parent')return;
+ const status=$('release-candidate-status'),meta=$('release-candidate-meta');
+ const checks=$('release-candidate-checks');
+ try{
+  const response=await fetch('/api/release/candidate',{cache:'no-store'});
+  if(!response.ok)throw Error('需要家长登录才能读取软件候选');
+  const state=await response.json();
+  releaseCandidateState=state;
+  if(!state.candidate){
+   status.textContent=state.status==='candidate-missing'
+    ?'已配置候选路径，但尚未找到候选文件。'
+    :'尚未配置发布候选；先在本机生成并配置候选文件。';
+   meta.textContent='浏览器不能上传候选文件。';
+   checks.replaceChildren();updateReleaseCandidateButtons();return;
+  }
+  const candidate=state.candidate;
+  status.textContent=state.releaseApproved
+   ?'当前软件候选已由家长明确批准；此状态仍不会自动部署。'
+   :state.status==='rejected'
+    ?'当前软件候选已被拒绝；如需重新批准，必须重新确认全部人工检查项。'
+    :'当前软件候选等待家长人工复核。';
+  meta.textContent='Commit '+candidate.commitSha.slice(0,12)+'… · Candidate '+
+   candidate.candidateId+' · Digest '+candidate.candidateDigestSha256.slice(0,16)+'…';
+  checks.innerHTML=candidate.requiredHumanChecks.map(check=>
+   '<label class="event-row"><input type="checkbox" data-release-check="'+esc(check)+'" '+
+    (state.releaseApproved?'checked disabled':'')+'>'+
+    '<span class="event-message"><strong>'+esc(check)+'</strong>'+
+    '<small>请在真实环境完成并确认该人工验收项；勾选不是自动测试结果。</small></span></label>'
+  ).join('');
+  updateReleaseCandidateButtons();
+ }catch(error){
+  releaseCandidateState=null;status.textContent=error.message;meta.textContent='';
+  checks.replaceChildren();updateReleaseCandidateButtons();
+ }
+}
+async function decideReleaseCandidate(action){
+ if(authorizedActor!=='parent'||!releaseCandidateState?.candidate)return;
+ const candidate=releaseCandidateState.candidate;
+ const acknowledgements=action==='approved'
+  ?[...$('release-candidate-checks').querySelectorAll('input[data-release-check]:checked')]
+    .map(box=>box.dataset.releaseCheck)
+  :[];
+ if(action==='approved'&&acknowledgements.length!==candidate.requiredHumanChecks.length)return;
+ const prompt=action==='approved'
+  ?'确认已真实完成列出的人工验收，并批准当前软件候选？此操作只记录审批，不会部署。'
+  :'确认拒绝当前软件候选？此操作不会删除候选文件。';
+ if(!window.confirm(prompt))return;
+ $('release-candidate-approve').disabled=true;
+ $('release-candidate-reject').disabled=true;
+ try{
+  const requestId='release_'+globalThis.crypto.randomUUID().replaceAll('-','');
+  await api('/api/release/candidate/decision',{
+   action,candidateId:candidate.candidateId,
+   candidateDigestSha256:candidate.candidateDigestSha256,
+   acknowledgements,requestId
+  });
+  notify(action==='approved'?'已记录当前软件候选的家长批准；未执行部署。':'已记录当前软件候选拒绝。');
+ }catch(error){notify(error.message,true);}
+ await refreshReleaseCandidate();
+}
+$('release-candidate-checks').addEventListener('change',updateReleaseCandidateButtons);
+$('release-candidate-approve').addEventListener('click',()=>void decideReleaseCandidate('approved'));
+$('release-candidate-reject').addEventListener('click',()=>void decideReleaseCandidate('rejected'));
+$('release-readiness-refresh').addEventListener('click',()=>void Promise.all([
+ refreshReleaseReadiness(),refreshReleaseCandidate()
+]));
 async function refreshSkillReconciliation(){
  if(authorizedActor!=='parent')return;
  try{
