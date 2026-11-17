@@ -78,6 +78,8 @@ def audit(
     acoustic_evidence_run_id=None,
     acoustic_evidence_attempt=None,
     acoustic_evidence_sha=None,
+    full_voice_turn_report=None,
+    full_voice_turn_run_id=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -91,6 +93,10 @@ def audit(
         raise ValueError('ACOUSTIC_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
     if acoustic_run_id is not None and not _valid_run_id(acoustic_run_id):
         raise ValueError('INVALID_ACOUSTIC_RUN_ID')
+    if (full_voice_turn_report is None) != (full_voice_turn_run_id is None):
+        raise ValueError('FULL_VOICE_TURN_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
+    if full_voice_turn_run_id is not None and not _valid_run_id(full_voice_turn_run_id):
+        raise ValueError('INVALID_FULL_VOICE_TURN_RUN_ID')
 
     acoustic_evidence_set_supplied = [
         acoustic_evidence_folder, acoustic_evidence_attestation,
@@ -197,6 +203,7 @@ def audit(
         'acoustic_artifact_attestation': 'not_run',
         'acoustic_evidence_set': 'not_run',
         'acoustic_github_readback': 'not_run',
+        'full_voice_turn': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
@@ -219,6 +226,7 @@ def audit(
             'ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
             'ACOUSTIC_COHERENT_EVIDENCE_SET',
             'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
+            'FULL_VOICE_TURN_PHYSICAL_E2E',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -349,6 +357,19 @@ def audit(
             ):
                 result['remaining'].remove(item)
 
+    if full_voice_turn_report is not None:
+        # R78 单报告只证明同一 Turn 的真实物理输入/Provider/物理输出已经执行；
+        # 尚未经过 Artifact coherent governance，因此不直接进入 Release Candidate。
+        validator = Path(__file__).with_name('full-voice-turn-acceptance.mjs')
+        ok = _run_validator([
+            'node', str(validator), 'verify',
+            '--report', str(full_voice_turn_report),
+            '--run-id', str(full_voice_turn_run_id),
+        ])
+        result['full_voice_turn'] = 'verified-self-hosted' if ok else 'invalid'
+        if ok:
+            result['remaining'].remove('FULL_VOICE_TURN_PHYSICAL_E2E')
+
     if nav2_fault_report is not None:
         # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
         validator = Path(__file__).with_name('verify-nav2-fault-contract.mjs')
@@ -474,6 +495,7 @@ def audit(
         or result['acoustic_artifact_attestation'] == 'invalid'
         or result['acoustic_evidence_set'] == 'invalid'
         or result['acoustic_github_readback'] == 'invalid'
+        or result['full_voice_turn'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
@@ -537,6 +559,8 @@ def main():
     parser.add_argument('--acoustic-evidence-run-id')
     parser.add_argument('--acoustic-evidence-attempt', type=int)
     parser.add_argument('--acoustic-evidence-sha')
+    parser.add_argument('--full-voice-turn-report', type=Path)
+    parser.add_argument('--full-voice-turn-run-id')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -593,6 +617,8 @@ def main():
             args.acoustic_evidence_run_id,
             args.acoustic_evidence_attempt,
             args.acoustic_evidence_sha,
+            args.full_voice_turn_report,
+            args.full_voice_turn_run_id,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
