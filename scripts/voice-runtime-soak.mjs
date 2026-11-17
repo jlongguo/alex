@@ -72,7 +72,8 @@ export async function runVoiceRuntimeSoak({
  let consecutiveFailures=0,previousFailure=false,stopReason='duration-complete';
  const runner=turnRunner??(async({index})=>{
    const path=resolve('.local/voice/soak/turn-'+String(index).padStart(6,'0')+'.json');
-   return runFullVoiceTurnAcceptance({env,reportPath:path});
+   try{return await runFullVoiceTurnAcceptance({env,reportPath:path});}
+   finally{try{await unlink(path);}catch(error){if(error?.code!=='ENOENT')throw error;}}
  });
  while(now()<deadline&&started<maxTurns){
   const index=started++;const turnStart=now();let outcome='passed',fault=null;
