@@ -45,7 +45,7 @@ const safeError=error=>{
 
 function actionContext(env){
  if(env.GITHUB_ACTIONS!=='true'||env.GITHUB_EVENT_NAME!=='workflow_dispatch'||
-  env.RUNNER_ENVIRONMENT!=='self-hosted'||env.GITHUB_JOB!=='full-voice-turn'||
+  env.RUNNER_ENVIRONMENT!=='self-hosted'||!['full-voice-turn','voice-soak'].includes(env.GITHUB_JOB)||
   !DIGITS.test(env.GITHUB_RUN_ID??'')||
   !Number.isSafeInteger(Number(env.GITHUB_RUN_ATTEMPT))||Number(env.GITHUB_RUN_ATTEMPT)<1||
   !SHA.test(env.GITHUB_SHA??'')||env.ALEX_FULL_VOICE_TURN_APPROVED!=='true')
@@ -330,7 +330,7 @@ export function verifyFullVoiceTurnReport(report,{expectedRunId=null,expectedCom
   !object(report.context)||report.context.source!=='github-actions-self-hosted'||
   !DIGITS.test(report.context.runId??'')||!Number.isInteger(report.context.attempt)||
   report.context.attempt<1||!SHA.test(report.context.commitSha??'')||
-  report.context.job!=='full-voice-turn'||!HASH.test(report.context.runnerFingerprintSha256??'')||
+  !['full-voice-turn','voice-soak'].includes(report.context.job)||!HASH.test(report.context.runnerFingerprintSha256??'')||
   !object(report.devices)||!HASH.test(report.devices.captureFingerprintSha256??'')||
   !HASH.test(report.devices.playbackFingerprintSha256??'')||
   report.devices.rawIdentifiersStored!==false||report.devices.physicalPathApproved!==true||
