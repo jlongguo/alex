@@ -47,6 +47,7 @@ function verifyRuntime(report){
  const fields=[
   'ros_runtime','voice_real_provider','voice_workflow_evidence',
   'voice_artifact_attestation','voice_evidence_set','voice_github_readback','acoustic_io',
+  'acoustic_artifact_attestation','acoustic_evidence_set','acoustic_github_readback',
   'nav2_fault_contract','ros_cancel_runtime','ros_recovery_runtime',
   'ros_bridge_runtime','ros_workflow_bundle','ros_artifact_attestation',
   'ros_evidence_set','ros_github_readback','ros_runner_provenance'
@@ -109,15 +110,27 @@ function rosState(runtime){
   :domain('evidence-required','runtime-incomplete','尚未形成完整 ROS/Gazebo coherent evidence set');
 }
 function acousticState(runtime){
- if(!runtime)return domain('manual-required','not-provided',
-  '尚未提供真实麦克风/扬声器物理回路证据');
- if(runtime.acoustic_io==='invalid')
-  return domain('blocked','invalid','真实声学 I/O 证据验证失败');
+ if(!runtime)return domain('evidence-required','not-provided',
+  '尚未提供真实 Acoustic coherent evidence set');
+ const values=[
+  runtime.acoustic_io,runtime.acoustic_artifact_attestation,
+  runtime.acoustic_evidence_set,runtime.acoustic_github_readback
+ ];
+ if(values.some(value=>value==='invalid'))
+  return domain('blocked','invalid','真实声学 I/O 或 Artifact 证据验证失败');
+ const complete=
+  runtime.acoustic_io==='verified-by-set'&&
+  runtime.acoustic_artifact_attestation==='verified-by-set'&&
+  runtime.acoustic_evidence_set==='verified-coherent'&&
+  runtime.acoustic_github_readback==='verified-by-set';
+ if(complete)
+  return domain('pass','runtime-coherent',
+   '物理 ALSA 回路、Artifact attestation 与 GitHub REST readback 已 coherent 验证');
  if(runtime.acoustic_io==='verified-self-hosted')
-  return domain('pass','self-hosted-physical-loop',
-   '专用 self-hosted runner 已完成 ALSA 扬声器播放、麦克风回采与多频物理回路检测');
- return domain('manual-required','not-run',
-  '真实声学 I/O 尚未在 alex-acoustic self-hosted runner 执行');
+  return domain('evidence-required','runtime-unpublished',
+   '物理声学回路已验证，但尚未形成 Artifact/Readback coherent evidence set');
+ return domain('evidence-required','not-run',
+  '真实声学 I/O 尚未形成当前 Commit 的发布级证据');
 }
 function recoveryState(stat,recovery){
  if(recovery){
