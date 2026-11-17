@@ -33,6 +33,10 @@ const runtimeBase=()=>({
  acoustic_artifact_attestation:'not_run',
  acoustic_evidence_set:'not_run',
  acoustic_github_readback:'not_run',
+ full_voice_turn:'not_run',
+ full_voice_turn_artifact_attestation:'not_run',
+ full_voice_turn_evidence_set:'not_run',
+ full_voice_turn_github_readback:'not_run',
  nav2_fault_contract:'not_run',
  ros_cancel_runtime:'not_run',
  ros_recovery_runtime:'not_run',
@@ -43,7 +47,7 @@ const runtimeBase=()=>({
  ros_github_readback:'not_run',
  ros_runner_provenance:'not_run',
  physical_safety_certified:false,release_approved:false,
- subjects:{ros:null,voice:null,acoustic:null},
+ subjects:{ros:null,voice:null,acoustic:null,full_voice_turn:null},
  remaining:[
   'REAL_ASR_LLM_TTS_PROVIDER_E2E',
   'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
@@ -54,6 +58,10 @@ const runtimeBase=()=>({
   'ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
   'ACOUSTIC_COHERENT_EVIDENCE_SET',
   'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
+  'FULL_VOICE_TURN_PHYSICAL_E2E',
+  'FULL_VOICE_TURN_ACTIONS_ARTIFACT_ATTESTATION',
+  'FULL_VOICE_TURN_COHERENT_EVIDENCE_SET',
+  'FULL_VOICE_TURN_GITHUB_ACTIONS_READBACK_AUDIT',
   'GAZEBO_NAV2_THREE_LEG_RUNTIME',
   'GAZEBO_NAV2_CANCEL_RUNTIME',
   'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -88,6 +96,7 @@ test('R71 只有 R42 静态报告时，矩阵不会推导 CI/Voice/ROS 已通过
  assert.equal(matrix.domains.voiceProvider.status,'evidence-required');
  assert.equal(matrix.domains.rosSimulation.status,'evidence-required');
  assert.equal(matrix.domains.realAcousticIo.status,'evidence-required');
+ assert.equal(matrix.domains.fullVoiceTurn.status,'evidence-required');
  assert.equal(matrix.domains.realChildJourney.status,'manual-required');
  assert.equal(matrix.domains.physicalSafety.status,'manual-required');
  assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
@@ -129,7 +138,8 @@ test('R71 Voice 与 ROS coherent set 齐全但缺 Acoustic coherent set 时仍�
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:SHA},
    ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
-   acoustic:null
+   acoustic:null,
+   full_voice_turn:null
   },
   remaining:['PHYSICAL_SAFETY_REVIEW']
  });
@@ -168,7 +178,8 @@ test('R71 CI、Voice、ROS 必须属于同一 Commit，跨 Commit 拼接直接 b
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:'f'.repeat(40)},
    ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
-   acoustic:null
+   acoustic:null,
+   full_voice_turn:null
   }
  });
  const matrix=composeReleaseReadinessMatrix({
@@ -356,4 +367,45 @@ test('R77 Acoustic coherent set 与当前 Commit 一致才可通过，跨 Commit
  runtime=runtimeBase();runtime.acoustic_evidence_set='invalid';
  matrix=composeReleaseReadinessMatrix({staticReadiness:staticBase(),runtimeGate:runtime});
  assert.equal(matrix.domains.realAcousticIo.status,'blocked');
+});
+
+
+test('R79 单个 self-hosted Full Voice Turn report 仍不能作为发布级证据',()=>{
+ const runtime=runtimeBase();
+ runtime.full_voice_turn='verified-self-hosted';
+ runtime.subjects.full_voice_turn={run_id:'44000000001',attempt:1,commit_sha:SHA};
+ runtime.remaining=runtime.remaining.filter(x=>x!=='FULL_VOICE_TURN_PHYSICAL_E2E');
+ const matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.fullVoiceTurn.status,'evidence-required');
+ assert.equal(matrix.domains.fullVoiceTurn.evidenceLevel,'runtime-unpublished');
+ assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
+});
+
+test('R79 Full Voice Turn coherent set 必须与当前 CI Commit 一致',()=>{
+ let runtime=runtimeBase();
+ Object.assign(runtime,{
+  full_voice_turn:'verified-by-set',
+  full_voice_turn_artifact_attestation:'verified-by-set',
+  full_voice_turn_evidence_set:'verified-coherent',
+  full_voice_turn_github_readback:'verified-by-set'
+ });
+ runtime.subjects.full_voice_turn={run_id:'44000000001',attempt:1,commit_sha:SHA};
+ runtime.remaining=runtime.remaining.filter(x=>!x.startsWith('FULL_VOICE_TURN_'));
+ let matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.fullVoiceTurn.status,'pass');
+ assert.equal(matrix.domains.fullVoiceTurn.evidenceLevel,'runtime-coherent');
+
+ runtime.subjects.full_voice_turn.commit_sha='f'.repeat(40);
+ matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.fullVoiceTurn.status,'blocked');
+ assert.equal(matrix.domains.fullVoiceTurn.evidenceLevel,'commit-mismatch');
 });

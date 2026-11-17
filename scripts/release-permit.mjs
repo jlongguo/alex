@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// R77 签名发布许可：把候选、人工批准事件和 CI/Voice/Acoustic/ROS 证据主体冻结为不可执行的签名清单。
+// R79 签名发布许可：把候选、人工批准事件和 CI/Voice/Acoustic/FullVoiceTurn/ROS 证据主体冻结为不可执行的签名清单。
 // 本模块只生成/验证 permit；不会部署、发布、升级、回滚，也不会修改 releaseApproved。
 import {
  createHash,createPrivateKey,createPublicKey,sign as cryptoSign,verify as cryptoVerify
@@ -60,6 +60,11 @@ function validateRuntimeGate(runtime,commitSha){
   runtime.acoustic_evidence_set!=='verified-coherent'||
   runtime.acoustic_github_readback!=='verified-by-set')
   fail('RELEASE_PERMIT_ACOUSTIC_EVIDENCE_INCOMPLETE');
+ if(runtime.full_voice_turn!=='verified-by-set'||
+  runtime.full_voice_turn_artifact_attestation!=='verified-by-set'||
+  runtime.full_voice_turn_evidence_set!=='verified-coherent'||
+  runtime.full_voice_turn_github_readback!=='verified-by-set')
+  fail('RELEASE_PERMIT_FULL_VOICE_TURN_EVIDENCE_INCOMPLETE');
  const rosFields=[
   'ros_runtime','ros_cancel_runtime','ros_recovery_runtime','ros_bridge_runtime',
   'ros_workflow_bundle','ros_artifact_attestation','ros_github_readback',
@@ -71,6 +76,7 @@ function validateRuntimeGate(runtime,commitSha){
  return {
   voice:validateSubject(runtime.subjects.voice,commitSha,'VOICE'),
   acoustic:validateSubject(runtime.subjects.acoustic,commitSha,'ACOUSTIC'),
+  fullVoiceTurn:validateSubject(runtime.subjects.full_voice_turn,commitSha,'FULL_VOICE_TURN'),
   ros:validateSubject(runtime.subjects.ros,commitSha,'ROS')
  };
 }
@@ -146,6 +152,7 @@ export function createReleasePermit({
    },
    voice:subjects.voice,
    acoustic:subjects.acoustic,
+   fullVoiceTurn:subjects.fullVoiceTurn,
    ros:subjects.ros
   },
   evidenceBundle:{
@@ -212,6 +219,11 @@ export function verifyReleasePermit(permit,{publicKeyPem,expectedCommit=null,now
   attempt:permit.subjects.acoustic?.attempt,
   commit_sha:permit.subjects.acoustic?.commitSha
  },permit.candidate.commitSha,'ACOUSTIC');
+ validateSubject({
+  run_id:permit.subjects.fullVoiceTurn?.runId,
+  attempt:permit.subjects.fullVoiceTurn?.attempt,
+  commit_sha:permit.subjects.fullVoiceTurn?.commitSha
+ },permit.candidate.commitSha,'FULL_VOICE_TURN');
  validateSubject({
   run_id:permit.subjects.ros?.runId,
   attempt:permit.subjects.ros?.attempt,

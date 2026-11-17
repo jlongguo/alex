@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   approval-gate:
     name: approval-gate
@@ -24,6 +25,11 @@ jobs:
     needs: approval-gate
     runs-on: [self-hosted, linux, x64, alex-acoustic]
     timeout-minutes: 20
+    outputs:
+      evidence-artifact-id: ${{ steps.full_turn_evidence_upload.outputs.artifact-id }}
+      evidence-artifact-digest: ${{ steps.full_turn_evidence_upload.outputs.artifact-digest }}
+      attestation-artifact-id: ${{ steps.full_turn_attestation_upload.outputs.artifact-id }}
+      attestation-artifact-digest: ${{ steps.full_turn_attestation_upload.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -50,9 +56,86 @@ jobs:
           npm run voice:full-turn -- verify --report .local/voice/full-turn/report.json \
             --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
       - name: Upload privacy-safe Full Voice Turn evidence
+        id: full_turn_evidence_upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: alex-full-voice-turn-physical-e2e
           if-no-files-found: error
           include-hidden-files: true
           path: .local/voice/full-turn/report.json
+      - name: Read back current Full Voice Turn Artifact from GitHub Actions API
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_FULL_VOICE_TURN_ARTIFACT_ID: ${{ steps.full_turn_evidence_upload.outputs.artifact-id }}
+          ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST: ${{ steps.full_turn_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-full-voice-turn-readback.py --audit
+          python3 scripts/github-actions-full-voice-turn-readback.py --verify \
+            --report .local/voice/full-turn/github-actions-readback.json \
+            --artifact-id "$ALEX_FULL_VOICE_TURN_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Bind immutable Full Voice Turn Artifact metadata and verify coherent evidence set
+        env:
+          ALEX_FULL_VOICE_TURN_ARTIFACT_ID: ${{ steps.full_turn_evidence_upload.outputs.artifact-id }}
+          ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST: ${{ steps.full_turn_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-full-voice-turn-artifact-attestation.py
+          python3 scripts/verify-full-voice-turn-artifact-attestation.py \
+            --attestation .local/voice/full-turn/artifact-attestation.json \
+            --folder .local/voice/full-turn \
+            --artifact-id "$ALEX_FULL_VOICE_TURN_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+          python3 scripts/verify-full-voice-turn-evidence-set.py \
+            --folder .local/voice/full-turn \
+            --attestation .local/voice/full-turn/artifact-attestation.json \
+            --github-readback .local/voice/full-turn/github-actions-readback.json \
+            --artifact-id "$ALEX_FULL_VOICE_TURN_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Upload Full Voice Turn artifact attestation separately
+        id: full_turn_attestation_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alex-full-voice-turn-physical-e2e-attestation
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .local/voice/full-turn/artifact-attestation.json
+            .local/voice/full-turn/github-actions-readback.json
+  publication-audit:
+    name: publication-audit
+    needs: full-voice-turn
+    if: ${{ needs.full-voice-turn.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify self-hosted Full Voice Turn producer and both immutable Artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_FULL_VOICE_TURN_ARTIFACT_ID: ${{ needs.full-voice-turn.outputs.evidence-artifact-id }}
+          ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST: ${{ needs.full-voice-turn.outputs.evidence-artifact-digest }}
+          ALEX_FULL_VOICE_TURN_ATTESTATION_ARTIFACT_ID: ${{ needs.full-voice-turn.outputs.attestation-artifact-id }}
+          ALEX_FULL_VOICE_TURN_ATTESTATION_ARTIFACT_DIGEST: ${{ needs.full-voice-turn.outputs.attestation-artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-full-voice-turn-publication-audit.py --audit
+          python3 scripts/github-actions-full-voice-turn-publication-audit.py --verify \
+            --report .local/voice/full-turn/publication-audit.json \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA" \
+            --main-artifact-id "$ALEX_FULL_VOICE_TURN_ARTIFACT_ID" \
+            --main-artifact-digest "$ALEX_FULL_VOICE_TURN_ARTIFACT_DIGEST" \
+            --attestation-artifact-id "$ALEX_FULL_VOICE_TURN_ATTESTATION_ARTIFACT_ID" \
+            --attestation-artifact-digest "$ALEX_FULL_VOICE_TURN_ATTESTATION_ARTIFACT_DIGEST"

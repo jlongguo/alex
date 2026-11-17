@@ -42,12 +42,14 @@ function verifyRuntime(report){
   report.release_approved!==false||report.physical_safety_certified!==false||
   !Array.isArray(report.remaining)||!object(report.subjects)||
   !Object.hasOwn(report.subjects,'ros')||!Object.hasOwn(report.subjects,'voice')||
-  !Object.hasOwn(report.subjects,'acoustic'))
+  !Object.hasOwn(report.subjects,'acoustic')||!Object.hasOwn(report.subjects,'full_voice_turn'))
   fail('READINESS_MATRIX_RUNTIME_INVALID');
  const fields=[
   'ros_runtime','voice_real_provider','voice_workflow_evidence',
   'voice_artifact_attestation','voice_evidence_set','voice_github_readback','acoustic_io',
   'acoustic_artifact_attestation','acoustic_evidence_set','acoustic_github_readback',
+  'full_voice_turn','full_voice_turn_artifact_attestation','full_voice_turn_evidence_set',
+  'full_voice_turn_github_readback',
   'nav2_fault_contract','ros_cancel_runtime','ros_recovery_runtime',
   'ros_bridge_runtime','ros_workflow_bundle','ros_artifact_attestation',
   'ros_evidence_set','ros_github_readback','ros_runner_provenance'
@@ -60,7 +62,7 @@ function verifyRuntime(report){
   DIGITS.test(value.run_id??'')&&Number.isInteger(value.attempt)&&
   value.attempt>=1&&value.attempt<=10000&&SHA.test(value.commit_sha??''));
  if(!validSubject(report.subjects.ros)||!validSubject(report.subjects.voice)||
-  !validSubject(report.subjects.acoustic))
+  !validSubject(report.subjects.acoustic)||!validSubject(report.subjects.full_voice_turn))
   fail('READINESS_MATRIX_RUNTIME_SUBJECT_INVALID');
  return report;
 }
@@ -132,6 +134,29 @@ function acousticState(runtime){
  return domain('evidence-required','not-run',
   '真实声学 I/O 尚未形成当前 Commit 的发布级证据');
 }
+function fullVoiceTurnState(runtime){
+ if(!runtime)return domain('evidence-required','not-provided',
+  '尚未提供 Full Voice Turn coherent evidence set');
+ const values=[
+  runtime.full_voice_turn,runtime.full_voice_turn_artifact_attestation,
+  runtime.full_voice_turn_evidence_set,runtime.full_voice_turn_github_readback
+ ];
+ if(values.some(value=>value==='invalid'))
+  return domain('blocked','invalid','Full Voice Turn 物理/Provider/Artifact 证据验证失败');
+ const complete=
+  runtime.full_voice_turn==='verified-by-set'&&
+  runtime.full_voice_turn_artifact_attestation==='verified-by-set'&&
+  runtime.full_voice_turn_evidence_set==='verified-coherent'&&
+  runtime.full_voice_turn_github_readback==='verified-by-set';
+ if(complete)
+  return domain('pass','runtime-coherent',
+   '同一 Turn 的物理输入、ASR、LLM、PCM TTS、物理输出与 Artifact readback 已 coherent 验证');
+ if(runtime.full_voice_turn==='verified-self-hosted')
+  return domain('evidence-required','runtime-unpublished',
+   '同一 Turn 物理语音链已真实运行，但尚未形成发布级 Artifact coherent set');
+ return domain('evidence-required','not-run',
+  'Full Voice Turn 尚未形成当前 Commit 的发布级证据');
+}
 function recoveryState(stat,recovery){
  if(recovery){
   return domain('pass','isolated-business-load',
@@ -165,6 +190,7 @@ export function composeReleaseReadinessMatrix({
  const voiceSubject=runtime?.subjects?.voice??null;
  const rosSubject=runtime?.subjects?.ros??null;
  const acousticSubject=runtime?.subjects?.acoustic??null;
+ const fullVoiceTurnSubject=runtime?.subjects?.full_voice_turn??null;
  if(voice.status==='pass'&&voiceSubject===null)
   voice=domain('blocked','runtime-subject-missing',
    'Voice coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
@@ -173,12 +199,19 @@ export function composeReleaseReadinessMatrix({
    'ROS coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
  let recoveryDomain=recoveryState(stat,recoveryReport);
  let acousticDomain=acousticState(runtime);
+ let fullVoiceTurnDomain=fullVoiceTurnState(runtime);
  if(acousticDomain.status==='pass'&&acousticSubject===null)
   acousticDomain=domain('blocked','runtime-subject-missing',
    'Acoustic evidence 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
+ if(fullVoiceTurnDomain.status==='pass'&&fullVoiceTurnSubject===null)
+  fullVoiceTurnDomain=domain('blocked','runtime-subject-missing',
+   'Full Voice Turn coherent set 已标记通过，但 Runtime Gate 未保留 Run/Attempt/SHA 主体');
  if(ci&&acousticDomain.status==='pass'&&acousticSubject.commit_sha!==ci.context.commitSha)
   acousticDomain=domain('blocked','commit-mismatch',
    'Acoustic evidence 与当前 CI 不属于同一 Commit');
+ if(ci&&fullVoiceTurnDomain.status==='pass'&&fullVoiceTurnSubject.commit_sha!==ci.context.commitSha)
+  fullVoiceTurnDomain=domain('blocked','commit-mismatch',
+   'Full Voice Turn evidence 与当前 CI 不属于同一 Commit');
  if(ci&&recoveryReport&&recoveryReport.commitSha!==ci.context.commitSha)
   recoveryDomain=domain('blocked','commit-mismatch',
    'Recovery Drill Evidence 与当前 CI 不属于同一 Commit');
@@ -211,6 +244,7 @@ export function composeReleaseReadinessMatrix({
   voiceProvider:voice,
   rosSimulation:ros,
   realAcousticIo:acousticDomain,
+  fullVoiceTurn:fullVoiceTurnDomain,
   realChildJourney:domain('manual-required','human-required',
    '真实儿童/家庭用户旅程不能由 CI 合成家庭数据自动替代'),
   recoveryDrill:recoveryDomain,
@@ -226,7 +260,7 @@ export function composeReleaseReadinessMatrix({
   .filter(([,value])=>value.status==='manual-required').map(([key])=>key);
 
  const softwareBlocking=new Set([
-  'staticConfiguration','ci','browserJourney','voiceProvider','realAcousticIo'
+  'staticConfiguration','ci','browserJourney','voiceProvider','realAcousticIo','fullVoiceTurn'
  ]);
  const softwareBlockers=blockers.filter(id=>softwareBlocking.has(id));
  const softwareEvidence=evidenceRequired.filter(id=>softwareBlocking.has(id));
@@ -265,7 +299,8 @@ export function composeReleaseReadinessMatrix({
     recoveryCommit:recoveryReport?.commitSha??null,
     voice:voiceSubject,
     ros:rosSubject,
-    acoustic:acousticSubject
+    acoustic:acousticSubject,
+    fullVoiceTurn:fullVoiceTurnSubject
    }
   },
   domains,blockers,evidenceRequired,manual,
@@ -303,7 +338,7 @@ export function verifyReleaseReadinessMatrix(matrix){
   fail('READINESS_MATRIX_REPORT_SHAPE_INVALID');
  const names=[
   'staticConfiguration','ci','browserJourney','voiceProvider','rosSimulation',
-  'realAcousticIo','realChildJourney','recoveryDrill','physicalSafety'
+  'realAcousticIo','fullVoiceTurn','realChildJourney','recoveryDrill','physicalSafety'
  ];
  if(Object.keys(matrix.domains).sort().join(',')!==[...names].sort().join(','))
   fail('READINESS_MATRIX_DOMAIN_SET_INVALID');
@@ -327,7 +362,7 @@ export function verifyReleaseReadinessMatrix(matrix){
  const subjects=matrix.inputs.subjects;
  const validCommit=value=>value===null||(typeof value==='string'&&SHA.test(value));
  if(!validCommit(subjects.ciCommit)||!validCommit(subjects.recoveryCommit)||
-  ![subjects.voice,subjects.ros,subjects.acoustic].every(value=>value===null||
+  ![subjects.voice,subjects.ros,subjects.acoustic,subjects.fullVoiceTurn].every(value=>value===null||
    (object(value)&&DIGITS.test(value.run_id??'')&&Number.isInteger(value.attempt)&&
     value.attempt>=1&&value.attempt<=10000&&SHA.test(value.commit_sha??''))))
   fail('READINESS_MATRIX_SUBJECTS_INVALID');
@@ -337,12 +372,17 @@ export function verifyReleaseReadinessMatrix(matrix){
   fail('READINESS_MATRIX_ROS_SUBJECT_REQUIRED');
  if(matrix.domains.realAcousticIo.status==='pass'&&!subjects.acoustic)
   fail('READINESS_MATRIX_ACOUSTIC_SUBJECT_REQUIRED');
+ if(matrix.domains.fullVoiceTurn.status==='pass'&&!subjects.fullVoiceTurn)
+  fail('READINESS_MATRIX_FULL_VOICE_TURN_SUBJECT_REQUIRED');
  if(subjects.ciCommit&&subjects.recoveryCommit&&matrix.domains.recoveryDrill.status==='pass'&&
   subjects.recoveryCommit!==subjects.ciCommit)
   fail('READINESS_MATRIX_RECOVERY_COMMIT_MISMATCH');
  if(subjects.ciCommit&&subjects.acoustic&&matrix.domains.realAcousticIo.status==='pass'&&
   subjects.acoustic.commit_sha!==subjects.ciCommit)
   fail('READINESS_MATRIX_ACOUSTIC_COMMIT_MISMATCH');
+ if(subjects.ciCommit&&subjects.fullVoiceTurn&&matrix.domains.fullVoiceTurn.status==='pass'&&
+  subjects.fullVoiceTurn.commit_sha!==subjects.ciCommit)
+  fail('READINESS_MATRIX_FULL_VOICE_TURN_COMMIT_MISMATCH');
  if(subjects.ciCommit&&subjects.voice&&matrix.domains.voiceProvider.status==='pass'&&
   subjects.voice.commit_sha!==subjects.ciCommit)
   fail('READINESS_MATRIX_VOICE_COMMIT_MISMATCH');
@@ -359,7 +399,7 @@ export function verifyReleaseReadinessMatrix(matrix){
  if(!['blocked','evidence-required','manual-release-review','checks-complete'].includes(software.status)||
   !['blocked','evidence-required','manual-release-review'].includes(robot.status))
   fail('READINESS_MATRIX_TARGET_STATUS_INVALID');
- const softwareBlocking=new Set(['staticConfiguration','ci','browserJourney','voiceProvider','realAcousticIo']);
+ const softwareBlocking=new Set(['staticConfiguration','ci','browserJourney','voiceProvider','realAcousticIo','fullVoiceTurn']);
  const expectedSoftwareBlockers=derivedBlocked.filter(id=>softwareBlocking.has(id)).sort();
  const expectedSoftwareEvidence=derivedEvidence.filter(id=>softwareBlocking.has(id)).sort();
  const expectedSoftwareManual=derivedManual.filter(id=>

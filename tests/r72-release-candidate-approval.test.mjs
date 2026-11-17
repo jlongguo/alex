@@ -44,6 +44,10 @@ const runtimeVoice=()=>({
  acoustic_artifact_attestation:'verified-by-set',
  acoustic_evidence_set:'verified-coherent',
  acoustic_github_readback:'verified-by-set',
+ full_voice_turn:'verified-by-set',
+ full_voice_turn_artifact_attestation:'verified-by-set',
+ full_voice_turn_evidence_set:'verified-coherent',
+ full_voice_turn_github_readback:'verified-by-set',
  nav2_fault_contract:'not_run',
  ros_cancel_runtime:'not_run',
  ros_recovery_runtime:'not_run',
@@ -57,7 +61,8 @@ const runtimeVoice=()=>({
  subjects:{
   voice:{run_id:'987654321',attempt:2,commit_sha:SHA},
   ros:null,
-  acoustic:{run_id:'8877665544',attempt:1,commit_sha:SHA}
+  acoustic:{run_id:'8877665544',attempt:1,commit_sha:SHA},
+  full_voice_turn:{run_id:'9988776655',attempt:1,commit_sha:SHA}
  },
  remaining:[
   'GAZEBO_NAV2_THREE_LEG_RUNTIME','GAZEBO_NAV2_CANCEL_RUNTIME',
@@ -95,6 +100,7 @@ test('R72 只有软件自动证据齐全且进入人工复核阶段才能冻结�
  assert.equal(candidate.automatedEvidence.browserJourney,'pass');
  assert.equal(candidate.automatedEvidence.voiceProvider,'pass');
  assert.equal(candidate.automatedEvidence.realAcousticIo,'pass');
+ assert.equal(candidate.automatedEvidence.fullVoiceTurn,'pass');
 });
 
 test('R72 Matrix verifier 会重算 software target，不能通过删人工检查项伪造可批准候选',()=>{

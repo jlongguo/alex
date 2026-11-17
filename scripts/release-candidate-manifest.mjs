@@ -52,7 +52,8 @@ export function createReleaseCandidate(matrix,{
  if(matrix.domains?.ci?.status!=='pass'||
   matrix.domains?.browserJourney?.status!=='pass'||
   matrix.domains?.voiceProvider?.status!=='pass'||
-  matrix.domains?.realAcousticIo?.status!=='pass')
+  matrix.domains?.realAcousticIo?.status!=='pass'||
+  matrix.domains?.fullVoiceTurn?.status!=='pass')
   fail('RELEASE_CANDIDATE_AUTOMATED_EVIDENCE_INCOMPLETE');
  const requiredHumanChecks=normalizedChecks(target.manual);
  if(typeof createdAt!=='string'||Number.isNaN(Date.parse(createdAt))||
@@ -79,7 +80,8 @@ export function createReleaseCandidate(matrix,{
    ci:matrix.domains.ci.status,
    browserJourney:matrix.domains.browserJourney.status,
    voiceProvider:matrix.domains.voiceProvider.status,
-   realAcousticIo:matrix.domains.realAcousticIo.status
+   realAcousticIo:matrix.domains.realAcousticIo.status,
+   fullVoiceTurn:matrix.domains.fullVoiceTurn.status
   },
   sourceEvidence:structuredClone(sourceEvidence),
   requiredHumanChecks,
@@ -110,6 +112,7 @@ export function verifyReleaseCandidate(candidate,{expectedCommit=null}={}){
   candidate.automatedEvidence.browserJourney!=='pass'||
   candidate.automatedEvidence.voiceProvider!=='pass'||
   candidate.automatedEvidence.realAcousticIo!=='pass'||
+  candidate.automatedEvidence.fullVoiceTurn!=='pass'||
   !object(candidate.sourceEvidence)||
   !DIGEST.test(candidate.sourceEvidence.staticDigestSha256??'')||
   !DIGEST.test(candidate.sourceEvidence.runtimeDigestSha256??'')||
