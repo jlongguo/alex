@@ -4,6 +4,7 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {
  runFullVoiceTurnAcceptance,verifyFullVoiceTurnReport,
  FULL_VOICE_SEED_TEXT,FULL_VOICE_TURN_SCHEMA
@@ -154,4 +155,29 @@ test('R78 workflow 只能手动在 alex-acoustic self-hosted runner 运行且不
  assert.match(source,/alex-full-voice-turn-physical-e2e/);
  assert.doesNotMatch(source,/\.wav\s*$/m);
  assert.doesNotMatch(source,/\.pcm\s*$/m);
+});
+
+
+test('R78 Runtime Gate 可记录真实同轮 Full Voice Turn，但仍不把它当发布许可',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'alex-r78-gate-'));
+ try{
+  const path=join(dir,'full-turn.json');
+  await (await import('node:fs/promises')).writeFile(path,JSON.stringify(validReal())+'\n');
+  const gate=resolve('scripts/runtime-acceptance-gate.py');
+  const checked=spawnSync('python3',[
+   gate,'--full-voice-turn-report',path,'--full-voice-turn-run-id','44000000001'
+  ],{encoding:'utf8',timeout:12000});
+  assert.equal(checked.status,0,checked.stderr);
+  const report=JSON.parse(checked.stdout);
+  assert.equal(report.full_voice_turn,'verified-self-hosted');
+  assert.ok(!report.remaining.includes('FULL_VOICE_TURN_PHYSICAL_E2E'));
+  assert.equal(report.release_approved,false);
+  assert.equal(report.physical_safety_certified,false);
+
+  const bad=spawnSync('python3',[
+   gate,'--full-voice-turn-report',path,'--full-voice-turn-run-id','44000000002'
+  ],{encoding:'utf8',timeout:12000});
+  assert.equal(bad.status,1,bad.stderr);
+  assert.equal(JSON.parse(bad.stdout).full_voice_turn,'invalid');
+ }finally{await rm(dir,{recursive:true,force:true});}
 });
