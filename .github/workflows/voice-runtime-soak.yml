@@ -1,0 +1,62 @@
+# R80 长时真实语音 Soak。仅手动 self-hosted 运行；PR CI 不调用真实设备或 Provider。
+name: Voice Runtime Soak (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: 'Soak hours (8, 24, or 72)'
+        required: true
+        default: '8'
+        type: choice
+        options: ['8','24','72']
+permissions:
+  contents: read
+jobs:
+  approval-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit soak approval
+        env:
+          ALEX_VOICE_SOAK_RUNNER_APPROVED: ${{ vars.ALEX_VOICE_SOAK_RUNNER_APPROVED }}
+        run: |
+          set -euo pipefail
+          test "$ALEX_VOICE_SOAK_RUNNER_APPROVED" = "true"
+  voice-soak:
+    needs: approval-gate
+    runs-on: [self-hosted, linux, x64, alex-acoustic]
+    timeout-minutes: 4380
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run real physical/provider soak
+        env:
+          ALEX_VOICE_SOAK_APPROVED: 'true'
+          ALEX_FULL_VOICE_TURN_APPROVED: 'true'
+          ALEX_FULL_VOICE_CAPTURE_DEVICE: ${{ vars.ALEX_ACOUSTIC_CAPTURE_DEVICE }}
+          ALEX_FULL_VOICE_PLAYBACK_DEVICE: ${{ vars.ALEX_ACOUSTIC_PLAYBACK_DEVICE }}
+          ALEX_VOICE_PROVIDER_BASE_URL: ${{ secrets.ALEX_VOICE_PROVIDER_BASE_URL }}
+          ALEX_VOICE_PROVIDER_API_KEY: ${{ secrets.ALEX_VOICE_PROVIDER_API_KEY }}
+          ALEX_VOICE_ASR_MODEL: ${{ secrets.ALEX_VOICE_ASR_MODEL }}
+          ALEX_VOICE_TTS_MODEL: ${{ secrets.ALEX_VOICE_TTS_MODEL }}
+          ALEX_CHAT_PROVIDER_BASE_URL: ${{ secrets.ALEX_CHAT_PROVIDER_BASE_URL }}
+          ALEX_CHAT_PROVIDER_API_KEY: ${{ secrets.ALEX_CHAT_PROVIDER_API_KEY }}
+          ALEX_CHAT_MODEL: ${{ secrets.ALEX_CHAT_MODEL }}
+        run: |
+          set -euo pipefail
+          rm -rf .local/voice/soak
+          npm run voice:soak -- run --hours "${{ inputs.hours }}" --interval-ms 15000 \
+            --report .local/voice/soak/report.json
+          npm run voice:soak -- verify --report .local/voice/soak/report.json \
+            --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA" --min-hours "${{ inputs.hours }}"
+      - name: Upload privacy-safe soak report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alex-voice-runtime-soak-${{ inputs.hours }}h
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .local/voice/soak/report.json
