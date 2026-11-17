@@ -138,7 +138,8 @@ test('R71 Voice 与 ROS coherent set 齐全但缺 Acoustic coherent set 时仍�
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:SHA},
    ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
-   acoustic:null
+   acoustic:null,
+   full_voice_turn:null
   },
   remaining:['PHYSICAL_SAFETY_REVIEW']
  });
@@ -177,7 +178,8 @@ test('R71 CI、Voice、ROS 必须属于同一 Commit，跨 Commit 拼接直接 b
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:'f'.repeat(40)},
    ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
-   acoustic:null
+   acoustic:null,
+   full_voice_turn:null
   }
  });
  const matrix=composeReleaseReadinessMatrix({
