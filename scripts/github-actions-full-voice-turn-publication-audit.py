@@ -218,7 +218,7 @@ def validate_jobs(payload, expected):
            'FULL_VOICE_TURN_PUBLICATION_PRODUCER_NOT_SUCCESSFUL')
     producer_labels = producer.get('labels')
     reject(isinstance(producer_labels, list)
-           and all(label in producer_labels for label in ('self-hosted','linux','x64','alex-full_voice_turn')),
+           and all(label in producer_labels for label in ('self-hosted','linux','x64','alex-acoustic')),
            'FULL_VOICE_TURN_PUBLICATION_PRODUCER_LABELS_MISMATCH')
     reject(isinstance(producer.get('runner_name'), str)
            and producer.get('runner_name').strip() != '',
@@ -422,7 +422,7 @@ def verify_report(report, expected):
            and isinstance(producer.get('runner_name'), str)
            and producer.get('runner_name').strip() != ''
            and isinstance(producer.get('labels'), list)
-           and all(label in producer['labels'] for label in ('self-hosted','linux','x64','alex-full_voice_turn'))
+           and all(label in producer['labels'] for label in ('self-hosted','linux','x64','alex-acoustic'))
            and isinstance(auditor, dict)
            and auditor.get('name') == AUDIT_JOB
            and auditor.get('status') == 'in_progress'
