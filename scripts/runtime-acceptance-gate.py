@@ -80,6 +80,14 @@ def audit(
     acoustic_evidence_sha=None,
     full_voice_turn_report=None,
     full_voice_turn_run_id=None,
+    full_voice_turn_evidence_folder=None,
+    full_voice_turn_evidence_attestation=None,
+    full_voice_turn_evidence_github_readback=None,
+    full_voice_turn_evidence_artifact_id=None,
+    full_voice_turn_evidence_artifact_digest=None,
+    full_voice_turn_evidence_run_id=None,
+    full_voice_turn_evidence_attempt=None,
+    full_voice_turn_evidence_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -97,6 +105,18 @@ def audit(
         raise ValueError('FULL_VOICE_TURN_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
     if full_voice_turn_run_id is not None and not _valid_run_id(full_voice_turn_run_id):
         raise ValueError('INVALID_FULL_VOICE_TURN_RUN_ID')
+    full_voice_turn_evidence_supplied = [
+        full_voice_turn_evidence_folder, full_voice_turn_evidence_attestation,
+        full_voice_turn_evidence_github_readback, full_voice_turn_evidence_artifact_id,
+        full_voice_turn_evidence_artifact_digest, full_voice_turn_evidence_run_id,
+        full_voice_turn_evidence_attempt, full_voice_turn_evidence_sha,
+    ]
+    if any(value is not None for value in full_voice_turn_evidence_supplied) and not all(
+            value is not None for value in full_voice_turn_evidence_supplied):
+        raise ValueError('FULL_VOICE_TURN_EVIDENCE_SET_METADATA_REQUIRED_TOGETHER')
+    if all(value is not None for value in full_voice_turn_evidence_supplied) and (
+            full_voice_turn_report is not None or full_voice_turn_run_id is not None):
+        raise ValueError('FULL_VOICE_TURN_EVIDENCE_SET_CANNOT_MIX_INDIVIDUAL_ARGS')
 
     acoustic_evidence_set_supplied = [
         acoustic_evidence_folder, acoustic_evidence_attestation,
@@ -204,6 +224,9 @@ def audit(
         'acoustic_evidence_set': 'not_run',
         'acoustic_github_readback': 'not_run',
         'full_voice_turn': 'not_run',
+        'full_voice_turn_artifact_attestation': 'not_run',
+        'full_voice_turn_evidence_set': 'not_run',
+        'full_voice_turn_github_readback': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
@@ -215,7 +238,7 @@ def audit(
         'ros_runner_provenance': 'not_run',
         'physical_safety_certified': False,
         'release_approved': False,
-        'subjects': {'ros': None, 'voice': None, 'acoustic': None},
+        'subjects': {'ros': None, 'voice': None, 'acoustic': None, 'full_voice_turn': None},
         'remaining': [
             'REAL_ASR_LLM_TTS_PROVIDER_E2E',
             'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
@@ -227,6 +250,9 @@ def audit(
             'ACOUSTIC_COHERENT_EVIDENCE_SET',
             'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
             'FULL_VOICE_TURN_PHYSICAL_E2E',
+            'FULL_VOICE_TURN_ACTIONS_ARTIFACT_ATTESTATION',
+            'FULL_VOICE_TURN_COHERENT_EVIDENCE_SET',
+            'FULL_VOICE_TURN_GITHUB_ACTIONS_READBACK_AUDIT',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -370,6 +396,37 @@ def audit(
         if ok:
             result['remaining'].remove('FULL_VOICE_TURN_PHYSICAL_E2E')
 
+    if full_voice_turn_evidence_folder is not None:
+        validator = Path(__file__).with_name('verify-full-voice-turn-evidence-set.py')
+        ok = _run_validator([
+            sys.executable, str(validator),
+            '--folder', str(full_voice_turn_evidence_folder),
+            '--attestation', str(full_voice_turn_evidence_attestation),
+            '--github-readback', str(full_voice_turn_evidence_github_readback),
+            '--artifact-id', str(full_voice_turn_evidence_artifact_id),
+            '--artifact-digest', str(full_voice_turn_evidence_artifact_digest),
+            '--run-id', str(full_voice_turn_evidence_run_id),
+            '--attempt', str(full_voice_turn_evidence_attempt),
+            '--commit-sha', str(full_voice_turn_evidence_sha),
+        ])
+        result['full_voice_turn_evidence_set'] = 'verified-coherent' if ok else 'invalid'
+        if ok:
+            result['full_voice_turn'] = 'verified-by-set'
+            result['full_voice_turn_artifact_attestation'] = 'verified-by-set'
+            result['full_voice_turn_github_readback'] = 'verified-by-set'
+            result['subjects']['full_voice_turn'] = {
+                'run_id': str(full_voice_turn_evidence_run_id),
+                'attempt': int(full_voice_turn_evidence_attempt),
+                'commit_sha': str(full_voice_turn_evidence_sha),
+            }
+            for item in (
+                'FULL_VOICE_TURN_PHYSICAL_E2E',
+                'FULL_VOICE_TURN_ACTIONS_ARTIFACT_ATTESTATION',
+                'FULL_VOICE_TURN_COHERENT_EVIDENCE_SET',
+                'FULL_VOICE_TURN_GITHUB_ACTIONS_READBACK_AUDIT',
+            ):
+                result['remaining'].remove(item)
+
     if nav2_fault_report is not None:
         # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
         validator = Path(__file__).with_name('verify-nav2-fault-contract.mjs')
@@ -496,6 +553,9 @@ def audit(
         or result['acoustic_evidence_set'] == 'invalid'
         or result['acoustic_github_readback'] == 'invalid'
         or result['full_voice_turn'] == 'invalid'
+        or result['full_voice_turn_artifact_attestation'] == 'invalid'
+        or result['full_voice_turn_evidence_set'] == 'invalid'
+        or result['full_voice_turn_github_readback'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
@@ -561,6 +621,14 @@ def main():
     parser.add_argument('--acoustic-evidence-sha')
     parser.add_argument('--full-voice-turn-report', type=Path)
     parser.add_argument('--full-voice-turn-run-id')
+    parser.add_argument('--full-voice-turn-evidence-folder', type=Path)
+    parser.add_argument('--full-voice-turn-evidence-attestation', type=Path)
+    parser.add_argument('--full-voice-turn-evidence-github-readback', type=Path)
+    parser.add_argument('--full-voice-turn-evidence-artifact-id')
+    parser.add_argument('--full-voice-turn-evidence-artifact-digest')
+    parser.add_argument('--full-voice-turn-evidence-run-id')
+    parser.add_argument('--full-voice-turn-evidence-attempt', type=int)
+    parser.add_argument('--full-voice-turn-evidence-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -619,6 +687,14 @@ def main():
             args.acoustic_evidence_sha,
             args.full_voice_turn_report,
             args.full_voice_turn_run_id,
+            args.full_voice_turn_evidence_folder,
+            args.full_voice_turn_evidence_attestation,
+            args.full_voice_turn_evidence_github_readback,
+            args.full_voice_turn_evidence_artifact_id,
+            args.full_voice_turn_evidence_artifact_digest,
+            args.full_voice_turn_evidence_run_id,
+            args.full_voice_turn_evidence_attempt,
+            args.full_voice_turn_evidence_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
