@@ -23,7 +23,7 @@ test('R80 加速 Soak 能记录失败后恢复、分位时延且不保存内容'
  try{
   const reportPath=join(dir,'report.json');
   const report=await runVoiceRuntimeSoak({
-   env,hours:8,intervalMs:1000,maxTurns:20,reportPath,
+   env,hours:8,intervalMs:1200000,maxTurns:40,reportPath,
    now:()=>now,sleepFn:async ms=>{now+=ms;},
    resourceFn:resource(1024,512,12),
    turnRunner:async()=>{
@@ -33,9 +33,9 @@ test('R80 加速 Soak 能记录失败后恢复、分位时延且不保存内容'
    }
   });
   assert.equal(report.status,'passed');
-  assert.equal(report.turns.started,20);
   assert.equal(report.turns.failed,1);
-  assert.equal(report.turns.completed,19);
+  assert.ok(report.turns.started>=24&&report.turns.started<=25);
+  assert.equal(report.turns.completed,report.turns.started-1);
   assert.equal(report.recovery.attempts,1);
   assert.equal(report.recovery.success,1);
   assert.equal(report.faults.byCode.CHAT_PROVIDER_HTTP_503,1);
