@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// R73 签名发布许可：把 R72 候选、人工批准事件和 CI/Voice/ROS 证据主体冻结为不可执行的签名清单。
+// R77 签名发布许可：把候选、人工批准事件和 CI/Voice/Acoustic/ROS 证据主体冻结为不可执行的签名清单。
 // 本模块只生成/验证 permit；不会部署、发布、升级、回滚，也不会修改 releaseApproved。
 import {
  createHash,createPrivateKey,createPublicKey,sign as cryptoSign,verify as cryptoVerify
@@ -55,6 +55,11 @@ function validateRuntimeGate(runtime,commitSha){
   runtime.voice_evidence_set!=='verified-coherent'||
   runtime.voice_github_readback!=='verified-by-set')
   fail('RELEASE_PERMIT_VOICE_EVIDENCE_INCOMPLETE');
+ if(runtime.acoustic_io!=='verified-by-set'||
+  runtime.acoustic_artifact_attestation!=='verified-by-set'||
+  runtime.acoustic_evidence_set!=='verified-coherent'||
+  runtime.acoustic_github_readback!=='verified-by-set')
+  fail('RELEASE_PERMIT_ACOUSTIC_EVIDENCE_INCOMPLETE');
  const rosFields=[
   'ros_runtime','ros_cancel_runtime','ros_recovery_runtime','ros_bridge_runtime',
   'ros_workflow_bundle','ros_artifact_attestation','ros_github_readback',
@@ -65,6 +70,7 @@ function validateRuntimeGate(runtime,commitSha){
   fail('RELEASE_PERMIT_ROS_EVIDENCE_INCOMPLETE');
  return {
   voice:validateSubject(runtime.subjects.voice,commitSha,'VOICE'),
+  acoustic:validateSubject(runtime.subjects.acoustic,commitSha,'ACOUSTIC'),
   ros:validateSubject(runtime.subjects.ros,commitSha,'ROS')
  };
 }
@@ -139,6 +145,7 @@ export function createReleasePermit({
     commitSha:ciEvidence.context.commitSha
    },
    voice:subjects.voice,
+   acoustic:subjects.acoustic,
    ros:subjects.ros
   },
   evidenceBundle:{
@@ -200,6 +207,11 @@ export function verifyReleasePermit(permit,{publicKeyPem,expectedCommit=null,now
   attempt:permit.subjects.voice?.attempt,
   commit_sha:permit.subjects.voice?.commitSha
  },permit.candidate.commitSha,'VOICE');
+ validateSubject({
+  run_id:permit.subjects.acoustic?.runId,
+  attempt:permit.subjects.acoustic?.attempt,
+  commit_sha:permit.subjects.acoustic?.commitSha
+ },permit.candidate.commitSha,'ACOUSTIC');
  validateSubject({
   run_id:permit.subjects.ros?.runId,
   attempt:permit.subjects.ros?.attempt,
