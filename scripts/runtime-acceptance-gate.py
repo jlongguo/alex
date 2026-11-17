@@ -70,6 +70,14 @@ def audit(
     voice_evidence_sha=None,
     acoustic_report=None,
     acoustic_run_id=None,
+    acoustic_evidence_folder=None,
+    acoustic_evidence_attestation=None,
+    acoustic_evidence_github_readback=None,
+    acoustic_evidence_artifact_id=None,
+    acoustic_evidence_artifact_digest=None,
+    acoustic_evidence_run_id=None,
+    acoustic_evidence_attempt=None,
+    acoustic_evidence_sha=None,
 ):
     if (ros_report is None) != (ros_run_id is None):
         raise ValueError('ROS_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -83,6 +91,19 @@ def audit(
         raise ValueError('ACOUSTIC_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
     if acoustic_run_id is not None and not _valid_run_id(acoustic_run_id):
         raise ValueError('INVALID_ACOUSTIC_RUN_ID')
+
+    acoustic_evidence_set_supplied = [
+        acoustic_evidence_folder, acoustic_evidence_attestation,
+        acoustic_evidence_github_readback, acoustic_evidence_artifact_id,
+        acoustic_evidence_artifact_digest, acoustic_evidence_run_id,
+        acoustic_evidence_attempt, acoustic_evidence_sha,
+    ]
+    if any(value is not None for value in acoustic_evidence_set_supplied) and not all(
+            value is not None for value in acoustic_evidence_set_supplied):
+        raise ValueError('ACOUSTIC_EVIDENCE_SET_METADATA_REQUIRED_TOGETHER')
+    if all(value is not None for value in acoustic_evidence_set_supplied) and (
+            acoustic_report is not None or acoustic_run_id is not None):
+        raise ValueError('ACOUSTIC_EVIDENCE_SET_CANNOT_MIX_INDIVIDUAL_ARGS')
 
     if (nav2_fault_report is None) != (nav2_fault_run_id is None):
         raise ValueError('NAV2_FAULT_REPORT_AND_RUN_ID_REQUIRED_TOGETHER')
@@ -173,6 +194,9 @@ def audit(
         'voice_evidence_set': 'not_run',
         'voice_github_readback': 'not_run',
         'acoustic_io': 'not_run',
+        'acoustic_artifact_attestation': 'not_run',
+        'acoustic_evidence_set': 'not_run',
+        'acoustic_github_readback': 'not_run',
         'nav2_fault_contract': 'not_run',
         'ros_cancel_runtime': 'not_run',
         'ros_recovery_runtime': 'not_run',
@@ -192,6 +216,9 @@ def audit(
             'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
             'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
             'REAL_ACOUSTIC_IO',
+            'ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
+            'ACOUSTIC_COHERENT_EVIDENCE_SET',
+            'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
             'GAZEBO_NAV2_THREE_LEG_RUNTIME',
             'GAZEBO_NAV2_CANCEL_RUNTIME',
             'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -290,6 +317,37 @@ def audit(
                 result['acoustic_io'] = 'invalid'
             if result['acoustic_io'] == 'verified-self-hosted':
                 result['remaining'].remove('REAL_ACOUSTIC_IO')
+
+    if acoustic_evidence_folder is not None:
+        validator = Path(__file__).with_name('verify-acoustic-evidence-set.py')
+        ok = _run_validator([
+            sys.executable, str(validator),
+            '--folder', str(acoustic_evidence_folder),
+            '--attestation', str(acoustic_evidence_attestation),
+            '--github-readback', str(acoustic_evidence_github_readback),
+            '--artifact-id', str(acoustic_evidence_artifact_id),
+            '--artifact-digest', str(acoustic_evidence_artifact_digest),
+            '--run-id', str(acoustic_evidence_run_id),
+            '--attempt', str(acoustic_evidence_attempt),
+            '--commit-sha', str(acoustic_evidence_sha),
+        ])
+        result['acoustic_evidence_set'] = 'verified-coherent' if ok else 'invalid'
+        if ok:
+            result['acoustic_io'] = 'verified-by-set'
+            result['acoustic_artifact_attestation'] = 'verified-by-set'
+            result['acoustic_github_readback'] = 'verified-by-set'
+            result['subjects']['acoustic'] = {
+                'run_id': str(acoustic_evidence_run_id),
+                'attempt': int(acoustic_evidence_attempt),
+                'commit_sha': str(acoustic_evidence_sha),
+            }
+            for item in (
+                'REAL_ACOUSTIC_IO',
+                'ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
+                'ACOUSTIC_COHERENT_EVIDENCE_SET',
+                'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
+            ):
+                result['remaining'].remove(item)
 
     if nav2_fault_report is not None:
         # 故障注入证据只描述隔离子进程契约，不能解锁真实 Gazebo 三段导航门槛。
@@ -413,6 +471,9 @@ def audit(
         or result['voice_real_provider'] == 'invalid'
         or result['voice_evidence_set'] == 'invalid'
         or result['acoustic_io'] == 'invalid'
+        or result['acoustic_artifact_attestation'] == 'invalid'
+        or result['acoustic_evidence_set'] == 'invalid'
+        or result['acoustic_github_readback'] == 'invalid'
         or result['nav2_fault_contract'] == 'invalid'
         or result['ros_cancel_runtime'] == 'invalid'
         or result['ros_recovery_runtime'] == 'invalid'
@@ -468,6 +529,14 @@ def main():
     parser.add_argument('--voice-evidence-sha')
     parser.add_argument('--acoustic-report', type=Path)
     parser.add_argument('--acoustic-run-id')
+    parser.add_argument('--acoustic-evidence-folder', type=Path)
+    parser.add_argument('--acoustic-evidence-attestation', type=Path)
+    parser.add_argument('--acoustic-evidence-github-readback', type=Path)
+    parser.add_argument('--acoustic-evidence-artifact-id')
+    parser.add_argument('--acoustic-evidence-artifact-digest')
+    parser.add_argument('--acoustic-evidence-run-id')
+    parser.add_argument('--acoustic-evidence-attempt', type=int)
+    parser.add_argument('--acoustic-evidence-sha')
     parser.add_argument(
         '--require-all',
         action='store_true',
@@ -516,6 +585,14 @@ def main():
             args.voice_evidence_sha,
             args.acoustic_report,
             args.acoustic_run_id,
+            args.acoustic_evidence_folder,
+            args.acoustic_evidence_attestation,
+            args.acoustic_evidence_github_readback,
+            args.acoustic_evidence_artifact_id,
+            args.acoustic_evidence_artifact_digest,
+            args.acoustic_evidence_run_id,
+            args.acoustic_evidence_attempt,
+            args.acoustic_evidence_sha,
         )
     except ValueError as error:
         print('R56_RUNTIME_GATE_INVALID_ARGS:' + str(error), file=sys.stderr)
