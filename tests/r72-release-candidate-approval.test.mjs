@@ -40,7 +40,10 @@ const runtimeVoice=()=>({
  voice_artifact_attestation:'verified-by-set',
  voice_evidence_set:'verified-coherent',
  voice_github_readback:'verified-by-set',
- acoustic_io:'not_run',
+ acoustic_io:'verified-by-set',
+ acoustic_artifact_attestation:'verified-by-set',
+ acoustic_evidence_set:'verified-coherent',
+ acoustic_github_readback:'verified-by-set',
  nav2_fault_contract:'not_run',
  ros_cancel_runtime:'not_run',
  ros_recovery_runtime:'not_run',
@@ -54,14 +57,14 @@ const runtimeVoice=()=>({
  subjects:{
   voice:{run_id:'987654321',attempt:2,commit_sha:SHA},
   ros:null,
-  acoustic:null
+  acoustic:{run_id:'8877665544',attempt:1,commit_sha:SHA}
  },
  remaining:[
   'GAZEBO_NAV2_THREE_LEG_RUNTIME','GAZEBO_NAV2_CANCEL_RUNTIME',
   'GAZEBO_NAV2_RECOVERY_RUNTIME','GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
   'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE','GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
   'GAZEBO_ROS_COHERENT_EVIDENCE_SET','GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
-  'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE','REAL_ACOUSTIC_IO','PHYSICAL_SAFETY_REVIEW'
+  'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE','PHYSICAL_SAFETY_REVIEW'
  ]
 });
 const matrix=()=>composeReleaseReadinessMatrix({
@@ -87,18 +90,17 @@ test('R72 只有软件自动证据齐全且进入人工复核阶段才能冻结�
  assert.equal(candidate.releaseApproved,false);
  assert.equal(candidate.deployExecuted,false);
  assert.equal(candidate.physicalSafetyCertified,false);
- assert.deepEqual(candidate.requiredHumanChecks,[
-  'realAcousticIo','realChildJourney','recoveryDrill'
- ]);
+ assert.deepEqual(candidate.requiredHumanChecks,['realChildJourney','recoveryDrill']);
  assert.equal(candidate.automatedEvidence.ci,'pass');
  assert.equal(candidate.automatedEvidence.browserJourney,'pass');
  assert.equal(candidate.automatedEvidence.voiceProvider,'pass');
+ assert.equal(candidate.automatedEvidence.realAcousticIo,'pass');
 });
 
 test('R72 Matrix verifier 会重算 software target，不能通过删人工检查项伪造可批准候选',()=>{
  const value=matrix();
  value.targets.softwarePilot.manual=value.targets.softwarePilot.manual
-  .filter(item=>item!=='realAcousticIo');
+  .filter(item=>item!=='realChildJourney');
  assert.throws(()=>verifyReleaseReadinessMatrix(value),
   /READINESS_MATRIX_SOFTWARE_TARGET_DRIFT/);
  assert.throws(()=>createReleaseCandidate(value,{createdAt:timestamp,sourceEvidence:sourceEvidence()}),

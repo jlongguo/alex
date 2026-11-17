@@ -30,20 +30,24 @@ const matrix=()=>composeReleaseReadinessMatrix({
   voice_artifact_attestation:'verified-by-set',
   voice_evidence_set:'verified-coherent',
   voice_github_readback:'verified-by-set',
-  acoustic_io:'not_run',
+  acoustic_io:'verified-by-set',
+  acoustic_artifact_attestation:'verified-by-set',
+  acoustic_evidence_set:'verified-coherent',
+  acoustic_github_readback:'verified-by-set',
   nav2_fault_contract:'not_run',
   ros_cancel_runtime:'not_run',ros_recovery_runtime:'not_run',
   ros_bridge_runtime:'not_run',ros_workflow_bundle:'not_run',
   ros_artifact_attestation:'not_run',ros_evidence_set:'not_run',
   ros_github_readback:'not_run',ros_runner_provenance:'not_run',
   physical_safety_certified:false,release_approved:false,
-  subjects:{voice:{run_id:'987654321',attempt:2,commit_sha:SHA},ros:null,acoustic:null},
+  subjects:{voice:{run_id:'987654321',attempt:2,commit_sha:SHA},ros:null,
+   acoustic:{run_id:'8877665544',attempt:1,commit_sha:SHA}},
   remaining:[
    'GAZEBO_NAV2_THREE_LEG_RUNTIME','GAZEBO_NAV2_CANCEL_RUNTIME',
    'GAZEBO_NAV2_RECOVERY_RUNTIME','GAZEBO_NODE_PYTHON_NAV2_BRIDGE_RUNTIME',
    'GAZEBO_NAV2_WORKFLOW_EVIDENCE_BUNDLE','GAZEBO_ACTIONS_ARTIFACT_ATTESTATION',
    'GAZEBO_ROS_COHERENT_EVIDENCE_SET','GAZEBO_GITHUB_ACTIONS_READBACK_AUDIT',
-   'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE','REAL_ACOUSTIC_IO','PHYSICAL_SAFETY_REVIEW'
+   'GAZEBO_RUNNER_ENVIRONMENT_PROVENANCE','PHYSICAL_SAFETY_REVIEW'
   ]
  },
  ciEvidence:createCiEvidence({

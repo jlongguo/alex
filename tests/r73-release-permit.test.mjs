@@ -35,7 +35,10 @@ function runtimeGate(){
   voice_artifact_attestation:'verified-by-set',
   voice_evidence_set:'verified-coherent',
   voice_github_readback:'verified-by-set',
-  acoustic_io:'not_run',
+  acoustic_io:'verified-by-set',
+  acoustic_artifact_attestation:'verified-by-set',
+  acoustic_evidence_set:'verified-coherent',
+  acoustic_github_readback:'verified-by-set',
   nav2_fault_contract:'not_run',
   ros_cancel_runtime:'verified-by-set',
   ros_recovery_runtime:'verified-by-set',
@@ -49,9 +52,9 @@ function runtimeGate(){
   subjects:{
    ros:{run_id:'2001',attempt:2,commit_sha:commit},
    voice:{run_id:'3001',attempt:1,commit_sha:commit},
-   acoustic:null
+   acoustic:{run_id:'4001',attempt:1,commit_sha:commit}
   },
-  remaining:['REAL_ACOUSTIC_IO','PHYSICAL_SAFETY_REVIEW'],status:'manual-review-required'
+  remaining:['PHYSICAL_SAFETY_REVIEW'],status:'manual-review-required'
  };
 }
 function candidate(runtime,ci){
@@ -63,13 +66,13 @@ function candidate(runtime,ci){
    digestSha256:'b'.repeat(64),status:'manual-release-review',
    softwareStatus:'manual-release-review'
   },
-  automatedEvidence:{ci:'pass',browserJourney:'pass',voiceProvider:'pass'},
+  automatedEvidence:{ci:'pass',browserJourney:'pass',voiceProvider:'pass',realAcousticIo:'pass'},
   sourceEvidence:{
    staticDigestSha256:'c'.repeat(64),
    runtimeDigestSha256:sha256(runtime),
    ciDigestSha256:sha256(ci)
   },
-  requiredHumanChecks:['realAcousticIo','realChildJourney','recoveryDrill'],
+  requiredHumanChecks:['realChildJourney','recoveryDrill'],
   releaseApproved:false,deployExecuted:false,rollbackExecuted:false,
   physicalSafetyCertified:false,
   note:'候选清单只冻结软件证据；人工确认与发布批准必须在独立审批账本完成，实体机器人安全不在本候选范围'
@@ -107,7 +110,7 @@ function fixture(){
  return {ci,runtime,c,ledger:ledgerFor(c),...keys()};
 }
 
-test('R73 生成并验证绑定 Candidate/Approval/CI/Voice/ROS 的 Ed25519 Permit',()=>{
+test('R77 生成并验证绑定 Candidate/Approval/CI/Voice/Acoustic/ROS 的 Ed25519 Permit',()=>{
  const f=fixture();
  const permit=createReleasePermit({
   candidate:f.c,approvalLedger:f.ledger,runtimeGate:f.runtime,
@@ -121,6 +124,7 @@ test('R73 生成并验证绑定 Candidate/Approval/CI/Voice/ROS 的 Ed25519 Perm
  assert.equal(permit.physicalSafetyCertified,false);
  assert.equal(permit.subjects.ci.runId,'1001');
  assert.equal(permit.subjects.voice.runId,'3001');
+ assert.equal(permit.subjects.acoustic.runId,'4001');
  assert.equal(permit.subjects.ros.runId,'2001');
  assert.equal(permit.approval.eventHash,f.ledger.events[0].hash);
  assert.equal(verifyReleasePermit(permit,{
@@ -184,4 +188,17 @@ test('R73 Permit 过期后不能作为当前发布许可',()=>{
  assert.throws(()=>verifyReleasePermit(permit,{
   publicKeyPem:f.publicKeyPem,now:'2026-11-16T10:20:00.000Z'
  }),/RELEASE_PERMIT_EXPIRED/);
+});
+
+
+test('R77 Permit 拒绝 Acoustic subject 指向不同 Commit',()=>{
+ const f=fixture();
+ const changed=structuredClone(f.runtime);
+ changed.subjects.acoustic.commit_sha='e'.repeat(40);
+ const c=candidate(changed,f.ci);
+ const ledger=ledgerFor(c);
+ assert.throws(()=>createReleasePermit({
+  candidate:c,approvalLedger:ledger,runtimeGate:changed,ciEvidence:f.ci,
+  privateKeyPem:f.privateKeyPem,keyId:'local-release-key-v1'
+ }),/RELEASE_PERMIT_ACOUSTIC_COMMIT_MISMATCH/);
 });
