@@ -30,6 +30,9 @@ const runtimeBase=()=>({
  voice_evidence_set:'not_run',
  voice_github_readback:'not_run',
  acoustic_io:'not_run',
+ acoustic_artifact_attestation:'not_run',
+ acoustic_evidence_set:'not_run',
+ acoustic_github_readback:'not_run',
  nav2_fault_contract:'not_run',
  ros_cancel_runtime:'not_run',
  ros_recovery_runtime:'not_run',
@@ -48,6 +51,9 @@ const runtimeBase=()=>({
   'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
   'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
   'REAL_ACOUSTIC_IO',
+  'ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
+  'ACOUSTIC_COHERENT_EVIDENCE_SET',
+  'ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT',
   'GAZEBO_NAV2_THREE_LEG_RUNTIME',
   'GAZEBO_NAV2_CANCEL_RUNTIME',
   'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -81,7 +87,7 @@ test('R71 只有 R42 静态报告时，矩阵不会推导 CI/Voice/ROS 已通过
  assert.equal(matrix.domains.browserJourney.status,'evidence-required');
  assert.equal(matrix.domains.voiceProvider.status,'evidence-required');
  assert.equal(matrix.domains.rosSimulation.status,'evidence-required');
- assert.equal(matrix.domains.realAcousticIo.status,'manual-required');
+ assert.equal(matrix.domains.realAcousticIo.status,'evidence-required');
  assert.equal(matrix.domains.realChildJourney.status,'manual-required');
  assert.equal(matrix.domains.physicalSafety.status,'manual-required');
  assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
@@ -103,7 +109,7 @@ test('R71 当前 Commit 三域 CI 全绿只证明 unit/browser/sim-static，不�
  assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
 });
 
-test('R71 Voice 与 ROS coherent set 全部验证后仍保留真实声学/儿童旅程/恢复/物理安全人工门槛',()=>{
+test('R71 Voice 与 ROS coherent set 齐全但缺 Acoustic coherent set 时仍是 evidence-required',()=>{
  const runtime=runtimeBase();
  Object.assign(runtime,{
   voice_real_provider:'verified-by-set',
@@ -133,10 +139,11 @@ test('R71 Voice 与 ROS coherent set 全部验证后仍保留真实声学/儿童
  });
  assert.equal(matrix.domains.voiceProvider.status,'pass');
  assert.equal(matrix.domains.rosSimulation.status,'pass');
- assert.equal(matrix.targets.softwarePilot.status,'manual-release-review');
- assert.equal(matrix.targets.robotCandidate.status,'manual-release-review');
- for(const id of ['realAcousticIo','realChildJourney','recoveryDrill',
-  'physicalSafety'])assert.ok(matrix.manual.includes(id),id);
+ assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
+ assert.equal(matrix.targets.robotCandidate.status,'evidence-required');
+ assert.ok(matrix.evidenceRequired.includes('realAcousticIo'));
+ for(const id of ['realChildJourney','recoveryDrill','physicalSafety'])
+  assert.ok(matrix.manual.includes(id),id);
  assert.equal(matrix.releaseApproved,false);
  assert.equal(matrix.targets.robotCandidate.physicalSafetyCertified,false);
 });
@@ -307,7 +314,7 @@ test('R75 Recovery Drill 与当前 CI Commit 不一致时矩阵必须 blocked',a
  assert.equal(matrix.domains.recoveryDrill.evidenceLevel,'commit-mismatch');
 });
 
-test('R76 self-hosted Acoustic subject 与当前 CI Commit 一致时 realAcousticIo 可通过',()=>{
+test('R77 单个 self-hosted Acoustic report 只算真实运行，仍需 Artifact coherent set',()=>{
  const runtime=runtimeBase();
  runtime.acoustic_io='verified-self-hosted';
  runtime.subjects.acoustic={run_id:'43800000001',attempt:1,commit_sha:SHA};
@@ -316,23 +323,37 @@ test('R76 self-hosted Acoustic subject 与当前 CI Commit 一致时 realAcousti
   staticReadiness:staticBase(),runtimeGate:runtime,
   ciEvidence:createCiEvidence(ciEnv())
  });
- assert.equal(matrix.domains.realAcousticIo.status,'pass');
- assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'self-hosted-physical-loop');
- assert.equal(matrix.inputs.subjects.acoustic.commit_sha,SHA);
+ assert.equal(matrix.domains.realAcousticIo.status,'evidence-required');
+ assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'runtime-unpublished');
+ assert.equal(matrix.targets.softwarePilot.status,'evidence-required');
 });
 
-test('R76 Acoustic evidence 跨 Commit 或 invalid 必须阻断软件发布矩阵',()=>{
+test('R77 Acoustic coherent set 与当前 Commit 一致才可通过，跨 Commit/invalid 必须阻断',()=>{
  let runtime=runtimeBase();
- runtime.acoustic_io='verified-self-hosted';
- runtime.subjects.acoustic={run_id:'43800000001',attempt:1,commit_sha:'f'.repeat(40)};
+ Object.assign(runtime,{
+  acoustic_io:'verified-by-set',
+  acoustic_artifact_attestation:'verified-by-set',
+  acoustic_evidence_set:'verified-coherent',
+  acoustic_github_readback:'verified-by-set'
+ });
+ runtime.subjects.acoustic={run_id:'43800000001',attempt:1,commit_sha:SHA};
+ runtime.remaining=runtime.remaining.filter(x=>!x.startsWith('ACOUSTIC_')&&x!=='REAL_ACOUSTIC_IO');
  let matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.realAcousticIo.status,'pass');
+ assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'runtime-coherent');
+
+ runtime.subjects.acoustic.commit_sha='f'.repeat(40);
+ matrix=composeReleaseReadinessMatrix({
   staticReadiness:staticBase(),runtimeGate:runtime,
   ciEvidence:createCiEvidence(ciEnv())
  });
  assert.equal(matrix.domains.realAcousticIo.status,'blocked');
  assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'commit-mismatch');
- assert.ok(matrix.targets.softwarePilot.blockers.includes('realAcousticIo'));
- runtime=runtimeBase();runtime.acoustic_io='invalid';
+
+ runtime=runtimeBase();runtime.acoustic_evidence_set='invalid';
  matrix=composeReleaseReadinessMatrix({staticReadiness:staticBase(),runtimeGate:runtime});
  assert.equal(matrix.domains.realAcousticIo.status,'blocked');
 });
