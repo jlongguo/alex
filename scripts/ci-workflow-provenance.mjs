@@ -14,7 +14,8 @@ export const WORKFLOWS=Object.freeze([
  '.github/workflows/ci.yml',
  '.github/workflows/ros-sim-acceptance.yml',
  '.github/workflows/voice-provider-acceptance.yml',
- '.github/workflows/acoustic-io-acceptance.yml'
+ '.github/workflows/acoustic-io-acceptance.yml',
+ '.github/workflows/full-voice-turn-acceptance.yml'
 ]);
 
 const fail=code=>{throw Error(code);};

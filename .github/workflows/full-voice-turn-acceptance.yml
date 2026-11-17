@@ -1,0 +1,58 @@
+# R78 同一轮物理语音 E2E：Provider seed → speaker → mic → ASR → LLM → PCM TTS → speaker → mic proof。
+name: Full Voice Turn Physical E2E (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  approval-gate:
+    name: approval-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit physical voice turn approval
+        env:
+          ALEX_FULL_VOICE_TURN_RUNNER_APPROVED: ${{ vars.ALEX_FULL_VOICE_TURN_RUNNER_APPROVED }}
+        run: |
+          set -euo pipefail
+          if [[ "$ALEX_FULL_VOICE_TURN_RUNNER_APPROVED" != "true" ]]; then
+            echo "ALEX_FULL_VOICE_TURN_RUNNER_APPROVED is not true; refusing physical/provider acceptance" >&2
+            exit 1
+          fi
+  full-voice-turn:
+    name: full-voice-turn
+    needs: approval-gate
+    runs-on: [self-hosted, linux, x64, alex-acoustic]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run same-turn physical Voice E2E
+        env:
+          ALEX_FULL_VOICE_TURN_APPROVED: 'true'
+          ALEX_FULL_VOICE_CAPTURE_DEVICE: ${{ vars.ALEX_ACOUSTIC_CAPTURE_DEVICE }}
+          ALEX_FULL_VOICE_PLAYBACK_DEVICE: ${{ vars.ALEX_ACOUSTIC_PLAYBACK_DEVICE }}
+          ALEX_VOICE_PROVIDER_BASE_URL: ${{ secrets.ALEX_VOICE_PROVIDER_BASE_URL }}
+          ALEX_VOICE_PROVIDER_API_KEY: ${{ secrets.ALEX_VOICE_PROVIDER_API_KEY }}
+          ALEX_VOICE_ASR_MODEL: ${{ secrets.ALEX_VOICE_ASR_MODEL }}
+          ALEX_VOICE_TTS_MODEL: ${{ secrets.ALEX_VOICE_TTS_MODEL }}
+          ALEX_CHAT_PROVIDER_BASE_URL: ${{ secrets.ALEX_CHAT_PROVIDER_BASE_URL }}
+          ALEX_CHAT_PROVIDER_API_KEY: ${{ secrets.ALEX_CHAT_PROVIDER_API_KEY }}
+          ALEX_CHAT_MODEL: ${{ secrets.ALEX_CHAT_MODEL }}
+        run: |
+          set -euo pipefail
+          rm -rf .local/voice/full-turn
+          npm run voice:full-turn -- run --report .local/voice/full-turn/report.json
+          npm run voice:full-turn -- verify --report .local/voice/full-turn/report.json \
+            --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
+      - name: Upload privacy-safe Full Voice Turn evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alex-full-voice-turn-physical-e2e
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .local/voice/full-turn/report.json
