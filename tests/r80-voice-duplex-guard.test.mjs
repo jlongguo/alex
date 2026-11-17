@@ -31,3 +31,17 @@ test('R80 显式 barge-in 允许打断播放，但仍保留短尾音冷却',asyn
  assert.equal(snap.phase,'capture');assert.equal(snap.bargeIns,1);
  assert.equal(snap.blockedOverlaps,0);
 });
+
+
+test('R80 页面实际加载 Duplex Guard，录音入口和 barge-in 都经过冷却门',async()=>{
+ const [html,app]=await Promise.all([
+  readFile(new URL('../public/index.html',import.meta.url),'utf8'),
+  readFile(new URL('../public/app.js',import.meta.url),'utf8')
+ ]);
+ assert.match(html,/voice-duplex-guard\.js/);
+ assert.match(app,/new globalThis\.AlexVoiceDuplexGuard\(\)/);
+ assert.match(app,/waitForVoiceCaptureWindow\(\)/);
+ assert.match(app,/waitForVoiceCaptureWindow\(\{bargeIn:true\}\)/);
+ assert.match(app,/voiceDuplexGuard\.playbackStarted\(\)/);
+ assert.match(app,/voiceDuplexGuard\.captureStarted\(\)/);
+});
