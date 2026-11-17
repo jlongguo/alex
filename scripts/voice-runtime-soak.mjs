@@ -134,6 +134,7 @@ export function verifyVoiceRuntimeSoakReport(report,{expectedRunId=null,expected
   ||!RUN.test(report.context.runId??'')||!SHA.test(report.context.commitSha??'')
   ||!Number.isInteger(report.context.attempt)||report.context.attempt<1
   ||!Number.isFinite(report.requestedHours)||report.requestedHours<minHours||report.requestedHours>72
+  ||!Number.isFinite(report.durationObservedMs)||report.durationObservedMs<report.requestedHours*3600000
   ||report.stopReason!=='duration-complete'||!report.turns||report.turns.started<1
   ||report.turns.completed<1||report.turns.failed<0||report.turns.cancelled<0
   ||report.turns.started!==report.turns.completed+report.turns.failed+report.turns.cancelled
