@@ -1,9 +1,10 @@
-# R76 真实麦克风/扬声器声学闭环。只能手动运行在带物理音频设备的专用 self-hosted runner。
+# R77 真实麦克风/扬声器声学闭环 + Artifact 治理。仅手动运行在专用 self-hosted 物理音频 runner。
 name: Real Acoustic I/O Acceptance (manual)
 on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   approval-gate:
     name: approval-gate
@@ -24,6 +25,11 @@ jobs:
     needs: approval-gate
     runs-on: [self-hosted, linux, x64, alex-acoustic]
     timeout-minutes: 15
+    outputs:
+      evidence-artifact-id: ${{ steps.acoustic_evidence_upload.outputs.artifact-id }}
+      evidence-artifact-digest: ${{ steps.acoustic_evidence_upload.outputs.artifact-digest }}
+      attestation-artifact-id: ${{ steps.acoustic_attestation_upload.outputs.artifact-id }}
+      attestation-artifact-digest: ${{ steps.acoustic_attestation_upload.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -38,13 +44,100 @@ jobs:
           ALEX_ACOUSTIC_PLAYBACK_DEVICE: ${{ vars.ALEX_ACOUSTIC_PLAYBACK_DEVICE }}
         run: |
           set -euo pipefail
+          rm -rf .local/acoustic
           npm run acoustic:accept -- run --report .local/acoustic/report.json
           npm run acoustic:accept -- verify --report .local/acoustic/report.json \
             --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
-      - name: Upload privacy-safe acoustic evidence only
+      - name: Upload privacy-safe acoustic evidence
+        id: acoustic_evidence_upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: alex-real-acoustic-io-evidence
           if-no-files-found: error
           include-hidden-files: true
           path: .local/acoustic/report.json
+      - name: Read back current Acoustic Artifact from GitHub Actions API
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_ACOUSTIC_ARTIFACT_ID: ${{ steps.acoustic_evidence_upload.outputs.artifact-id }}
+          ALEX_ACOUSTIC_ARTIFACT_DIGEST: ${{ steps.acoustic_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-acoustic-readback.py --audit
+          python3 scripts/github-actions-acoustic-readback.py --verify \
+            --report .local/acoustic/github-actions-readback.json \
+            --artifact-id "$ALEX_ACOUSTIC_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ACOUSTIC_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Bind immutable Artifact metadata and verify coherent Acoustic evidence set
+        env:
+          ALEX_ACOUSTIC_ARTIFACT_ID: ${{ steps.acoustic_evidence_upload.outputs.artifact-id }}
+          ALEX_ACOUSTIC_ARTIFACT_DIGEST: ${{ steps.acoustic_evidence_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-acoustic-artifact-attestation.py
+          python3 scripts/verify-acoustic-artifact-attestation.py \
+            --attestation .local/acoustic/artifact-attestation.json \
+            --folder .local/acoustic \
+            --artifact-id "$ALEX_ACOUSTIC_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ACOUSTIC_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+          python3 scripts/verify-acoustic-evidence-set.py \
+            --folder .local/acoustic \
+            --attestation .local/acoustic/artifact-attestation.json \
+            --github-readback .local/acoustic/github-actions-readback.json \
+            --artifact-id "$ALEX_ACOUSTIC_ARTIFACT_ID" \
+            --artifact-digest "$ALEX_ACOUSTIC_ARTIFACT_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA"
+      - name: Upload Acoustic artifact attestation separately
+        id: acoustic_attestation_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alex-real-acoustic-io-attestation
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .local/acoustic/artifact-attestation.json
+            .local/acoustic/github-actions-readback.json
+  publication-audit:
+    name: publication-audit
+    needs: acoustic-io
+    if: ${{ needs.acoustic-io.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify self-hosted producer and both immutable Acoustic Artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ALEX_ACOUSTIC_ARTIFACT_ID: ${{ needs.acoustic-io.outputs.evidence-artifact-id }}
+          ALEX_ACOUSTIC_ARTIFACT_DIGEST: ${{ needs.acoustic-io.outputs.evidence-artifact-digest }}
+          ALEX_ACOUSTIC_ATTESTATION_ARTIFACT_ID: ${{ needs.acoustic-io.outputs.attestation-artifact-id }}
+          ALEX_ACOUSTIC_ATTESTATION_ARTIFACT_DIGEST: ${{ needs.acoustic-io.outputs.attestation-artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github-actions-acoustic-publication-audit.py --audit
+          python3 scripts/github-actions-acoustic-publication-audit.py --verify \
+            --report .local/acoustic/publication-audit.json \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit-sha "$GITHUB_SHA" \
+            --main-artifact-id "$ALEX_ACOUSTIC_ARTIFACT_ID" \
+            --main-artifact-digest "$ALEX_ACOUSTIC_ARTIFACT_DIGEST" \
+            --attestation-artifact-id "$ALEX_ACOUSTIC_ATTESTATION_ARTIFACT_ID" \
+            --attestation-artifact-digest "$ALEX_ACOUSTIC_ATTESTATION_ARTIFACT_DIGEST"
+          {
+            echo "### Acoustic publication audit"
+            echo "- Producer: acoustic-io = success on self-hosted alex-acoustic"
+            echo "- Evidence Artifact ID: $ALEX_ACOUSTIC_ARTIFACT_ID"
+            echo "- Attestation Artifact ID: $ALEX_ACOUSTIC_ATTESTATION_ARTIFACT_ID"
+            echo "- Run: $GITHUB_RUN_ID / attempt $GITHUB_RUN_ATTEMPT"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Result: self-hosted producer + dual Artifact REST readback verified"
+          } >> "$GITHUB_STEP_SUMMARY"

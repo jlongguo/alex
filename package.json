@@ -54,7 +54,12 @@
     "release:permit": "node scripts/release-permit.mjs",
     "release:workflow-provenance": "node scripts/ci-workflow-provenance.mjs",
     "release:recovery-drill": "node scripts/recovery-drill.mjs",
-    "acoustic:accept": "node scripts/acoustic-io-acceptance.mjs"
+    "acoustic:accept": "node scripts/acoustic-io-acceptance.mjs",
+    "acoustic:artifact-attest": "python3 scripts/write-acoustic-artifact-attestation.py",
+    "acoustic:artifact-verify": "python3 scripts/verify-acoustic-artifact-attestation.py",
+    "acoustic:github-readback": "python3 scripts/github-actions-acoustic-readback.py",
+    "acoustic:evidence-set-verify": "python3 scripts/verify-acoustic-evidence-set.py",
+    "acoustic:publication-audit": "python3 scripts/github-actions-acoustic-publication-audit.py"
   },
   "devDependencies": {
     "typescript": "5.8.3"
