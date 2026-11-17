@@ -23,8 +23,8 @@ test('R80 加速 Soak 能记录失败后恢复、分位时延且不保存内容'
  try{
   const reportPath=join(dir,'report.json');
   const report=await runVoiceRuntimeSoak({
-   env,hours:8,intervalMs:1200000,maxTurns:40,reportPath,
-   now:()=>now,sleepFn:async ms=>{now+=ms;},
+   env,hours:8,intervalMs:300000,maxTurns:40,reportPath,
+   now:()=>now,sleepFn:async()=>{now+=1200000;},
    resourceFn:resource(1024,512,12),
    turnRunner:async()=>{
     calls++;now+=100;
