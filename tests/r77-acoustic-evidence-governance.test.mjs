@@ -10,6 +10,7 @@ const root=resolve(import.meta.dirname,'..');
 const writer=join(root,'scripts/write-acoustic-artifact-attestation.py');
 const attestationVerifier=join(root,'scripts/verify-acoustic-artifact-attestation.py');
 const setVerifier=join(root,'scripts/verify-acoustic-evidence-set.py');
+const gate=join(root,'scripts/runtime-acceptance-gate.py');
 const actionsDriver=join(root,'tests/fixtures/r77-acoustic-actions-driver.py');
 
 const RUN='876543210',ATTEMPT='2';
@@ -185,4 +186,61 @@ test('R77 Acoustic workflow 双 Artifact + REST readback + 独立 publication au
  assert.equal((source.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)||[]).length,2);
  assert.doesNotMatch(source,/\.wav\s*$/m);
  assert.doesNotMatch(source,/capture\.wav|stimulus\.wav/);
+});
+
+
+test('R77 Runtime Gate 只有 coherent Acoustic set 才解除四个 Acoustic 发布门槛',{timeout:30000},async()=>{
+ await temp(async dir=>{
+  const folder=join(dir,'acoustic');await mkdir(folder);
+  const report=join(folder,'report.json');
+  const attestation=join(folder,'artifact-attestation.json');
+  const readback=join(folder,'github-actions-readback.json');
+  await writeFile(report,JSON.stringify(acousticReport())+'\n');
+
+  let checked=run('python3',[writer,'--folder',folder,'--out',attestation],env());
+  assert.equal(checked.status,0,checked.stderr);
+  const readbackResult=driver('readback','success');
+  assert.equal(readbackResult.status,0,readbackResult.stderr);
+  const readbackDoc=JSON.parse(readbackResult.stdout);delete readbackDoc._test_artifact_fetches;
+  await writeFile(readback,JSON.stringify(readbackDoc)+'\n');
+
+  checked=run('python3',[
+   gate,
+   '--acoustic-evidence-folder',folder,
+   '--acoustic-evidence-attestation',attestation,
+   '--acoustic-evidence-github-readback',readback,
+   '--acoustic-evidence-artifact-id',ARTIFACT_ID,
+   '--acoustic-evidence-artifact-digest',DIGEST,
+   '--acoustic-evidence-run-id',RUN,
+   '--acoustic-evidence-attempt',ATTEMPT,
+   '--acoustic-evidence-sha',SHA
+  ]);
+  assert.equal(checked.status,0,checked.stderr);
+  const data=JSON.parse(checked.stdout);
+  assert.equal(data.acoustic_io,'verified-by-set');
+  assert.equal(data.acoustic_artifact_attestation,'verified-by-set');
+  assert.equal(data.acoustic_evidence_set,'verified-coherent');
+  assert.equal(data.acoustic_github_readback,'verified-by-set');
+  assert.deepEqual(data.subjects.acoustic,{
+   run_id:RUN,attempt:Number(ATTEMPT),commit_sha:SHA
+  });
+  for(const item of [
+   'REAL_ACOUSTIC_IO','ACOUSTIC_ACTIONS_ARTIFACT_ATTESTATION',
+   'ACOUSTIC_COHERENT_EVIDENCE_SET','ACOUSTIC_GITHUB_ACTIONS_READBACK_AUDIT'
+  ])assert.ok(!data.remaining.includes(item),item);
+
+  const mixed=run('python3',[
+   gate,'--acoustic-report',report,'--acoustic-run-id',RUN,
+   '--acoustic-evidence-folder',folder,
+   '--acoustic-evidence-attestation',attestation,
+   '--acoustic-evidence-github-readback',readback,
+   '--acoustic-evidence-artifact-id',ARTIFACT_ID,
+   '--acoustic-evidence-artifact-digest',DIGEST,
+   '--acoustic-evidence-run-id',RUN,
+   '--acoustic-evidence-attempt',ATTEMPT,
+   '--acoustic-evidence-sha',SHA
+  ]);
+  assert.equal(mixed.status,2);
+  assert.match(mixed.stderr,/ACOUSTIC_EVIDENCE_SET_CANNOT_MIX_INDIVIDUAL_ARGS/);
+ });
 });
