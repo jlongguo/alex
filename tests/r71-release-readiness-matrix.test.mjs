@@ -29,6 +29,7 @@ const runtimeBase=()=>({
  voice_artifact_attestation:'not_run',
  voice_evidence_set:'not_run',
  voice_github_readback:'not_run',
+ acoustic_io:'not_run',
  nav2_fault_contract:'not_run',
  ros_cancel_runtime:'not_run',
  ros_recovery_runtime:'not_run',
@@ -39,13 +40,14 @@ const runtimeBase=()=>({
  ros_github_readback:'not_run',
  ros_runner_provenance:'not_run',
  physical_safety_certified:false,release_approved:false,
- subjects:{ros:null,voice:null},
+ subjects:{ros:null,voice:null,acoustic:null},
  remaining:[
   'REAL_ASR_LLM_TTS_PROVIDER_E2E',
   'VOICE_PROVIDER_WORKFLOW_EVIDENCE',
   'VOICE_ACTIONS_ARTIFACT_ATTESTATION',
   'VOICE_PROVIDER_COHERENT_EVIDENCE_SET',
   'VOICE_GITHUB_ACTIONS_READBACK_AUDIT',
+  'REAL_ACOUSTIC_IO',
   'GAZEBO_NAV2_THREE_LEG_RUNTIME',
   'GAZEBO_NAV2_CANCEL_RUNTIME',
   'GAZEBO_NAV2_RECOVERY_RUNTIME',
@@ -120,7 +122,8 @@ test('R71 Voice 与 ROS coherent set 全部验证后仍保留真实声学/儿童
   ros_runner_provenance:'verified-by-set',
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:SHA},
-   ros:{run_id:'76543210',attempt:3,commit_sha:SHA}
+   ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
+   acoustic:null
   },
   remaining:['PHYSICAL_SAFETY_REVIEW']
  });
@@ -157,7 +160,8 @@ test('R71 CI、Voice、ROS 必须属于同一 Commit，跨 Commit 拼接直接 b
   ros_runner_provenance:'verified-by-set',
   subjects:{
    voice:{run_id:'876543210',attempt:2,commit_sha:'f'.repeat(40)},
-   ros:{run_id:'76543210',attempt:3,commit_sha:SHA}
+   ros:{run_id:'76543210',attempt:3,commit_sha:SHA},
+   acoustic:null
   }
  });
  const matrix=composeReleaseReadinessMatrix({
@@ -301,4 +305,34 @@ test('R75 Recovery Drill 与当前 CI Commit 不一致时矩阵必须 blocked',a
  });
  assert.equal(matrix.domains.recoveryDrill.status,'blocked');
  assert.equal(matrix.domains.recoveryDrill.evidenceLevel,'commit-mismatch');
+});
+
+test('R76 self-hosted Acoustic subject 与当前 CI Commit 一致时 realAcousticIo 可通过',()=>{
+ const runtime=runtimeBase();
+ runtime.acoustic_io='verified-self-hosted';
+ runtime.subjects.acoustic={run_id:'43800000001',attempt:1,commit_sha:SHA};
+ runtime.remaining=runtime.remaining.filter(x=>x!=='REAL_ACOUSTIC_IO');
+ const matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.realAcousticIo.status,'pass');
+ assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'self-hosted-physical-loop');
+ assert.equal(matrix.inputs.subjects.acoustic.commit_sha,SHA);
+});
+
+test('R76 Acoustic evidence 跨 Commit 或 invalid 必须阻断软件发布矩阵',()=>{
+ let runtime=runtimeBase();
+ runtime.acoustic_io='verified-self-hosted';
+ runtime.subjects.acoustic={run_id:'43800000001',attempt:1,commit_sha:'f'.repeat(40)};
+ let matrix=composeReleaseReadinessMatrix({
+  staticReadiness:staticBase(),runtimeGate:runtime,
+  ciEvidence:createCiEvidence(ciEnv())
+ });
+ assert.equal(matrix.domains.realAcousticIo.status,'blocked');
+ assert.equal(matrix.domains.realAcousticIo.evidenceLevel,'commit-mismatch');
+ assert.ok(matrix.targets.softwarePilot.blockers.includes('realAcousticIo'));
+ runtime=runtimeBase();runtime.acoustic_io='invalid';
+ matrix=composeReleaseReadinessMatrix({staticReadiness:staticBase(),runtimeGate:runtime});
+ assert.equal(matrix.domains.realAcousticIo.status,'blocked');
 });
