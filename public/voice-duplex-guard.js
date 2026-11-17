@@ -40,6 +40,15 @@ class AlexVoiceDuplexGuard {
   this.#phase='idle';
   return this.snapshot();
  }
+ captureStarted(){
+  if(this.#phase==='playback'){
+   this.#stats.blockedOverlaps++;
+   throw Error('VOICE_DUPLEX_PLAYBACK_ACTIVE');
+  }
+  if(this.#phase!=='capture')this.#stats.captureStarts++;
+  this.#phase='capture';
+  return this.snapshot();
+ }
  captureStopped(){
   if(this.#phase==='capture')this.#phase='idle';
   return this.snapshot();
