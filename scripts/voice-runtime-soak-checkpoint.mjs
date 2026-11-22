@@ -84,6 +84,12 @@ async function main(){
   const value=await createVoiceSoakCheckpoint(args[1],{campaignId:args[3],targetHours:Number(args[5]),commitSha:args[7]});
   console.log('VOICE_SOAK_CHECKPOINT_CREATED:'+value.campaignId);return;
  }
+ if(mode==='append'){
+  if(args.length!==4||args[0]!=='--file'||args[2]!=='--report')fail('VOICE_SOAK_CHECKPOINT_USAGE');
+  const report=await read(args[3]);
+  const value=await appendVoiceSoakSegment(args[1],report);
+  console.log('VOICE_SOAK_CHECKPOINT_APPENDED:'+value.status+':'+value.accumulatedHours);return;
+ }
  if(mode==='verify'){
   if(args.length!==2||args[0]!=='--file')fail('VOICE_SOAK_CHECKPOINT_USAGE');
   const value=await loadVoiceSoakCheckpoint(args[1]);
