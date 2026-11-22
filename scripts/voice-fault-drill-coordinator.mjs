@@ -61,3 +61,14 @@ export async function runVoiceFaultDrill({scenarioId,adapter,env=process.env,now
   if(cleanupError)throw Object.assign(Error('VOICE_FAULT_DRILL_CLEANUP_FAILED'),{cause:cleanupError});
  }
 }
+
+async function main(){
+ const [mode,...args]=process.argv.slice(2);
+ if(mode==='--list'){
+  process.stdout.write(JSON.stringify(listVoiceFaultDrills(),null,2)+'\n');return;
+ }
+ fail('VOICE_FAULT_DRILL_USAGE: use the coordinator API with an explicitly approved adapter');
+}
+if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
+ try{await main();}catch(error){console.error(error.message);process.exitCode=1;}
+}
