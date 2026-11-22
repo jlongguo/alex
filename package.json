@@ -67,7 +67,9 @@
     "voice:full-turn-evidence-set-verify": "python3 scripts/verify-full-voice-turn-evidence-set.py",
     "voice:full-turn-publication-audit": "python3 scripts/github-actions-full-voice-turn-publication-audit.py",
     "voice:soak": "node scripts/voice-runtime-soak.mjs",
-    "voice:soak-campaign": "node scripts/voice-runtime-soak-aggregate.mjs"
+    "voice:soak-campaign": "node scripts/voice-runtime-soak-aggregate.mjs",
+    "voice:soak-checkpoint": "node scripts/voice-runtime-soak-checkpoint.mjs",
+    "voice:fault-drill": "node scripts/voice-fault-drill-coordinator.mjs --list"
   },
   "devDependencies": {
     "typescript": "5.8.3"
