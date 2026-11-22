@@ -35,9 +35,14 @@ export function verifyVoiceSoakCheckpoint(value){
   commitSha:value.commitSha,createdAt:value.createdAt});
  const seen=new Set();let hours=0,started=0,completed=0,failed=0,cancelled=0,chain=rebuilt.chainDigestSha256;
  for(const s of value.segments){
-  if(!s||typeof s.runId!=='string'||!s.runId||s.commitSha!==value.commitSha||
+  if(!s||typeof s.runId!=='string'||!/^[1-9][0-9]{0,19}$/.test(s.runId)||
+   !Number.isInteger(s.attempt)||s.attempt<1||s.commitSha!==value.commitSha||
    !Number.isFinite(s.hours)||s.hours<=0||s.hours>4||!SHA.test(s.reportDigestSha256??'')||
-   seen.has(s.runId))fail('VOICE_SOAK_CHECKPOINT_SEGMENT_INVALID');
+   !s.turns||!Number.isInteger(s.turns.started)||s.turns.started<1||
+   !Number.isInteger(s.turns.completed)||s.turns.completed<0||
+   !Number.isInteger(s.turns.failed)||s.turns.failed<0||
+   !Number.isInteger(s.turns.cancelled)||s.turns.cancelled<0||
+   s.turns.started!==s.turns.completed+s.turns.failed+s.turns.cancelled||seen.has(s.runId))fail('VOICE_SOAK_CHECKPOINT_SEGMENT_INVALID');
   seen.add(s.runId);hours+=s.hours;started+=s.turns.started;completed+=s.turns.completed;
   failed+=s.turns.failed;cancelled+=s.turns.cancelled;
   chain=voiceSoakDigest({previous:chain,segment:s});
