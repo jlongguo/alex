@@ -34,3 +34,14 @@ test('R81 未批准的真实执行不能触发 adapter',async()=>{
   /VOICE_FAULT_DRILL_APPROVAL_REQUIRED/);
  assert.equal(invoked,false);
 });
+
+test('R81 超时会 abort 当前 adapter operation 并执行 cleanup',async()=>{
+ let injectedSignal=null,cleaned=false;
+ const a=adapter();
+ a.inject=async({signal})=>{injectedSignal=signal;await new Promise(()=>{});};
+ a.cleanup=async()=>{cleaned=true;};
+ await assert.rejects(runVoiceFaultDrill({scenarioId:'provider-503',adapter:a,env,
+  now:()=>0}),/VOICE_FAULT_DRILL_INJECT_TIMEOUT/);
+ assert.equal(injectedSignal.aborted,true);
+ assert.equal(cleaned,true);
+});
