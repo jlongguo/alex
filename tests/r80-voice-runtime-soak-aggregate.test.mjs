@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createVoiceSoakCampaign,verifyVoiceSoakCampaign} from '../scripts/voice-runtime-soak-aggregate.mjs';
 
 const SHA='a'.repeat(40);
@@ -54,3 +55,26 @@ test('R80 campaign 明确声明 segmented，不可伪装成单进程 72h 连续�
  const changed=structuredClone(value);changed.semantics='continuous-single-process';
  assert.throws(()=>verifyVoiceSoakCampaign(changed),/VOICE_SOAK_CAMPAIGN_INVALID/);
 });
+
+test('R81 Campaign verifier 重算 segment hours 与所有 turn/recovery totals',()=>{
+ const value=createVoiceSoakCampaign([segment('3001'),segment('3002')],{
+  targetHours:8,createdAt:'2026-11-18T02:00:00.000Z'
+ });
+ const hours=structuredClone(value);hours.accumulatedHours=72;
+ const {campaignDigestSha256,...hoursBase}=hours;
+ hours.campaignDigestSha256=(awaitDigest(hoursBase));
+ assert.throws(()=>verifyVoiceSoakCampaign(hours),/VOICE_SOAK_CAMPAIGN_TOTALS_MISMATCH/);
+ const turns=structuredClone(value);turns.turns.completed++;
+ const {campaignDigestSha256:old,...turnBase}=turns;
+ turns.campaignDigestSha256=(awaitDigest(turnBase));
+ assert.throws(()=>verifyVoiceSoakCampaign(turns),/VOICE_SOAK_CAMPAIGN_TOTALS_MISMATCH/);
+});
+function awaitDigest(value){
+ return createHashForTest(value);
+}
+function createHashForTest(value){
+ const canonical=v=>v===null||typeof v!=='object'?JSON.stringify(v):
+  Array.isArray(v)?'['+v.map(canonical).join(',')+']':
+  '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
+ return createHash('sha256').update(canonical(value)).digest('hex');
+}
