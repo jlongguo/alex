@@ -69,7 +69,7 @@
     "voice:soak": "node scripts/voice-runtime-soak.mjs",
     "voice:soak-campaign": "node scripts/voice-runtime-soak-aggregate.mjs",
     "voice:soak-checkpoint": "node scripts/voice-runtime-soak-checkpoint.mjs",
-    "voice:fault-drill": "node scripts/voice-fault-drill-coordinator.mjs"
+    "voice:fault-drill": "node scripts/voice-fault-drill-coordinator.mjs --list"
   },
   "devDependencies": {
     "typescript": "5.8.3"
