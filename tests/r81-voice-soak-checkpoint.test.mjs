@@ -36,3 +36,15 @@ test('R81 checkpoint 拒绝重复 Run、错误 Commit 和伪造 totals',async()=
   await assert.rejects(appendVoiceSoakSegment(path,{...report('10002'),context:{...report('10002').context,commitSha:'b'.repeat(40)}}),/VOICE_SOAK_CHECKPOINT_COMMIT_MISMATCH/);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('R81 checkpoint rejects a tampered aggregate even when segment chain is stale',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'alex-r81-checkpoint-tamper-'));const path=join(dir,'campaign.json');
+ try{
+  await createVoiceSoakCheckpoint(path,{campaignId:'voice-soak-tamper',targetHours:8,commitSha:SHA,createdAt:'2026-11-22T00:00:00.000Z'});
+  await appendVoiceSoakSegment(path,report('11001'));
+  const {readFile,writeFile}=await import('node:fs/promises');
+  const value=JSON.parse(await readFile(path,'utf8'));value.accumulatedHours=8;
+  await writeFile(path,JSON.stringify(value));
+  await assert.rejects(loadVoiceSoakCheckpoint(path),/VOICE_SOAK_CHECKPOINT_TOTALS_MISMATCH/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
