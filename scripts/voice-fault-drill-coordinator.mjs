@@ -10,10 +10,14 @@ const fail=code=>{throw Error(code);};
 const RUN=/^[1-9][0-9]{0,19}$/;
 const SHA=/^[0-9a-f]{40}$/;
 const sleep=ms=>new Promise(done=>setTimeout(done,ms));
-async function bounded(promise,ms,code){
- let timer;
- try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(code)),ms);})]);}
- finally{clearTimeout(timer);}
+async function bounded(operation,ms,code){
+ const controller=new AbortController();let timer;
+ try{
+  return await Promise.race([
+   Promise.resolve().then(()=>operation(controller.signal)),
+   new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error(code));},ms);})
+  ]);
+ }finally{clearTimeout(timer);}
 }
 function validateContext(env){
  if(env.GITHUB_ACTIONS!=='true'||env.GITHUB_EVENT_NAME!=='workflow_dispatch'||
@@ -34,15 +38,15 @@ export async function runVoiceFaultDrill({scenarioId,adapter,env=process.env,now
  const startedAt=now(),events=[];let prepared=false,injected=false,recovered=false;
  let observedFault=null,healthyTurn=false,cleanupError=null;
  try{
-  await bounded(adapter.prepare({scenarioId}),10000,'VOICE_FAULT_DRILL_PREPARE_TIMEOUT');prepared=true;
-  await bounded(adapter.inject({scenarioId}),10000,'VOICE_FAULT_DRILL_INJECT_TIMEOUT');injected=true;
-  observedFault=await bounded(adapter.observeFault({scenarioId,expectedFaultCode:spec.expectedFaultCode}),
+  await bounded(signal=>adapter.prepare({scenarioId,signal}),10000,'VOICE_FAULT_DRILL_PREPARE_TIMEOUT');prepared=true;
+  await bounded(signal=>adapter.inject({scenarioId,signal}),10000,'VOICE_FAULT_DRILL_INJECT_TIMEOUT');injected=true;
+  observedFault=await bounded(signal=>adapter.observeFault({scenarioId,expectedFaultCode:spec.expectedFaultCode,signal}),
    15000,'VOICE_FAULT_DRILL_OBSERVE_TIMEOUT');
   if(observedFault?.code!==spec.expectedFaultCode)fail('VOICE_FAULT_DRILL_UNEXPECTED_FAULT');
   events.push({phase:'fault-observed',code:observedFault.code,elapsedMs:Math.max(0,now()-startedAt)});
-  await bounded(adapter.recover({scenarioId,deadlineMs:spec.recoveryDeadlineMs}),spec.recoveryDeadlineMs,
+  await bounded(signal=>adapter.recover({scenarioId,deadlineMs:spec.recoveryDeadlineMs,signal}),spec.recoveryDeadlineMs,
    'VOICE_FAULT_DRILL_RECOVERY_TIMEOUT');recovered=true;
-  healthyTurn=await bounded(adapter.verifyHealthyTurn({scenarioId}),30000,'VOICE_FAULT_DRILL_HEALTH_TIMEOUT');
+  healthyTurn=await bounded(signal=>adapter.verifyHealthyTurn({scenarioId,signal}),30000,'VOICE_FAULT_DRILL_HEALTH_TIMEOUT');
   if(healthyTurn!==true)fail('VOICE_FAULT_DRILL_POST_RECOVERY_UNHEALTHY');
   events.push({phase:'healthy-turn',elapsedMs:Math.max(0,now()-startedAt)});
   return {schema:VOICE_FAULT_DRILL_SCHEMA,status:'passed',scenarioId,context,
@@ -51,7 +55,7 @@ export async function runVoiceFaultDrill({scenarioId,adapter,env=process.env,now
    privacy:{rawAudioStored:false,transcriptStored:false,responseTextStored:false,credentialsStored:false}};
  }finally{
   if(prepared){
-   try{await bounded(adapter.cleanup({scenarioId,injected,recovered}),10000,'VOICE_FAULT_DRILL_CLEANUP_TIMEOUT');}
+   try{await bounded(signal=>adapter.cleanup({scenarioId,injected,recovered,signal}),10000,'VOICE_FAULT_DRILL_CLEANUP_TIMEOUT');}
    catch(error){cleanupError=error;}
   }
   if(cleanupError)throw Object.assign(Error('VOICE_FAULT_DRILL_CLEANUP_FAILED'),{cause:cleanupError});
