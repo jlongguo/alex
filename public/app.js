@@ -1469,8 +1469,22 @@ $('companion-mode').addEventListener('change',()=>{
 // Alex text-first virtual terminal. No model or browser audio event may invoke
 // device controls. Provisional tokens only become history on committed SSE.
 let companionAbort=null;
+const voiceDuplexGuard=new globalThis.AlexVoiceDuplexGuard();
+async function waitForVoiceCaptureWindow({bargeIn=false}={}){
+ try{return await voiceDuplexGuard.beforeCapture({bargeIn});}
+ catch(error){
+  companionNotice('语音输入暂不可开始：'+error.message,true);
+  throw error;
+ }
+}
 const streamingSpeechBridge=new globalThis.AlexStreamingSpeechBridge({
  onStatus:({phase,message,playedMsClaimed,underruns})=>{
+  try{
+   if(['buffering','playing'].includes(phase))voiceDuplexGuard.playbackStarted();
+   else if(['complete','error','idle'].includes(phase))voiceDuplexGuard.playbackStopped();
+  }catch(error){
+   companionNotice('语音双工状态冲突：'+error.message,true);
+  }
   const mapped={requesting:'thinking',buffering:'thinking',
     playing:'speaking',complete:'idle',error:'error',idle:'idle'}[phase];
   if(mapped&&$('companion-runtime').dataset.state!==mapped)
@@ -1543,6 +1557,10 @@ const realtimePcmBridge=new globalThis.AlexRealtimePcmBridge({
     (metrics?.finalizeMs??0)+' ms）。请检查文字并手动发送。';
  },
  onStatus:({phase,message,frames,pcmBytes})=>{
+  try{
+   if(phase==='recording')voiceDuplexGuard.captureStarted();
+   else if(['idle','error'].includes(phase))voiceDuplexGuard.captureStopped();
+  }catch(error){companionNotice('语音双工状态冲突：'+error.message,true);}
   const mapped={requesting:'listening',recording:'listening',flushing:'thinking',
     committing:'thinking',error:'error',idle:'idle'}[phase];
   if(mapped&&$('companion-runtime').dataset.state!==mapped)
@@ -1590,6 +1608,10 @@ const streamingAudioBridge=new globalThis.AlexStreamingAudioBridge({
     ' 片，音频采集 '+(metrics?.captureMs??0)+' ms。请检查文字后手动发送。';
  },
  onStatus:({state,message,sentChunks,sentBytes})=>{
+  try{
+   if(state==='recording')voiceDuplexGuard.captureStarted();
+   else if(['idle','error'].includes(state))voiceDuplexGuard.captureStopped();
+  }catch(error){companionNotice('语音双工状态冲突：'+error.message,true);}
   const mapped={requesting:'listening',recording:'listening',
     finishing:'thinking',transcribing:'thinking',error:'error',idle:'idle'}[state];
   if(mapped&&$('companion-runtime').dataset.state!==mapped)
@@ -1609,6 +1631,14 @@ const cloudAudioBridge=new globalThis.AlexCloudAudioBridge({
   companionNotice('云端转写已完成。请检查文字，再手动点击发送。');
  },
  onStatus:({state,message})=>{
+  try{
+   if(state==='recording')voiceDuplexGuard.captureStarted();
+   else if(state==='speaking'){
+    voiceDuplexGuard.captureStopped();voiceDuplexGuard.playbackStarted();
+   }else if(['idle','error'].includes(state)){
+    voiceDuplexGuard.captureStopped();voiceDuplexGuard.playbackStopped();
+   }
+  }catch(error){companionNotice('语音双工状态冲突：'+error.message,true);}
   const mapped={recording:'listening',transcribing:'thinking',
     synthesizing:'thinking',speaking:'speaking',error:'error',idle:'idle'}[state];
   if(mapped&&$('companion-runtime').dataset.state!==mapped)
@@ -1674,7 +1704,17 @@ const voiceBridge=new globalThis.AlexVoiceBridge({
  synthesis:window.speechSynthesis??null,
  utteranceFactory:typeof window.SpeechSynthesisUtterance==='function'
    ?text=>new window.SpeechSynthesisUtterance(text):null,
- onState:next=>companionState(next),
+ onState:next=>{
+  try{
+   if(next==='listening')voiceDuplexGuard.captureStarted();
+   else if(next==='speaking'){
+    voiceDuplexGuard.captureStopped();voiceDuplexGuard.playbackStarted();
+   }else if(['idle','error'].includes(next)){
+    voiceDuplexGuard.captureStopped();voiceDuplexGuard.playbackStopped();
+   }
+  }catch(error){companionNotice('语音双工状态冲突：'+error.message,true);}
+  companionState(next);
+ },
  onTranscript:({text,isFinal})=>{
   $('companion-text').value=text;
   companionNotice(isFinal?'识别文字已完成，请检查后手动发送。':
@@ -2148,7 +2188,9 @@ $('companion-cloud-record').addEventListener('click',async()=>{
  streamingAudioBridge.interrupt('cloud-capture-start');
  realtimePcmBridge.interrupt('cloud-capture-start');
  streamingSpeechBridge.interrupt('cloud-capture-start');
- try{await cloudAudioBridge.startCapture({
+ try{
+  await waitForVoiceCaptureWindow();
+  await cloudAudioBridge.startCapture({
    language:$('companion-mode').value==='english'?'en':'zh'
  });}
  catch(err){companionNotice(err.message,true);}
@@ -2187,6 +2229,7 @@ $('companion-stream-record').addEventListener('click',async()=>{
  realtimePcmBridge.interrupt('incremental-capture-start');
  streamingSpeechBridge.interrupt('incremental-capture-start');
  try{
+  await waitForVoiceCaptureWindow();
   await streamingAudioBridge.startCapture({
     language:$('companion-mode').value==='english'?'en':'zh',
     autoStopOnSilence:$('companion-stream-vad').checked
@@ -2210,6 +2253,7 @@ $('companion-realtime-record').addEventListener('click',async()=>{
  streamingAudioBridge.interrupt('realtime-capture-start');
  streamingSpeechBridge.interrupt('realtime-capture-start');
  try{
+  await waitForVoiceCaptureWindow();
   await realtimePcmBridge.start({
     language:$('companion-mode').value==='english'?'en':'zh',
     autoStopOnSilence:$('companion-stream-vad').checked
@@ -2244,6 +2288,7 @@ $('companion-barge-in').addEventListener('click',async()=>{
  if(!authorizedActor)return;
  // Explicit user action, not always-on wake-word listening.
  streamingSpeechBridge.interrupt('user-barge-in');
+ voiceDuplexGuard.playbackStopped({bargeIn:true});
  await refreshCompanionPrivacy(true);
  if(!companionPrivacy.voiceInputAllowed){
   companionNotice('未获得浏览器语音识别授权，已中止播放。',true);return;
@@ -2254,6 +2299,7 @@ $('companion-barge-in').addEventListener('click',async()=>{
  cloudAudioBridge.interrupt('barge-in');
  streamingAudioBridge.interrupt('barge-in');
  realtimePcmBridge.interrupt('barge-in');
+ await waitForVoiceCaptureWindow({bargeIn:true});
  voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
  companionNotice('已停止朗读并开启浏览器语音识别。文字仍需手动确认。');
 });
@@ -2280,6 +2326,7 @@ $('companion-microphone').addEventListener('click',async()=>{
   streamingAudioBridge.interrupt('browser-webspeech-start');
   realtimePcmBridge.interrupt('browser-webspeech-start');
   streamingSpeechBridge.interrupt('browser-webspeech-start');
+  await waitForVoiceCaptureWindow();
   voiceBridge.startListening({lang:$('companion-mode').value==='english'?'en-US':'zh-CN'});
   companionNotice('浏览器开始识别；可能使用厂商在线服务。文字须检查并手动发送。');
  }catch(err){companionNotice(err.message,true);}

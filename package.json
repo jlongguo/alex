@@ -65,7 +65,9 @@
     "voice:full-turn-artifact-verify": "python3 scripts/verify-full-voice-turn-artifact-attestation.py",
     "voice:full-turn-github-readback": "python3 scripts/github-actions-full-voice-turn-readback.py",
     "voice:full-turn-evidence-set-verify": "python3 scripts/verify-full-voice-turn-evidence-set.py",
-    "voice:full-turn-publication-audit": "python3 scripts/github-actions-full-voice-turn-publication-audit.py"
+    "voice:full-turn-publication-audit": "python3 scripts/github-actions-full-voice-turn-publication-audit.py",
+    "voice:soak": "node scripts/voice-runtime-soak.mjs",
+    "voice:soak-campaign": "node scripts/voice-runtime-soak-aggregate.mjs"
   },
   "devDependencies": {
     "typescript": "5.8.3"
